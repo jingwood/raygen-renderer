@@ -30,3 +30,14 @@
 *.exe
 *.out
 *.app
+
+build/mac/*.o
+build/mac/raygen
+build/mac/libraygen.a
+
+build/linux/*.o
+build/linux/raygen
+build/linux/libraygen.a
+
+
+
