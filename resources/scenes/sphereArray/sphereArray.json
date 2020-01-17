@@ -24,9 +24,9 @@
 		},
 
 		"Floor": {
-			"mesh": "Plane.mesh",
-			"location": [0, 0.1, 0],
-			"scale": [1, 1, 1],
+			"location": [0, 0, 0],
+			"scale": [8, 1, 8],
+			"mesh": { "type": "plane" },
 			"mat": {
 				"color": [0.7, 0.7, 0.7], "glossy": 0.5, "roughness": 0.5,
 				"tex": "../../textures/checkerboard.jpg", "texTiling": [2, 2]
