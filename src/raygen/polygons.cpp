@@ -47,12 +47,12 @@ void PlaneMesh::create(const vec3& from, const vec3& to) {
 	}
 	
 	this->texcoords[0] = vec2(0, 0);
-	this->texcoords[0] = vec2(0, 1);
-	this->texcoords[0] = vec2(1, 0);
+	this->texcoords[1] = vec2(0, 1);
+	this->texcoords[2] = vec2(1, 0);
 	
-	this->texcoords[0] = vec2(0, 1);
-	this->texcoords[0] = vec2(1, 1);
-	this->texcoords[0] = vec2(1, 0);
+	this->texcoords[3] = vec2(0, 1);
+	this->texcoords[4] = vec2(1, 1);
+	this->texcoords[5] = vec2(1, 0);
 	
 	this->calcTangentBasis();
 	this->calcBoundingBox();
