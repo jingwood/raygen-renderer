@@ -16,11 +16,11 @@ namespace raygen {
 
 class PlaneMesh : public Mesh {
 public:
-	PlaneMesh();
-	PlaneMesh(const int w, const int h);
+	PlaneMesh(const int w = 1, const int h = 1);
 	PlaneMesh(const vec2& from, const vec2& to);
 	PlaneMesh(const vec3& from, const vec3& to);
 	
+private:
 	void create(const vec3& from, const vec3& to);
 };
 

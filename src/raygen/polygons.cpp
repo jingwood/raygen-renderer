@@ -10,15 +10,7 @@
 
 namespace raygen {
 
-PlaneMesh::PlaneMesh() {
-	this->hasNormal = true;
-	this->hasTexcoord = true;
-	
-	this->init(6);
-}
-
-PlaneMesh::PlaneMesh(const int w, const int h)
-: PlaneMesh() {
+PlaneMesh::PlaneMesh(const int w, const int h) {
 	const float halfw = w * 0.5;
 	const float halfh = h * 0.5;
 
@@ -35,7 +27,11 @@ PlaneMesh::PlaneMesh(const vec3& from, const vec3& to)
 }
 
 void PlaneMesh::create(const vec3& from, const vec3& to) {
+	this->hasNormal = true;
+	this->hasTexcoord = true;
 	
+	this->init(6);
+
 	// TODO: may need to fix y
 	
 	this->vertices[0] = vec3(from.x, from.y, from.z);

@@ -13,6 +13,7 @@
 #include "ugm/imgcodec.h"
 #include "meshloader.h"
 #include "fbxloader.h"
+#include "polygons.h"
 
 #define FORMAT_TAG_JSON 0x6e6f736a
 #define FORMAT_TAG_MIFT 0x7466696d
@@ -353,15 +354,26 @@ void SceneJsonLoader::readSceneObject(SceneObject& obj, const JSObject& jsobj, A
 			SceneJsonLoader::tryReadVec3Property(jsobj, key, &obj.scale);
 		}
 		else if (key == "mesh") {
+			// read mesh from file path
 			if (val.type == JSType_String && val.str != NULL) {
 				this->readMesh(obj, *val.str, bundle);
 			}
+			// read multiple mesh from path
 			else if (val.type == JSType::JSType_Array) {
 				for (const JSValue& meshItem : *val.array) {
 					if (meshItem.type == JSType::JSType_String
 							&& meshItem.str != NULL) {
 						this->readMesh(obj, *meshItem.str, bundle);
 					}
+				}
+			}
+			// read mesh define
+			else if (val.type == JSType::JSType_Object) {
+				string* meshType = val.object->getStringProperty("type");
+				if (*meshType == "plane") {
+					obj.addMesh(*new PlaneMesh());
+				} else if (*meshType == "cube") {
+					obj.addMesh(*new CubeMesh());
 				}
 			}
 		}
