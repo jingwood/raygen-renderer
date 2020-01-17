@@ -13,16 +13,16 @@ the cube room (reflection version)
 ![sphere array](resources/scenes/sphereArray/sample.jpg)<br />
 spheres & materials
 
-![suzanne](resources/scenes/suzanne/Suzannne Texture.jpg)<br />
+![suzanne](resources/scenes/suzanne/Suzannne%20Texture.jpg)<br />
 suzanne glass
 
-![suzanne](resources/scenes/suzanne/Suzannne Jade.jpg)<br />
+![suzanne](resources/scenes/suzanne/Suzannne%20Jade.jpg)<br />
 suzanne jade
 
 # Dependency libraries
 
-https://github.com/jingwood/cpp-common-class
-https://github.com/jingwood/cpp-graphics-module
+- C++ Common Module (https://github.com/jingwood/cpp-common-class)
+- C++ Graphics Module (https://github.com/jingwood/cpp-graphics-module)
 
 # License
 
