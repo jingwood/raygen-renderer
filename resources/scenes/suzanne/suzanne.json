@@ -1,0 +1,35 @@
+{
+	"mainCamera": {
+		"location": [0, 1, 5.0],
+		"angle": [0, 0, 0],
+		"fieldOfView": 120,
+		"depthOfField": 3.5,
+		"aperture": 8.0
+	},
+
+	"world": {
+		"angle": [0, -8, 0],
+		
+		"topLight": {
+			"location": [0, 4, 0],
+			"scale": [6, 1, 6], 
+			"mesh": { "type": "plane" },
+			"mat": { "emission": 100 }
+		},
+
+		"floor": {
+			"location": [0, -1, 0],
+			"scale": [8, 1, 8],
+			"mesh": { "type": "plane" },
+			"mat": {
+				"tex": "../../textures/wood.jpg", "color": [0.8, 0.8, 0.8], "texTiling": [1, 1]
+			}
+		},
+		
+		"suzanne": {
+			"mesh": "Suzanne.mesh",
+			"mat": { "color": [0.8, 0.8, 0.8], "glossy": 0.7, "refraction": 1.0, "roughness": 0.0 }
+		}
+	}
+	
+}

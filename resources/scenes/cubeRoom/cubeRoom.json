@@ -1,0 +1,61 @@
+{
+
+	"mainCamera": {
+		"location": [0, 0, 7.8],
+		"fieldOfView": 80
+	},
+	"top-light": {
+		"location": [0, 2.95, 0],
+		"scale": [1.5, 1, 1.5],
+		"mesh": { "type": "plane" },
+		"mat": { "color": "#fffff0", "emission": 20.0 }
+	},
+	"ceiling": {
+		"location": [ 0, 3, 0 ],
+		"angle": [180, 0, 0],
+		"scale": [6, 1, 6],
+		"mesh": { "type": "plane" },
+		"mat": { "color": "#666666" }
+	},
+	"floor": {
+		"location": [ 0, -3, 0 ],
+		"scale": [6, 1, 6],
+		"mesh": { "type": "plane" },
+		"mat": { "color": "#cccccc", "glossy": 0.3, "roughness": 0.05 }
+	},
+	"left-wall": {
+		"location": [ -3, 0, 0 ],
+		"angle": [0, 0, -90],
+		"scale": [6, 1, 6],
+		"mesh": { "type": "plane" },
+		"mat": { "color": "#ff6666", "glossy": 0, "roughness": 0.5 }
+	},
+	"right-wall": {
+		"location": [ 3, 0, 0 ],
+		"angle": [ 0, 0, 90],
+		"scale": [6, 1, 6],
+		"mesh": { "type": "plane" },
+		"mat": { "color": "#66ff66", "glossy": 0, "roughness": 0.5 }
+	},
+	"back-wall": {
+		"location": [ 0, 0, -3 ],
+		"angle": [ 90, 0, 0],
+		"scale": [6, 1, 6],
+		"mesh": { "type": "plane" },
+		"mat": { "color": "#cccccc", "glossy": 0, "roughness": 0.5 }
+	},
+	"cube-big": {
+		"location": [ -1.3, -1, -1.0 ],
+		"scale": [1.7, 4, 1.7],
+		"angle": [ 0, 40, 0],
+		"mesh": { "type": "cube" },
+	  "mat": { "color": "#ffffff", "glossy": 0, "roughness": 0.5 }
+	},
+	"cube-small": {
+		"location": [ 1.5, -2.25, -0.5 ],
+		"scale": [1.5, 1.5, 1.5],
+		"angle": [ 0, -40, 0],
+		"mesh": { "type": "cube" },
+		"mat": { "color": "#ffffff", "glossy": 0, "roughness": 0.5}
+	}
+}

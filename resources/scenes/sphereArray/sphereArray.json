@@ -1,0 +1,70 @@
+{
+	"_renderSettings": {
+		"samples": 1,
+		"postprocess": {	
+		}
+	},
+
+	"mainCamera": {
+		"location": [0, 2.2, 6.0],
+		"angle": [-14, 0, 0],
+		"fieldOfView": 180,
+		"depthOfField": 6.2,
+		"aperture": 3.5
+	},
+
+	"world": {
+		"angle": [0, 0, 0],
+		
+		"topLight": {
+			"location": [0, 4, 0],
+			"scale": [5, 1, 5],
+			"mesh": { "type": "plane" },
+			"mat": { "emission": 200 }
+		},
+
+		"Floor": {
+			"mesh": "Plane.mesh",
+			"location": [0, 0.1, 0],
+			"scale": [1, 1, 1],
+			"mat": {
+				"color": [0.7, 0.7, 0.7], "glossy": 0.5, "roughness": 0.5,
+				"tex": "../../textures/checkerboard.jpg", "texTiling": [2, 2]
+			}
+		},
+
+		"objectArray": {
+			"obj1": {
+				"mesh": "Sphere.mesh",
+				"location": [-4, 0, 0],
+				"mat": { "color": "#990000", "glossy": 0, "refraction": 0, "roughness": 0.5 }
+			},
+
+			"obj2": {
+				"mesh": "Sphere.mesh",
+				"location": [-2, 0, 0],
+				"mat": { "color": "#dddd00", "glossy": 1, "refraction": 0, "roughness": 0 }
+			},
+			
+			"obj3": {
+				"mesh": "Sphere.mesh",
+				"location": [0, 0, 0],
+				"mat": { "color": "#dddddd", "glossy": 0.8, "refraction": 0.8, "roughness": 0.01 }
+			},
+			
+			"obj4": {
+				"mesh": "Sphere.mesh",
+				"location": [2, 0, 0],
+				"mat": { "color": "#00dd00", "glossy": 0.7, "refraction": 0.7, "roughness": 0.3 }
+			},
+			
+			"obj5": {
+				"mesh": "Sphere.mesh",
+				"location": [4, 0, 0],
+				"mat": { "color": "#0000dd", "glossy": 1, "refraction": 0, "roughness": 0.4 }
+			}
+
+		}
+	}
+
+}
