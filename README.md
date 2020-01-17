@@ -13,10 +13,10 @@ the cube room (reflection version)
 ![sphere array](resources/scenes/sphereArray/sample.jpg)<br />
 spheres & materials
 
-![suzanne](resources/scenes/suzanne/Suzannne%20Texture.jpg)<br />
+![suzanne](resources/scenes/suzanne/Suzanne%20Texture.jpg)<br />
 suzanne glass
 
-![suzanne](resources/scenes/suzanne/Suzannne%20Jade.jpg)<br />
+![suzanne](resources/scenes/suzanne/Suzanne%20Jade.jpg)<br />
 suzanne jade
 
 # Dependency libraries
