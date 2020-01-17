@@ -14,6 +14,9 @@
 #include "ucm/ansi.h"
 #include "ucm/strutil.h"
 
+#define BIN_NAME "raygen"
+#define BIN_VER  "1.0.0"
+
 using namespace ucm;
 using namespace ugm;
 using namespace raygen;
@@ -56,6 +59,81 @@ const char* getShaderSystemText(const byte v) {
 }
 
 static Stopwatch sw;
+
+void dumpObjects(const Scene& scene, const std::vector<SceneObject*>& objs, string& str);
+
+void dumpMeshes(const std::vector<Mesh*> meshes, string& str) {
+	for (const Mesh* mesh : meshes) {
+		str.appendFormat("      vertices: %d\n", mesh->vertexCount);
+		str.appendFormat("      has normal: %s\n", mesh->hasNormal ? "true" : "false");
+		str.appendFormat("      has tangent basis: %s\n", mesh->hasTangentSpaceBasis ? "true" : "false");
+	}
+}
+
+void dumpObject(const Scene& scene, const SceneObject& obj, string& str) {
+	const BoundingBox& bbox = obj.getBoundingBox();
+	
+	string meshStr;
+	dumpMeshes(obj.getMeshes(), meshStr);
+	
+	const Camera* camera = dynamic_cast<const Camera*>(&obj);
+	
+	if (camera == scene.mainCamera) {
+		str.appendFormat("  %s: (main camera)\n", obj.getName().c_str());
+	} else {
+		str.appendFormat("  %s:\n", obj.getName().c_str());
+	}
+	
+	str.appendFormat("    location   : (%f, %f, %f)\n"
+									 "    angle      : (%f, %f, %f)\n"
+									 "    scale      : (%f, %f, %f)\n"
+									 "    visible    : %s\n"
+									 "    renderable : %s\n"
+									 "    bbox       : (%f, %f, %f) ~ (%f, %f, %f)\n",
+									 obj.location.z, obj.location.y, obj.location.z,
+									 obj.angle.x, obj.angle.y, obj.angle.z,
+									 obj.scale.x, obj.scale.y, obj.scale.z,
+									 obj.visible ? "true" : "false",
+									 obj.renderable ? "true" : "false",
+									 bbox.min.x, bbox.min.y, bbox.min.z, bbox.max.x, bbox.max.y, bbox.max.z);
+	
+	if (camera != NULL) {
+		str.appendFormat("    near ~ far : %f ~ %f\n"
+										 "    fov        : %f\n"
+										 "    dof        : %f\n"
+										 "    aperture   : %f\n",
+										 camera->viewNear, camera->viewFar,
+										 camera->fieldOfView,
+										 camera->depthOfField,
+										 camera->aperture);
+	}
+
+	str.appendFormat("    meshes:\n");
+	str.append(meshStr);
+	
+	dumpObjects(scene, obj.getObjects(), str);
+}
+
+void dumpObjects(const Scene& scene, const std::vector<SceneObject*>& objs, string& str) {
+	for (const auto* obj : objs) {
+		dumpObject(scene, *obj, str);
+		str.appendLine();
+	}
+}
+
+void dumpScene(const Scene& scene, string& str) {
+	str.expand(4096);
+	
+	str.append("scene:\n");
+	str.appendLine();
+	
+	dumpObjects(scene, scene.getObjects(), str);
+}
+
+void errorExit(const string& msg) {
+	printf(BIN_NAME ": %s", msg.c_str());
+	exit(1);
+}
 
 int main(int argc, const char * argv[]) {
 
@@ -110,6 +188,14 @@ int main(int argc, const char * argv[]) {
 			scenefile = arg;
 		}
 	}
+	
+	if (cmd.isEmpty()) {
+		errorExit("no command specified.\n");
+	}
+	
+	if (scenefile.isEmpty()) {
+		errorExit("no input file specified.\n");
+	}
 
 	File file(scenefile);
 
@@ -122,19 +208,22 @@ int main(int argc, const char * argv[]) {
 		}
 	}
 	
-	printf("input : %s\n", scenefile.getBuffer());
-	printf("output: %s\n", outputImageFile.getBuffer());
-	printf("\n");
-	printf("resolution     : %d x %d\n", rs.resolutionWidth, rs.resolutionHeight);
-	printf("cores          : %d\n", rs.threads);
-	printf("shader system  : %s\n", getShaderSystemText(rs.shaderProvider));
-	printf("samples        : %d\n", rs.samples);
-	printf("dof-samples    : %d\n", rs.dofSamples);
-	printf("antialias      : %s\n", rs.enableAntialias ? "yes" : "no");
-	printf("color sampling : %s\n", rs.enableColorSampling ? "yes" : "no");
-	printf("post process   : %s\n", rs.enableRenderingPostProcess ? "yes" : "no");
+	printf("image rendering:\n");
+	printf("  input : %s\n", scenefile.getBuffer());
+	printf("  output: %s\n", outputImageFile.getBuffer());
 	printf("\n");
 	
+	printf("rendering parameters:\n");
+	printf("  resolution     : %d x %d\n", rs.resolutionWidth, rs.resolutionHeight);
+	printf("  cores          : %d\n", rs.threads);
+	printf("  shader system  : %s\n", getShaderSystemText(rs.shaderProvider));
+	printf("  samples        : %d\n", rs.samples);
+	printf("  dof-samples    : %d\n", rs.dofSamples);
+	printf("  antialias      : %s\n", rs.enableAntialias ? "yes" : "no");
+	printf("  color sampling : %s\n", rs.enableColorSampling ? "yes" : "no");
+	printf("  post process   : %s\n", rs.enableRenderingPostProcess ? "yes" : "no");
+	printf("\n");
+		
 	RayRenderer renderer(&rs);
 	RendererSceneLoader loader;
 	Scene scene;
@@ -143,13 +232,24 @@ int main(int argc, const char * argv[]) {
 	
 	renderer.setScene(&scene);
 	renderer.progressCallback = &renderingProgressCallback;
-	
+
 	if (scene.mainCamera) {
-		scene.mainCamera->focusOnObjectName = focusObjectName;
+		Camera& camera = *scene.mainCamera;
+		camera.focusOnObjectName = focusObjectName;
+	} else {
+		std::cout << "warning: main camera not specified\n";
 	}
 	
+	string dumpSceneStr(1024);
+	dumpScene(scene, dumpSceneStr);
+	std::cout << dumpSceneStr.c_str();
+
 	sw.start();
-	renderer.render();
+
+	if (cmd == "render") {
+		renderer.render();
+	}
+
 	sw.stop();
 	
 	const Image& renderImage = renderer.getRenderResult();	
