@@ -102,7 +102,7 @@ struct RendererSettings {
 	bool enableBakingPostProcess = true;
 
 	color3 worldColor = color3(1.0f, 0.95f, 0.9f) * 0.8f;
-	color4 backColor = color4(1.0f, 0.95f, 0.9f, 0.0f) * 1.1f;
+	color4 backColor = color4(1.0f, 0.95f, 0.9f, 0.0f) * 0.1f;
 };
 
 struct RenderThreadContext {

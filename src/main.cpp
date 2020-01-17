@@ -135,6 +135,10 @@ void errorExit(const string& msg) {
 	exit(1);
 }
 
+void printVerInfo() {
+	printf(ANSI_BOLD BIN_NAME " " BIN_VER ANSI_NOR "\n");
+}
+
 int main(int argc, const char * argv[]) {
 
 	if (argc < 2) {
@@ -148,19 +152,23 @@ int main(int argc, const char * argv[]) {
 	int inputIndex = 0;
 	int tmp_value = 0;
 
-	string cmd = argv[1];
+	string cmd;
+	bool enableDumpScene = false;
 	
-	for (int i = 2; i < argc; i++) {
+	for (int i = 1; i < argc; i++) {
 		const char* arg = argv[i];
 		
 		if (arg[0] == '-') {
 			if (IF_ARG("-o")) {
 				NEXT_ARG;
 				outputImageFile = arg;
-			} else if (IF_ARG("-r")) {
+			} else if (IF_ARG("-r") || IF_ARG("--resolution")) {
 				NEXT_ARG;
 				int tmp_res_w = rs.resolutionWidth, tmp_res_h = rs.resolutionHeight;
 				int successes = sscanf(arg, "%d,%d", &tmp_res_w, &tmp_res_h);
+				if (successes < 2) {
+					successes = sscanf(arg, "%dx%d", &tmp_res_w, &tmp_res_h);
+				}
 				if (successes == 1) {
 					rs.resolutionWidth = tmp_res_w;
 					rs.resolutionHeight = tmp_res_w;
@@ -168,11 +176,35 @@ int main(int argc, const char * argv[]) {
 					rs.resolutionWidth = tmp_res_w;
 					rs.resolutionHeight = tmp_res_h;
 				}
-			} else READ_ARG_INT("-s", rs.samples)
+			} else if (IF_ARG("--dump")) {
+				enableDumpScene = true;
+			} else if (IF_ARG("-ver") || IF_ARG("--ver") || IF_ARG("--version")) {
+				printVerInfo();
+				return 0;
+			} else if (IF_ARG("-h") || IF_ARG("--help")) {
+				printVerInfo();
+				printf("A simple cross-platform ray tracing engine for 3D graphics rendering.\n"
+							 "(c) Jingwood, unvell.com, all rights reserved.\n\n");
+				printf("usage: ./raygen <cmd> <scene.json> [parameters...]\n"
+							 "e.g.   ./raygen render ../../resources/scenes/cubeRoom/cubeRoom.json\n\n");
+				printf("  -r | --resolution                    specify resolution of result image\n"
+							 "  -s | --samples                       number of ray tracing samples\n"
+							 "  -c | --cores | --threads             number of threads/cores to render parallelly\n"
+							 "  -ds | --dof-samples                  number of samples on depth of field calculation\n"
+							 "  -enaa | --enable-antialias           enable antialias (default: on)\n"
+							 "  -encs | --enable-color-sampling      enable read colors from texture (default: on)\n"
+							 "  -enpp | --enable-postprocess         eanble post-processes such as grow and blur\n"
+							 "  -d | --shader                        specify shader type\n"
+							 "  --focus-obj                          make camera look at specified object\n"
+							 "  --dump                               dump scene define\n");
+				
+				return 0;
+			}	else READ_ARG_INT("-s", rs.samples)
 				else READ_ARG_INT("--samples", rs.samples)
 				else READ_ARG_INT("-c", rs.threads)
+				else READ_ARG_INT("--threads", rs.threads)
 				else READ_ARG_INT("--cores", rs.threads)
-				else READ_ARG_INT("-ds", rs.dofSamples)
+				else READ_ARG_INT("-dofs", rs.dofSamples)
 				else READ_ARG_INT("--dof-samples", rs.dofSamples)
 				else READ_ARG_BOL("-enaa", rs.enableAntialias)
 				else READ_ARG_BOL("--enable-antialias", rs.enableAntialias)
@@ -184,6 +216,8 @@ int main(int argc, const char * argv[]) {
 				else READ_ARG_INT("--shader", rs.shaderProvider)
 				else READ_ARG_STR("--focus-obj", focusObjectName)
 
+		} else if (i == 1) {
+			cmd = arg;
 		} else if (inputIndex == 0) {
 			scenefile = arg;
 		}
@@ -207,22 +241,6 @@ int main(int argc, const char * argv[]) {
 			outputImageFile.appendFormat("%s/%s.jpg", file.getPath().c_str(), file.getBaseName().c_str());
 		}
 	}
-	
-	printf("image rendering:\n");
-	printf("  input : %s\n", scenefile.getBuffer());
-	printf("  output: %s\n", outputImageFile.getBuffer());
-	printf("\n");
-	
-	printf("rendering parameters:\n");
-	printf("  resolution     : %d x %d\n", rs.resolutionWidth, rs.resolutionHeight);
-	printf("  cores          : %d\n", rs.threads);
-	printf("  shader system  : %s\n", getShaderSystemText(rs.shaderProvider));
-	printf("  samples        : %d\n", rs.samples);
-	printf("  dof-samples    : %d\n", rs.dofSamples);
-	printf("  antialias      : %s\n", rs.enableAntialias ? "yes" : "no");
-	printf("  color sampling : %s\n", rs.enableColorSampling ? "yes" : "no");
-	printf("  post process   : %s\n", rs.enableRenderingPostProcess ? "yes" : "no");
-	printf("\n");
 		
 	RayRenderer renderer(&rs);
 	RendererSceneLoader loader;
@@ -232,18 +250,37 @@ int main(int argc, const char * argv[]) {
 	
 	renderer.setScene(&scene);
 	renderer.progressCallback = &renderingProgressCallback;
+	
+	printVerInfo();
+	printf("\n");
+	printf("  input : %s\n", scenefile.getBuffer());
+	printf("  output: %s\n", outputImageFile.getBuffer());
+	printf("\n");
+	
+	printf("  resolution     : %d x %d\n", rs.resolutionWidth, rs.resolutionHeight);
+	printf("  cores          : %d\n", rs.threads);
+	printf("  shader system  : %s\n", getShaderSystemText(rs.shaderProvider));
+	printf("  samples        : %d\n", rs.samples);
+	printf("  dof-samples    : %d\n", rs.dofSamples);
+	printf("  antialias      : %s\n", rs.enableAntialias ? "yes" : "no");
+	printf("  color sampling : %s\n", rs.enableColorSampling ? "yes" : "no");
+	printf("  post process   : %s\n", rs.enableRenderingPostProcess ? "yes" : "no");
+	printf("\n");
 
+	if (enableDumpScene) {
+		string dumpSceneStr(1024);
+		dumpScene(scene, dumpSceneStr);
+		std::cout << dumpSceneStr.c_str();
+	}
+	
 	if (scene.mainCamera) {
 		Camera& camera = *scene.mainCamera;
 		camera.focusOnObjectName = focusObjectName;
 	} else {
 		std::cout << "warning: main camera not specified\n";
 	}
-	
-	string dumpSceneStr(1024);
-	dumpScene(scene, dumpSceneStr);
-	std::cout << dumpSceneStr.c_str();
 
+	
 	sw.start();
 
 	if (cmd == "render") {

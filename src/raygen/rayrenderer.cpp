@@ -323,6 +323,8 @@ void RayRenderer::transformObject(SceneTransformStack& transformStack, SceneObje
 }
 
 void RayRenderer::render() {
+	if (this->shaderProvider == NULL) return;
+	
 	this->resetTransformMatrices();
 	
 	if (this->scene == NULL || this->scene->mainCamera == NULL) return;
@@ -585,11 +587,6 @@ color3 RayRenderer::tracePath(const Ray& ray, void* shaderParam) const {
 		if (rmi.rt != NULL) {
 			HitInterpolation hi;
 			this->calcHitInterpolation(*rmi.rt, rmi.hit, &hi);
-
-//			this->totalSampled++;
-//			if (this->totalSampled % 1000 == 0) {
-//				printf("total sampled %d\n", this->totalSampled);
-//			}
 
 			return this->shaderProvider->shade(rmi, ray, hi, shaderParam);
 		}
@@ -1229,7 +1226,14 @@ color3 RayBSDFShaderProvider::shade(const RayMeshIntersection& rmi, const Ray& i
 #ifdef CUT_OFF_BACK_TRACE
 	if (dot(inray.dir, hi.normal) > 0.0f) {
 		if (m.transparency > 0.001f) {
-			return transparencyShader.shade(param);
+			const BSDFParam* sp = (BSDFParam*)shaderParam;
+
+			if (sp != NULL && sp->passes + 1 <= TRACE_MAX_DEPTH) {
+				param.passes = sp->passes + 1;
+				return transparencyShader.shade(param);
+			} else {
+				return color3::zero;
+			}
 		}
 		else if (m.refraction < 0.001f && m.glossy > 0.001f) {
 			
