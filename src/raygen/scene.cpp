@@ -15,6 +15,7 @@
 #include "ucm/file.h"
 #include "ugm/imgcodec.h"
 #include "meshloader.h"
+#include "objreader.h"
 
 #ifdef _WIN32
 #define _sscanf sscanf_s
@@ -404,7 +405,7 @@ Mesh* SceneResourcePool::loadMeshFromFile(const string& meshURI, Archive* archiv
 	} else {
 		
 #if defined(FBX_SUPPORT)
-		if (meshURI.endsWith('.fbx', StringComparingFlags::SCF_CASE_INSENSITIVE)) {
+		if (meshURI.endsWith(".fbx", StringComparingFlags::SCF_CASE_INSENSITIVE)) {
 			SceneFBXLoader loader;
 			// TODO
 //			loader.loadAsChildren(&obj, finalPath);
@@ -412,7 +413,14 @@ Mesh* SceneResourcePool::loadMeshFromFile(const string& meshURI, Archive* archiv
 			MeshLoader::load(*mesh, meshURI);
 		}
 #else
-		MeshLoader::load(*mesh, meshURI);
+
+		if (meshURI.endsWith(".obj", StringComparingFlags::SCF_CASE_INSENSITIVE)) {
+			ObjFileReader loader;
+			loader.read(meshURI);
+			const std::vector<ObjObject*> objObjs = loader.getObjects();
+		} else {
+			MeshLoader::load(*mesh, meshURI);
+		}
 #endif /* FBX_SUPPORT */
 	}
 	
