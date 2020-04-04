@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		3F1DBDD4243837CF00380AE1 /* objwriter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 3F1DBDD2243837CF00380AE1 /* objwriter.cpp */; };
+		3F1DBDD5243837CF00380AE1 /* objreader.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 3F1DBDD3243837CF00380AE1 /* objreader.cpp */; };
 		3FAF55D923C7C55C0038479B /* main.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 3FAF55D723C7C55C0038479B /* main.cpp */; };
 		3FAF55DD23C7C7220038479B /* libucm.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 3FAF55DC23C7C7150038479B /* libucm.a */; };
 		3FAF55DE23C7C7220038479B /* libugm.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 3FAF55DB23C7C7150038479B /* libugm.a */; };
@@ -43,6 +45,10 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		3F1DBDD0243837CF00380AE1 /* objwriter.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = objwriter.h; sourceTree = "<group>"; };
+		3F1DBDD1243837CF00380AE1 /* objreader.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = objreader.h; sourceTree = "<group>"; };
+		3F1DBDD2243837CF00380AE1 /* objwriter.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = objwriter.cpp; sourceTree = "<group>"; };
+		3F1DBDD3243837CF00380AE1 /* objreader.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = objreader.cpp; sourceTree = "<group>"; };
 		3FAF55CD23C78F110038479B /* raygen */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = raygen; sourceTree = BUILT_PRODUCTS_DIR; };
 		3FAF55D723C7C55C0038479B /* main.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = main.cpp; sourceTree = "<group>"; };
 		3FAF55DB23C7C7150038479B /* libugm.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libugm.a; path = ../lib/mac/libugm.a; sourceTree = "<group>"; };
@@ -141,6 +147,10 @@
 		3FAF55E823C7DAC40038479B /* raygen */ = {
 			isa = PBXGroup;
 			children = (
+				3F1DBDD3243837CF00380AE1 /* objreader.cpp */,
+				3F1DBDD1243837CF00380AE1 /* objreader.h */,
+				3F1DBDD2243837CF00380AE1 /* objwriter.cpp */,
+				3F1DBDD0243837CF00380AE1 /* objwriter.h */,
 				3FAF55EB23C7DAEE0038479B /* bakerenderer.cpp */,
 				3FAF55EA23C7DAEE0038479B /* bakerenderer.h */,
 				3FAF55F523C7DAEE0038479B /* bsdf.cpp */,
@@ -199,7 +209,7 @@
 		3FAF55C523C78F110038479B /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
-				LastUpgradeCheck = 1130;
+				LastUpgradeCheck = 1140;
 				ORGANIZATIONNAME = unvell;
 				TargetAttributes = {
 					3FAF55CC23C78F110038479B = {
@@ -236,11 +246,13 @@
 				3FAF560E23C7DAEF0038479B /* material.cpp in Sources */,
 				3FAF561023C7DAEF0038479B /* meshloader.cpp in Sources */,
 				3FAF55D923C7C55C0038479B /* main.cpp in Sources */,
+				3F1DBDD4243837CF00380AE1 /* objwriter.cpp in Sources */,
 				3FAF561123C7DAEF0038479B /* mesh.cpp in Sources */,
 				3FAF561223C7DAEF0038479B /* renderer.cpp in Sources */,
 				3FAF560B23C7DAEF0038479B /* raycommon.cpp in Sources */,
 				3FAF560523C7DAEF0038479B /* bakerenderer.cpp in Sources */,
 				3FAF560823C7DAEF0038479B /* sceneloader.cpp in Sources */,
+				3F1DBDD5243837CF00380AE1 /* objreader.cpp in Sources */,
 				3FAF560F23C7DAEF0038479B /* cubetex.cpp in Sources */,
 				3FAF560923C7DAEF0038479B /* polygons.cpp in Sources */,
 				3FAF560623C7DAEF0038479B /* rayrenderer.cpp in Sources */,
@@ -363,6 +375,7 @@
 		3FAF55D523C78F110038479B /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
 				HEADER_SEARCH_PATHS = "";
 				LIBRARY_SEARCH_PATHS = (
@@ -381,6 +394,7 @@
 		3FAF55D623C78F110038479B /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
 				HEADER_SEARCH_PATHS = "";
 				LIBRARY_SEARCH_PATHS = (
