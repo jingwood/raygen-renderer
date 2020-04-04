@@ -19,6 +19,11 @@ suzanne glass
 ![suzanne](resources/scenes/suzanne/Suzanne%20Jade.jpg)<br />
 suzanne jade
 
+# Development on Mac
+
+Open `/projects/raygen.xcodeproj` by latest Xcode and run the project.
+The rendered image will be saved to the folder where the scene file locates.
+
 # Dependency libraries
 
 - C++ Common Module (https://github.com/jingwood/cpp-common-class)
