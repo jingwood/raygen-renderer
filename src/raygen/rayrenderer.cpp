@@ -485,6 +485,46 @@ color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const
 	return c;
 }
 
+void RayRenderer::emitPhotons() {
+	for (const auto& lightSource : this->areaLightSources) {
+		
+		const SceneObject* obj = lightSource.object;
+		if (obj != NULL) {
+
+			const float emission = obj->material.emission;
+			
+			const auto& meshes = obj->getMeshes();
+			if (meshes.size() > 0) {
+
+				const Mesh* mesh = meshes[rand() % meshes.size()];
+
+				const auto& triangleList = this->meshTriangles.at(mesh);
+				if (triangleList.size() > 0) {
+
+					const auto& triangle = *triangleList[rand() % triangleList.size()];
+
+					Ray ray;
+					ray.origin = randomPointInTriangle(triangle.tri);
+					ray.dir = randomRayInHemisphere(triangle.faceNormal);
+					
+					this->emitPhoton(ray, emission);
+				}
+			}
+		}
+	}
+}
+
+void RayRenderer::emitPhoton(const Ray &ray, float photons) {
+	RayMeshIntersection rmi(NULL, RAY_MAX_DISTANCE);
+	this->findNearestTriangle(ray, rmi);
+	
+	if (rmi.rt != NULL) {
+		if (rmi.rt->object.visible) {
+			
+		}
+	}
+}
+
 color4 RayRenderer::traceRay(const Ray& ray) const {
 
 	RayMeshIntersection rmi(NULL, 9999999.0f);

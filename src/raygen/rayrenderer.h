@@ -149,6 +149,9 @@ private:
 
 	color3 traceAreaLight(const LightSource& lightSource, const RayMeshIntersection& rmi, const VertexInterpolation& srchi) const;
 	color3 tracePointLight(const LightSource& lightSource, const RayMeshIntersection& rmi, const VertexInterpolation& srchi) const;
+	
+	void emitPhotons();
+	void emitPhoton(const Ray& ray, float photons);
 
 	color4 renderPixel(const RenderThreadContext& ctx, Ray& ray, const int x, const int y) const;
 	color4 traceRay(const Ray& ray) const;
