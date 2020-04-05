@@ -20,13 +20,13 @@ class BSDFParam
 {
 public:
 	RayRenderer& renderer;
-	const HitInterpolation& hi;
+	const VertexInterpolation& hi;
 	const RayMeshIntersection& rmi;
   const Ray& inray;
 	void* sourceShader = NULL;
 	int passes = 0;
 
-	BSDFParam(RayRenderer& renderer, const RayMeshIntersection& rmi, const Ray& inray, const HitInterpolation& hi,
+	BSDFParam(RayRenderer& renderer, const RayMeshIntersection& rmi, const Ray& inray, const VertexInterpolation& hi,
 		int passes = 0, void* sourceShader = NULL)
 	: renderer(renderer), hi(hi), rmi(rmi), inray(inray), sourceShader(sourceShader), passes(passes)
 	{ }

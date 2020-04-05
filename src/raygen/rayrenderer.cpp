@@ -161,7 +161,7 @@ void RayRenderer::transformScene() {
 		}
 	}
 	
-#ifndef USE_SPACETREE
+#ifdef USE_KDTREE
 	this->kdtree.reset();
 	this->kdtree.build(this->triangleList.data(), this->triangleList.size());
 #endif /* USE_SPACETREE */
@@ -487,46 +487,12 @@ color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const
 
 color4 RayRenderer::traceRay(const Ray& ray) const {
 
-	RayMeshIntersection rmi(NULL, 9999999.0f, vec3(0, 0, 0));
-
-#ifdef USE_SPACETREE
-
-#if !defined(USE_BOUNDING_BOX)
-	this->scanSpaceTreeNearestTriangle(&this->tree.root, ray, rmi);
-#else
-	this->scanBoundingBoxSpaceTreeNearestTriangle(ray, rmi);
-#endif // USE_BOUNDING_BOX
-
-#elif defined(USE_KDTREE_MESH)
-
-	for (auto& tmesh : this->transformedMeshes) {
-		if (rayIntersectBox(ray, tmesh->bbox)) {
-			tmesh->kdtree.iterate(ray, [&ray, &rmi](const RayRenderTriangle* rt) {
-				float t;
-				vec3 hit;
-				if (rt->intersectsRay(ray, rmi.t, t, hit)) {
-					rmi = RayMeshIntersection(rt, t, hit);
-				}
-				return true;
-			});
-		}
-	}
-
-#else
-
-	this->kdtree.iterate(ray, [&ray, &rmi](const RayRenderTriangle* rt) {
-		float t;
-		vec3 hit;
-		if (rt->intersectsRay(ray, rmi.t, t, hit)) {
-			rmi = RayMeshIntersection(rt, t, hit);
-		}
-		return true;
-	});
-#endif /* USE_SPACETREE */
+	RayMeshIntersection rmi(NULL, 9999999.0f);
+	this->findNearestTriangle(ray, rmi);
 
 	if (rmi.rt != NULL) {
-		HitInterpolation hi;
-		this->calcHitInterpolation(*rmi.rt, rmi.hit, &hi);
+		VertexInterpolation hi;
+		this->calcVertexInterpolation(*rmi.rt, rmi.hit, &hi);
 
 		if (rmi.rt->object.visible) {
 //			if (rmi.rt->object.material.emission <= 0 && dot(-ray.dir, hi.normal) < 0) {
@@ -543,16 +509,31 @@ color4 RayRenderer::traceRay(const Ray& ray) const {
 color3 RayRenderer::tracePath(const Ray& ray, void* shaderParam) const {
 	for (int i = 0; i < TRACE_PATH_TRIES; i++) {
 		RayMeshIntersection rmi(NULL, RAY_MAX_DISTANCE);
+		this->findNearestTriangle(ray, rmi);
 
-#ifndef USE_KDTREE
+		if (rmi.rt != NULL) {
+			VertexInterpolation hi;
+			this->calcVertexInterpolation(*rmi.rt, rmi.hit, &hi);
 
-#if !defined(USE_BOUNDING_BOX)
-		this->scanSpaceTreeNearestTriangle(&this->tree.root, ray, &srcrt, rmi);
-#else
-		this->scanBoundingBoxSpaceTreeNearestTriangle(ray, rmi);
-#endif // USE_BOUNDING_BOX
+			return this->shaderProvider->shade(rmi, ray, hi, shaderParam);
+		}
+	}
 
-#elif defined(USE_KDTREE_MESH)
+	return this->settings.backColor;
+}
+
+void RayRenderer::findNearestTriangle(const Ray& ray, RayMeshIntersection& rmi) const {
+
+	#ifndef USE_KDTREE
+	{
+		#ifdef USE_BOUNDING_BOX
+			this->scanBoundingBoxSpaceTreeNearestTriangle(ray, rmi);
+		#else
+			this->scanSpaceTreeNearestTriangle(&this->tree.root, ray, &srcrt, rmi);
+		#endif // USE_BOUNDING_BOX
+	}
+	#elif defined(USE_KDTREE_MESH)
+	{
 		for (auto& tmesh : this->transformedMeshes) {
 			if (rayIntersectBox(ray, tmesh->bbox)) {
 				tmesh->kdtree.iterate(ray, [&ray, &srcrt, &rmi](const RayRenderTriangle* rt) {
@@ -568,10 +549,11 @@ color3 RayRenderer::tracePath(const Ray& ray, void* shaderParam) const {
 				});
 			}
 		}
-#else
-
+	}
+	#else
+	{
 		this->kdtree.iterate(ray, [&ray, &rmi](const RayRenderTriangle* rt) {
-//			if (&srcrt == rt) return true;
+			// if (&srcrt == rt) return true;
 
 			float t;
 			vec3 hit;
@@ -581,21 +563,11 @@ color3 RayRenderer::tracePath(const Ray& ray, void* shaderParam) const {
 
 			return true;
 		});
-
-#endif /* USE_KDTREE */
-
-		if (rmi.rt != NULL) {
-			HitInterpolation hi;
-			this->calcHitInterpolation(*rmi.rt, rmi.hit, &hi);
-
-			return this->shaderProvider->shade(rmi, ray, hi, shaderParam);
-		}
 	}
-
-	return this->settings.backColor;
+	#endif /* USE_KDTREE */
 }
 
-color3 RayRenderer::traceAreaLight(const LightSource& lightSource, const RayMeshIntersection& rmi, const HitInterpolation& srchi) const {
+color3 RayRenderer::traceAreaLight(const LightSource& lightSource, const RayMeshIntersection& rmi, const VertexInterpolation& srchi) const {
 	const SceneObject* obj = lightSource.object;
 	if (obj == NULL) return color3::zero;
 
@@ -618,8 +590,8 @@ color3 RayRenderer::traceAreaLight(const LightSource& lightSource, const RayMesh
 	constexpr float maxt = 0.99999f;
 	
 	if (dotObjectToLight > 0) {
-		HitInterpolation lightHit;
-		calcHitInterpolation(triangle, p, &lightHit);
+		VertexInterpolation lightHit;
+		calcVertexInterpolation(triangle, p, &lightHit);
 
 		Ray ray = ThicknessRay(rmi.hit, lightRay);
 
@@ -679,7 +651,7 @@ color3 RayRenderer::traceAreaLight(const LightSource& lightSource, const RayMesh
 	return color3::zero;
 }
 
-color3 RayRenderer::tracePointLight(const LightSource& lightSource, const RayMeshIntersection& rmi, const HitInterpolation& srchi) const {
+color3 RayRenderer::tracePointLight(const LightSource& lightSource, const RayMeshIntersection& rmi, const VertexInterpolation& srchi) const {
 	const vec3 lightray = lightSource.transformedLocation - rmi.hit;
 
 	Ray ray = ThicknessRay(rmi.hit, lightray);
@@ -761,7 +733,7 @@ color3 RayRenderer::tracePointLight(const LightSource& lightSource, const RayMes
 	return color3::zero;
 }
 
-color3 RayRenderer::traceLight(const RayMeshIntersection& rmi, const HitInterpolation& srchi, const int samples) const {
+color3 RayRenderer::traceLight(const RayMeshIntersection& rmi, const VertexInterpolation& srchi, const int samples) const {
 	color3 areaLightColor, pointLightColor;
 
 	const int areaLightSourceCount = (int)this->areaLightSources.size();
@@ -797,7 +769,7 @@ color3 RayRenderer::traceLight(const RayMeshIntersection& rmi, const HitInterpol
 	return areaLightColor + pointLightColor;
 }
 
-color3 RayRenderer::traceAllLight(const RayMeshIntersection& rmi, const HitInterpolation& srchi) const {
+color3 RayRenderer::traceAllLight(const RayMeshIntersection& rmi, const VertexInterpolation& srchi) const {
 	
 	color3 areaLightColor, pointLightColor;
 
@@ -822,7 +794,7 @@ color3 RayRenderer::traceAllLight(const RayMeshIntersection& rmi, const HitInter
 	return areaLightColor + pointLightColor + this->settings.worldColor;
 }
 
-void RayRenderer::calcHitInterpolation(const RayRenderTriangle& rt, const vec3& hit, HitInterpolation* hi) const {
+void RayRenderer::calcVertexInterpolation(const RayRenderTriangle& rt, const vec3& hit, VertexInterpolation* hi) const {
 	const vec3 f1 = rt.v1 - hit;
 	const vec3 f2 = rt.v2 - hit;
 	const vec3 f3 = rt.v3 - hit;
@@ -972,7 +944,7 @@ void RayRenderer::calcVertexColors(Mesh &mesh) {
 		color3 gray[3];
 		
 		RayMeshIntersection rmi;
-		HitInterpolation hi;
+		VertexInterpolation hi;
 		
 //		vec3 vs[3], ns[3];
 		const auto* t = triangleList[ti];
@@ -1213,7 +1185,7 @@ float RayRenderer::scanSpaceTreeRayBlocked(const RaySpaceTreeNode* node, const R
 #endif /* USE_SPACETREE */
 
 color3 RayBSDFShaderProvider::shade(const RayMeshIntersection& rmi, const Ray& inray,
-                                    const HitInterpolation& hi, void* shaderParam) {
+                                    const VertexInterpolation& hi, void* shaderParam) {
 	const Material& m = rmi.rt->object.material;
 
 	BSDFParam param(*this->renderer, rmi, inray, hi);
@@ -1315,7 +1287,7 @@ color3 RayBSDFShaderProvider::shade(const RayMeshIntersection& rmi, const Ray& i
 }
 
 color3 RayBSDFBakeShaderProvider::shade(const RayMeshIntersection& rmi, const Ray& inray,
-																				const HitInterpolation& hi, void* shaderParam) {
+																				const VertexInterpolation& hi, void* shaderParam) {
 	const Material& m = rmi.rt->object.material;
 	
 	if (m.emission > 0.0f) {

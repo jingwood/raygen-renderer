@@ -11,7 +11,7 @@
 
 namespace raygen {
 
-color3 LambertShaderProvider::shade(const RayMeshIntersection& rmi, const Ray& inray, const HitInterpolation& hi, void* shaderParam) {
+color3 LambertShaderProvider::shade(const RayMeshIntersection& rmi, const Ray& inray, const VertexInterpolation& hi, void* shaderParam) {
 	const Material& m = rmi.rt->object.material;
 	
 	if (m.emission > 0) {
@@ -40,7 +40,7 @@ color3 LambertShaderProvider::shade(const RayMeshIntersection& rmi, const Ray& i
 	return color;
 }
 
-color3 LambertWithAOShaderProvider::shade(const RayMeshIntersection& rmi, const Ray& inray, const HitInterpolation& hi, void* shaderParam) {
+color3 LambertWithAOShaderProvider::shade(const RayMeshIntersection& rmi, const Ray& inray, const VertexInterpolation& hi, void* shaderParam) {
 	const Material& m = rmi.rt->object.material;
 	
 	if (m.emission > 0) {
@@ -66,7 +66,7 @@ color3 LambertWithAOShaderProvider::shade(const RayMeshIntersection& rmi, const 
 	return color;
 }
 
-color3 LambertWithAOLightShaderProvider::shade(const RayMeshIntersection& rmi, const Ray& inray, const HitInterpolation& hi, void* shaderParam) {
+color3 LambertWithAOLightShaderProvider::shade(const RayMeshIntersection& rmi, const Ray& inray, const VertexInterpolation& hi, void* shaderParam) {
 	const Material& m = rmi.rt->object.material;
 	
 	if (m.emission > 0.0f) {

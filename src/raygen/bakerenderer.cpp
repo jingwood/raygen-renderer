@@ -417,7 +417,7 @@ color3 BakeRenderer::bakePoint(const RayRenderTriangle& rt, const vec2& uv) {
 	const vec3 p = rt.v1 * a1 + rt.v2 * a2 + rt.v3 * a3;
 	RayMeshIntersection rmi(&rt, 0, p);
 	
-	HitInterpolation hi;
+	VertexInterpolation hi;
 	hi.uv = uv;
 	hi.normal = rt.n1 * a1 + rt.n2 * a2 + rt.n3 * a3;
 	

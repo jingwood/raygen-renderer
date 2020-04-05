@@ -26,7 +26,7 @@ public:
 		gaussianDistributionGenKernel(gaussKernel, 5);
 	}
 	
-	color3 shade(const RayMeshIntersection& rmi, const Ray& inray, const HitInterpolation& hi, void* shaderParam = NULL);
+	color3 shade(const RayMeshIntersection& rmi, const Ray& inray, const VertexInterpolation& hi, void* shaderParam = NULL);
 };
 
 class LambertWithAOShaderProvider : public RayShaderProvider
@@ -36,7 +36,7 @@ public:
 	: RayShaderProvider(renderer)
 	{ }
 	
-	color3 shade(const RayMeshIntersection& rmi, const Ray& inray, const HitInterpolation& hi, void* shaderParam = NULL);
+	color3 shade(const RayMeshIntersection& rmi, const Ray& inray, const VertexInterpolation& hi, void* shaderParam = NULL);
 };
 
 class LambertWithAOLightShaderProvider : public RayShaderProvider
@@ -46,7 +46,7 @@ public:
 	: RayShaderProvider(renderer)
 	{ }
 	
-	color3 shade(const RayMeshIntersection& rmi, const Ray& inray, const HitInterpolation& hi, void* shaderParam = NULL);
+	color3 shade(const RayMeshIntersection& rmi, const Ray& inray, const VertexInterpolation& hi, void* shaderParam = NULL);
 };
 
 }

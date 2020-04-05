@@ -126,7 +126,7 @@ struct RayMeshIntersection {
 	{ }
 };
 
-struct HitInterpolation
+struct VertexInterpolation
 {
 	vec3 normal;
 	vec2 uv;
