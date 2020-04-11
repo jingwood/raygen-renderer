@@ -39,5 +39,10 @@ build/linux/*.o
 build/linux/raygen
 build/linux/libraygen.a
 
+# Visual Studio files
+.vs
+Debug
+Release
+*.vcxproj.user
 
 
