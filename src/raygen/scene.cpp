@@ -481,9 +481,9 @@ Texture* SceneResourcePool::getTexture(const string& path, Archive* bundle) {
 		}
 	} else {
 	
-	#if _WIN32
-		finalPath.replace('/', '\\');
-	#endif // _WIN32
+	//#if _WIN32
+	//	path.replace('/', '\\');
+	//#endif // _WIN32
 		
 		if (!tex->loadFromFile(path)) {
 			delete tex;
@@ -511,9 +511,9 @@ Archive* SceneResourcePool::loadArchive(const string& name, const string& path) 
 	
 	Archive* archive = new Archive();
 	
-#if _WIN32
-	finalPath.replace('/', '\\');
-#endif // _WIN32
+//#if _WIN32
+//	finalPath.replace('/', '\\');
+//#endif // _WIN32
 	
 	try {
 		archive->load(path);
