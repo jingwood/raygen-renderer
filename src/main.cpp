@@ -297,7 +297,7 @@ int main(int argc, const char * argv[]) {
 
 	sw.stop();
 	
-	const Image& renderImage = renderer.getRenderResult();	
+	const Image& renderImage = renderer.getRenderResult();
 	saveImage(renderImage, outputImageFile);
 	
 	static string _time_str_done;
@@ -313,7 +313,9 @@ void renderingProgressCallback(const float progressRate) {
 		static string _time_str_elapsed, _time_str_remaining;
 		formatFriendlyDate(elapsedTime, _time_str_elapsed);
 		formatFriendlyDate((1.0 - progressRate) * elapsedTime / progressRate, _time_str_remaining);
-		printf("(elapsed %s, remaining %s)", _time_str_elapsed.c_str(), _time_str_remaining.c_str());
+		printf("(elapsed %s, remaining %s)  \r", _time_str_elapsed.c_str(), _time_str_remaining.c_str());
+	} else {
+		printf("  \r");
 	}
 	
 	fflush(NULL);
