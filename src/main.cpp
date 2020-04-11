@@ -204,6 +204,7 @@ int main(int argc, const char * argv[]) {
 				else READ_ARG_INT("-c", rs.threads)
 				else READ_ARG_INT("--threads", rs.threads)
 				else READ_ARG_INT("--cores", rs.threads)
+				else READ_ARG_INT("-ds", rs.dofSamples)
 				else READ_ARG_INT("-dofs", rs.dofSamples)
 				else READ_ARG_INT("--dof-samples", rs.dofSamples)
 				else READ_ARG_BOL("-enaa", rs.enableAntialias)
@@ -215,11 +216,18 @@ int main(int argc, const char * argv[]) {
 				else READ_ARG_INT("-d", rs.shaderProvider)
 				else READ_ARG_INT("--shader", rs.shaderProvider)
 				else READ_ARG_STR("--focus-obj", focusObjectName)
-
+				else {
+					printf("unknown argument: %s\n", arg);
+					return 1;
+				}
 		} else if (i == 1) {
 			cmd = arg;
 		} else if (inputIndex == 0) {
 			scenefile = arg;
+			inputIndex++;
+		} else {
+			printf("unknown argument: %s\n", arg);
+			return 1;
 		}
 	}
 	
