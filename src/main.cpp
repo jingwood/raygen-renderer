@@ -246,7 +246,7 @@ int main(int argc, const char * argv[]) {
 		if (inpath.isEmpty()) {
 			outputImageFile.appendFormat("%s.jpg", file.getBaseName().c_str());
 		} else {
-			outputImageFile.appendFormat("%s/%s.jpg", file.getPath().c_str(), file.getBaseName().c_str());
+			outputImageFile.appendFormat("%s%s%s.jpg", file.getPath().c_str(), PATH_SPLITTER_STR, file.getBaseName().c_str());
 		}
 	}
 		
