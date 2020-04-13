@@ -30,12 +30,12 @@ class CubeTexture {
 private:
 	union {
 		struct {
-			Image* left = NULL;
-			Image* right = NULL;
-			Image* up = NULL;
-			Image* down = NULL;
-			Image* forward = NULL;
-			Image* back = NULL;
+			Image* left;
+			Image* right;
+			Image* up;
+			Image* down;
+			Image* forward;
+			Image* back;
 		};
 		Image* faces[6];
 	};

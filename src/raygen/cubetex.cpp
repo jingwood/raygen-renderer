@@ -14,7 +14,7 @@ namespace raygen {
 
 CubeTexture::CubeTexture() {
 	for (int i = 0; i < 6; i++) {
-		
+		this->faces[i] = NULL;
 	}
 }
 
