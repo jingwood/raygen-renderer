@@ -1,0 +1,3 @@
+[submodule "cpp-common-class"]
+	path = inc/cpp-common-class
+	url = https://github.com/jingwood/cpp-common-class
