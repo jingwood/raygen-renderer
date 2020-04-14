@@ -2,14 +2,15 @@ CXX=clang++
 AR=ar
 CXXFLAGS=-O3 -std=c++11 -pthread -Wall #-pedantic
 #INC=-I../../inc/jpeg-6b -I../../inc/
+PD=../../      # Project Directory
 LIB=../../lib/mac/libjpeg.a ../../lib/mac/libpng.a ../../lib/mac/libz.a \
-    ../../../cpp-common-class/build/mac/libucm.a ../../../cpp-graphics-module/build/mac/libugm.a
+    ../../lib/mac/libucm.a ../../lib/mac/libugm.a
 CX=$(CXX) $(CXXFLAGS)
 BIN=raygen
 DEV_BIN=libraygen.a
 
 # Change this to the folder (cpp-common-class, libucm)
-INC+=-I../../../cpp-common-class/src -I../../../cpp-graphics-module/src
+INC+=-I../../inc/cpp-common-class/src -I../../inc/cpp-graphics-module/src
 
 VPATH=../../src/raygen
 
@@ -22,7 +23,7 @@ $(DEV_BIN): $(OBJS)
 	$(AR) -crv $(DEV_BIN) $(OBJS)
 
 $(BIN): $(DEV_BIN) main.o
-	$(CX) $(LIB) -o $(BIN) main.o $(DEV_BIN) $(LIB_DEV)
+	$(CX) $(LIB) -o $(BIN) main.o $(DEV_BIN)
 
 main.o: ../../src/main.cpp
 	$(CX) $(INC) -c ../../src/main.cpp -o main.o
