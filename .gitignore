@@ -44,5 +44,5 @@ build/linux/libraygen.a
 Debug
 Release
 *.vcxproj.user
-
+*.xcuserdata
 
