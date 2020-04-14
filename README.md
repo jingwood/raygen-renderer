@@ -31,6 +31,6 @@ The rendered image will be saved to the folder where the scene file locates.
 
 # License
 
-MIT License 
+Released under MIT License.
 
-(c) Jingwood, unvell.com All Rights Reserved
+Copyright © Jingwood & unvell.com, all Rights Reserved.
