@@ -632,6 +632,19 @@ void ObjFileReader::readMaterialLibrary(const string& matlibPath)
       
       mat.setTextureFilename(textureFilename);
     }
+		else if (isLine("map_Bump")) {
+			char normalmapFilename[300];
+			float normalIntensity = 1;
+			
+			if (strncmp(this->line + 9, "-bm", 3) == 0) {
+				sscanf(this->line + 13, "%f %s", &normalIntensity, normalmapFilename);
+			} else {
+				str_copy_rlen(normalmapFilename, this->line, 8);
+			}
+			
+//			mat.setNormalmapIntensity(normalIntensity);
+			mat.setNormalmapFilename(normalmapFilename);
+    }
 		else if (isLine("map_t_normal")) {
 			char normalmapFilename[300];
 

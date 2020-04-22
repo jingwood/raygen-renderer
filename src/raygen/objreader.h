@@ -50,6 +50,7 @@ public:
 	color3f specular;
 	float shininess;
 	float transparency;
+	float normalmapIntensity;
 
 	ObjMaterial() { }
 	
@@ -175,8 +176,7 @@ private:
 		return hasMore;
   }
   
-  inline bool isLine(const char* tag)
-  {
+  inline bool isLine(const char* tag) {
     const uint len = (uint)(size_t)strlen(tag);
     
     uint i = 0;
