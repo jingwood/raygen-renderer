@@ -79,7 +79,7 @@ Shading system comparison:
 | value | name | D. lighting | Ind. lighting | AO | GI. | Transparency | Reflection and Refraction | 
 |---|---|---|---|---|---|---|---|
 | 0 | Simple Shading | No | No | No | No | No | No |
-| 1 | Ambient Occlusion | No | No | No | Yes | No | No |
+| 1 | Ambient Occlusion | No | No | Yes | No | No | No |
 | 2 | Lambert Shading | Yes | No | No | No | Yes | No |
 | 3 | Lambert Shading + AO | Yes | No | Yes | No | Yes | No |
 | 4 | (Reserved) | | | | | | |
