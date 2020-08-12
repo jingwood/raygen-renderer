@@ -52,16 +52,38 @@ $ ./raygen render ../../resources/scenes/cubeRoom/cubeRoom.json -s 100
 
 | option | description |
 | --- | --- |
-| -r \| --resolution | resolution of result image |
-| -s \| --samples | number of samples (rays from camera) |
-| -c \| --cores | --threads | number of threads/cores to render parallelly |
-| -ds \| --dofs | --dof-samples | number of samples on depth of field calculation |
-| -enaa \| --enable-antialias | enable antialias (default: on) |
-| -encs \| --enable-color-sampling | enable sample colors from texture (default: on) |
-| -enpp \| --enable-postprocess | eanble post-processes (grow and blur) |
-| -d \| --shader | shader system (see below) |
-| --focus-obj | automatically make camera look at a specified object |
+| -r, --resolution | resolution of the result image |
+| -s, --samples | number of samples (rays from camera) |
+| -c, --cores, --threads | number of the threads to render parallelly |
+| -ds, --dofs, --dof-samples | number of samples used on the depth of field calculation |
+| -enaa, --enable-antialias | enable ray-sample-based antialias (default: on) |
+| -encs, --enable-color-sampling | enable sample colors from texture (default: on) |
+| -enpp, --enable-postprocess | enable post-processes (bloom and gamma correction) |
+| -d, --shader | shading system (see below) |
+| --focus-obj | automatically make camera look at a specified object (by name) |
 | --dump | dump scene define |
+
+Shading system: (specified by -d or --shader argument)
+
+| value | name | desc. |
+|---|---|---|
+| 0 | Simple Shading | the simplest and fastest shading using Lambertian reflectance (no lighting and texture sample) |
+| 1 | Ambient Occlusion | Only render the ambient occlusion | 
+| 2 | Lambert Shading | Lambert shading with directional lighting and texture sample |
+| 3 | Lambert Shading + AO | Lambert shading with directional lighting, texture sample and ambient occlusion |
+| 4 | (Reserved) | |
+| 5 | BSDF | BSDF Shading with global illumination (the default shading system) |
+
+Shading system comparison:
+
+| value | name | D. lighting | Ind. lighting | AO | GI. | Transparency | Reflection and Refraction | 
+|---|---|---|---|---|---|---|---|
+| 0 | Simple Shading | No | No | No | No | No | No |
+| 1 | Ambient Occlusion | No | No | No | Yes | No | No |
+| 2 | Lambert Shading | Yes | No | No | No | Yes | No |
+| 3 | Lambert Shading + AO | Yes | No | Yes | No | Yes | No |
+| 4 | (Reserved) | | | | | | |
+| 5 | BSDF | Yes | Yes | Yes | Yes | Yes | Yes |
 
 ## Scene
 
