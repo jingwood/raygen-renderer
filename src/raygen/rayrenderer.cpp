@@ -166,7 +166,7 @@ void RayRenderer::transformScene() {
 #ifdef USE_KDTREE
 	this->kdtree.reset();
 	this->kdtree.build(this->triangleList.data(), this->triangleList.size());
-#endif /* USE_SPACETREE */
+#endif /* USE_KDTREE */
 
 	//	int count = 0;
 	//	for (const auto& m : this->meshTriangles) {
