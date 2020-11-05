@@ -218,6 +218,23 @@ int main(int argc, const char * argv[]) {
 				else READ_ARG_STR("--focus-obj", focusObjectName)
 				else READ_ARG_BOL("-cb", rs.cullBackFace)
 				else READ_ARG_BOL("--cullback", rs.cullBackFace)
+				else if (IF_ARG("-bc") || IF_ARG("--backcolor")) {
+					NEXT_ARG;
+					color4 c = rs.backColor;
+					int successes = sscanf(arg, "%f,%f,%f,%f", &c.r, &c.g, &c.b, &c.a);
+					if (successes == 3) {
+						c.a = 1;
+					}
+					rs.backColor = c;
+				} else if (IF_ARG("-wc") || IF_ARG("--worldcolor")) {
+					NEXT_ARG;
+					color4 c = rs.worldColor;
+					int successes = sscanf(arg, "%f,%f,%f,%f", &c.r, &c.g, &c.b, &c.a);
+					if (successes == 3) {
+						c.a = 1;
+					}
+					rs.worldColor = c;
+				}
 				else {
 					printf("unknown argument: %s\n", arg);
 					return 1;
@@ -276,6 +293,11 @@ int main(int argc, const char * argv[]) {
 	printf("  color sampling : %s\n", rs.enableColorSampling ? "yes" : "no");
 	printf("  post process   : %s\n", rs.enableRenderingPostProcess ? "yes" : "no");
 	printf("  cull backface  : %s\n", rs.cullBackFace ? "yes" : "no");
+	printf("  back color     : #%02x%02x%02x%02x\n",
+				 (int)(rs.backColor.a * 255), (int)(rs.backColor.r * 255),
+				 (int)(rs.backColor.g * 255), (int)(rs.backColor.b * 255));
+	printf("  world color    : #ff%02x%02x%02x\n",
+				 (int)(rs.worldColor.r * 255), (int)(rs.worldColor.g * 255), (int)(rs.worldColor.b * 255));
 	printf("\n");
 
 	if (enableDumpScene) {
