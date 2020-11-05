@@ -216,6 +216,8 @@ int main(int argc, const char * argv[]) {
 				else READ_ARG_INT("-d", rs.shaderProvider)
 				else READ_ARG_INT("--shader", rs.shaderProvider)
 				else READ_ARG_STR("--focus-obj", focusObjectName)
+				else READ_ARG_BOL("-cb", rs.cullBackFace)
+				else READ_ARG_BOL("--cullback", rs.cullBackFace)
 				else {
 					printf("unknown argument: %s\n", arg);
 					return 1;
@@ -273,6 +275,7 @@ int main(int argc, const char * argv[]) {
 	printf("  antialias      : %s\n", rs.enableAntialias ? "yes" : "no");
 	printf("  color sampling : %s\n", rs.enableColorSampling ? "yes" : "no");
 	printf("  post process   : %s\n", rs.enableRenderingPostProcess ? "yes" : "no");
+	printf("  cull backface  : %s\n", rs.cullBackFace ? "yes" : "no");
 	printf("\n");
 
 	if (enableDumpScene) {

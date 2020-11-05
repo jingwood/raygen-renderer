@@ -77,6 +77,8 @@ RayRenderer::RayRenderer(const RendererSettings* settings) {
 	this->renderingImage.setPixelDataFormat(PixelDataFormat::PDF_RGBA, 32);
 	this->setRenderSize(this->settings.resolutionWidth, this->settings.resolutionHeight);
 
+	this->cullBackFace = settings->cullBackFace;
+	
 	/* initialize random seed */
 	srand((unsigned int)time(NULL));
 	
@@ -1056,10 +1058,9 @@ void RayRenderer::scanSpaceTreeNearestTriangle(const RaySpaceTreeNode* node,
 		float t;
     vec3 hit;
     
-    //if (rayIntersectTriangle3(ray, *rt, rmi.t, t, hit)) {
-    //  rmi = RayMeshIntersection(rt, t, hit);
-    //}
-		if ( rt->intersectsRay(ray, rmi.t, t, hit)) {
+		if (rt->intersectsRay(ray, rmi.t, t, hit)
+				&& (!this->cullBackFace || dot(rt->faceNormal, normalize(ray.dir)) < 0)
+				) {
 			rmi = RayMeshIntersection(rt, t, hit);
 		}
   }
