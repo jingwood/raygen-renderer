@@ -114,11 +114,11 @@ scene.json:
 }
 ```
 
-The several sample scenes can be found inside `resources/scenes` folder.
+The several samples for rendering scene can be found inside `resources/scenes` folder as following:
 
 - **Cube Room** - A well-known two cubes scene that is usually used to benchmark a ray-tracing engine
-- **Sphere Array** - A scene which has five sphere to test different materials
-- **suzanne** - A model suzanne from blender used to test transparency and refraction material
+- **Sphere Array** - A scene which has five spheres to demo the different materials
+- **suzanne** - A model suzanne used to demo the transparency and refraction materials
 
 # Dependency modules
 
