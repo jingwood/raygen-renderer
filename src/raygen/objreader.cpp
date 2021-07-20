@@ -637,7 +637,7 @@ void ObjFileReader::readMaterialLibrary(const string& matlibPath)
 			float normalIntensity = 1;
 			
 			if (strncmp(this->line + 9, "-bm", 3) == 0) {
-				sscanf(this->line + 13, "%f %s", &normalIntensity, normalmapFilename);
+				_sscanf(this->line + 13, "%f %s", &normalIntensity, normalmapFilename);
 			} else {
 				str_copy_rlen(normalmapFilename, this->line, 8);
 			}
