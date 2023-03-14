@@ -19,6 +19,12 @@ suzanne glass
 ![suzanne](resources/scenes/suzanne/Suzanne%20Jade.jpg)<br />
 suzanne jade
 
+![real life application](resources/images/live-office1.png)<br />
+A real life application for office rendering
+
+![real life application top view](resources/images/live-office1-top.png)<br />
+A real life application for office rendering (top view)
+
 # Build 
 
 The following build script or projects are available from this respositry.
