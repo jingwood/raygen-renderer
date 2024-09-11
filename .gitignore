@@ -31,9 +31,13 @@
 *.out
 *.app
 
-build/mac/*.o
-build/mac/raygen
-build/mac/libraygen.a
+build/mac-intel/*.o
+build/mac-intel/raygen
+build/mac-intel/libraygen.a
+
+build/mac-m/*.o
+build/mac-m/raygen
+build/mac-m/libraygen.a
 
 build/linux/*.o
 build/linux/raygen
