@@ -244,7 +244,7 @@ void SceneJsonLoader::readMesh(SceneObject& obj, const string& meshPath, Archive
 //	Mesh* mesh = this->loadMeshFile(obj, meshPath, bundle);
 	string filepath;
 	this->transformPath(meshPath, filepath);
-		
+    
 	Mesh* mesh = this->resPool->loadMeshFromFile(filepath, bundle);
 	if (mesh != NULL) {
 		obj.addMesh(*mesh);
