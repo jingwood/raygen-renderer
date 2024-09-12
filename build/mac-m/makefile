@@ -24,6 +24,9 @@ $(DEV_BIN): $(OBJS)
 
 $(BIN): $(DEV_BIN) main.o
 	$(CX) $(LIB) -o $(BIN) main.o $(DEV_BIN)
+	@echo "Build successed."
+	@echo "Library file generated: $(DEV_BIN)"
+	@echo "Executable binary file generated: $(BIN)"
 
 main.o: ../../src/main.cpp
 	$(CX) $(INC) -c ../../src/main.cpp -o main.o
