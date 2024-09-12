@@ -1,38 +1,38 @@
 # RayGen Renderer
 
-A simple cross-platform ray tracing engine for 3D graphics rendering.
+A simple, cross-platform ray tracing engine for 3D graphics rendering.
 
 # Snapshots
 
 ![cube room](resources/scenes/cubeRoom/sample.jpg)<br />
-the cube room
+Cube Room
 
 ![cube room](resources/scenes/cubeRoom/cubeRoom_reflection.jpg)<br />
-the cube room (reflection version)
+Cube Room (Reflection Version)
 
 ![sphere array](resources/scenes/sphereArray/sample.jpg)<br />
-spheres & materials
+Spheres & Materials
 
 ![suzanne](resources/scenes/suzanne/Suzanne%20Texture.jpg)<br />
-suzanne glass
+Suzanne (Glass)
 
 ![suzanne](resources/scenes/suzanne/Suzanne%20Jade.jpg)<br />
-suzanne jade
+Suzanne (Jade)
 
 ![real life application](resources/images/live-office1.png)<br />
-A real life application for office rendering
+A real-life application: Office Rendering
 
 ![real life application top view](resources/images/live-office1-top.png)<br />
-A real life application for office rendering (top view)
+A real-life application: Office Rendering (Top View)
 
 # Build 
 
-The following build script or projects are available from this respositry.
-
+The following build scripts and projects are available in this repository:
 
 | Platform | Folder | Build tool |
 |---|---|---|
-| macOS | build/mac | GNU make |
+| macOS (Intel) | build/mac-intel | GNU make |
+| macOS (Apple silicon) | build/mac-m | GNU make |
 | macOS | projects/raygen.xcodeproj | Xcode |
 | linux | build/linux | GNU make |
 | Windows | projects/raygen-win32/raygen.sln | Visual Studio |
@@ -69,7 +69,7 @@ $ ./raygen render ../../resources/scenes/cubeRoom/cubeRoom.json -s 100
 | --focus-obj | automatically make camera look at a specified object (by name) |
 | --dump | dump scene define |
 
-Shading system: (specified by -d or --shader argument)
+Shading system: (specified by `-d` or `--shader` argument)
 
 | value | name | desc. |
 |---|---|---|
