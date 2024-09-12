@@ -183,10 +183,11 @@ int main(int argc, const char * argv[]) {
 				return 0;
 			} else if (IF_ARG("-h") || IF_ARG("--help")) {
 				printVerInfo();
-				printf("A simple cross-platform ray tracing engine for 3D graphics rendering.\n"
-							 "(c) Jingwood, unvell.com, all rights reserved.\n\n");
+				printf("A simple, cross-platform ray tracing engine for 3D graphics rendering.\n"
+							 "Copyright (c) 2016-2024 Jingwood, unvell Inc., All rights reserved.\n\n");
 				printf("usage: ./raygen <cmd> <scene.json> [parameters...]\n"
-							 "e.g.   ./raygen render ../../resources/scenes/cubeRoom/cubeRoom.json\n\n");
+							 "e.g.   ./raygen render ../../resources/scenes/cubeRoom/cubeRoom.json\n"
+                             "       ./raygen render -enaa false myScene.json   # disable antialias\n\n");
 				printf("  -r | --resolution                    specify resolution of result image\n"
 							 "  -s | --samples                       number of ray tracing samples\n"
 							 "  -c | --cores | --threads             number of threads/cores to render parallelly\n"
@@ -197,6 +198,7 @@ int main(int argc, const char * argv[]) {
 							 "  -d | --shader                        specify shader type\n"
 							 "  --focus-obj                          make camera look at specified object\n"
 							 "  --dump                               dump scene define\n");
+				printf("\nMore information please see the README.md on the github project page.\n");
 				
 				return 0;
 			}	else READ_ARG_INT("-s", rs.samples)
