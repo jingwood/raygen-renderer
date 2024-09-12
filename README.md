@@ -31,13 +31,13 @@ The following build scripts and projects are available in this repository:
 
 | Platform | Folder | Build tool |
 |---|---|---|
-| macOS (Intel) | build/mac-intel | GNU make |
-| macOS (Apple silicon) | build/mac-m | GNU make |
+| macOS (Intel) | build/mac-intel | GNU Make |
+| macOS (Apple Silicon) | build/mac-m | GNU Make |
 | macOS | projects/raygen.xcodeproj | Xcode |
-| linux | build/linux | GNU make |
+| Linux | build/linux | GNU Make |
 | Windows | projects/raygen-win32/raygen.sln | Visual Studio |
 
-Example to use GNU make on linux and macOS platform:
+Example of using GNU Make on Linux and macOS platforms:
 
 ```shell
 cd build/<platform>
@@ -51,38 +51,38 @@ $ ./raygen <command> <sceneFile.json> [output_image] [-options]
 ```
 e.g.:
 ```shell
-$ ./raygen render ../../resources/scenes/cubeRoom/cubeRoom.json -s 100
+$ ./raygen render ../../resources/scenes/cubeRoom/cubeRoom.json -s 100 -enaa true
 ```
 
 ## Options
 
-| option | description |
+| Option | Description |
 | --- | --- |
-| -r, --resolution | resolution of the result image |
-| -s, --samples | number of samples (rays from camera) |
-| -c, --cores, --threads | number of the threads to render parallelly |
-| -ds, --dofs, --dof-samples | number of samples used on the depth of field calculation |
-| -enaa, --enable-antialias | enable ray-sample-based antialias (default: on) |
-| -encs, --enable-color-sampling | enable sample colors from texture (default: on) |
-| -enpp, --enable-postprocess | enable post-processes (bloom and gamma correction) |
-| -d, --shader | shading system (see below) |
-| --focus-obj | automatically make camera look at a specified object (by name) |
-| --dump | dump scene define |
+| -r, --resolution | Specifies the resolution of the output image. |
+| -s, --samples | Number of samples (rays from the camera). |
+| -c, --cores, --threads | Number of threads used for parallel rendering. |
+| -ds, --dofs, --dof-samples | Number of samples for depth of field calculation. |
+| -enaa, --enable-antialias | Enables ray-sample-based anti-aliasing (default: on). |
+| -encs, --enable-color-sampling | Enables color sampling from textures (default: on). |
+| -enpp, --enable-postprocess | Enables post-processing effects like bloom and gamma correction. |
+| -d, --shader | Specifies the shading system (see below for options). |
+| --focus-obj | Automatically sets the camera to focus on a specified object (by name). |
+| --dump | Dumps the scene definition. |
 
 Shading system: (specified by `-d` or `--shader` argument)
 
-| value | name | desc. |
+| Value | Name | Description |
 |---|---|---|
-| 0 | Simple Shading | the simplest and fastest shading using Lambertian reflectance (no lighting and texture sample) |
-| 1 | Ambient Occlusion | Only render the ambient occlusion | 
-| 2 | Lambert Shading | Lambert shading with directional lighting and texture sample |
-| 3 | Lambert Shading + AO | Lambert shading with directional lighting, texture sample and ambient occlusion |
+| 0 | Simple Shading | Basic shading using Lambertian reflectance (no lighting or texture sampling). |
+| 1 | Ambient Occlusion | Renders ambient occlusion only. | 
+| 2 | Lambert Shading | Lambert shading with directional lighting and texture sampling. |
+| 3 | Lambert Shading + AO | Lambert shading with directional lighting, texture sampling, and ambient occlusion. |
 | 4 | (Reserved) | |
-| 5 | BSDF | BSDF Shading with global illumination (the default shading system) |
+| 5 | BSDF | BSDF Shading with global illumination (default shading system). |
 
 Shading system comparison:
 
-| value | name | D. lighting | Ind. lighting | AO | GI. | Transparency | Reflection and Refraction | 
+| Value | Name | Directional Lighting | Indirect Lighting | AO | Global Illumination | Transparency | Reflection/Refraction | 
 |---|---|---|---|---|---|---|---|
 | 0 | Simple Shading | No | No | No | No | No | No |
 | 1 | Ambient Occlusion | No | No | Yes | No | No | No |
@@ -91,9 +91,9 @@ Shading system comparison:
 | 4 | (Reserved) | | | | | | |
 | 5 | BSDF | Yes | Yes | Yes | Yes | Yes | Yes |
 
-## Scene
+## Scene Format
 
-Raygen scene is described by a JSON file using the following structure.
+A RayGen scene is described using a JSON file structured as follows:
 
 scene.json:
 ```js
@@ -106,10 +106,10 @@ scene.json:
     mat: {
       color: [r, g, b] or "#d0d0d0",
       tex: "path/to/texture.png",
-      glossy: 0 ~ 1,
-      roughness: 0 ~ 1,
-      transparency: 0 ~ 1,
-      refraction: 0 ~ 1,
+      glossy: 0.0 to 1.0,
+      roughness: 0.0 to 1.0,
+      transparency: 0.0 to 1.0,
+      refraction: 0.0 to 1.0,
       ...,
     }
   },
@@ -120,21 +120,45 @@ scene.json:
 }
 ```
 
-The several samples for rendering scene can be found inside `resources/scenes` folder as following:
+Description:
 
-- **Cube Room** - A well-known two cubes scene that is usually used to benchmark a ray-tracing engine
-- **Sphere Array** - A scene which has five spheres to demo the different materials
-- **suzanne** - A model suzanne used to demo the transparency and refraction materials
+- `location`: Specifies the position of the object in 3D space.
+- `angle`: Rotation of the object along the x, y, and z axes.
+- `scale`: Scaling factors for the object along the x, y, and z axes.
+- `mesh`: Path to the object's mesh file.
+- `mat`: Material properties of the object:
+  - `color`: RGB color values or a hexadecimal color code (e.g., "#d0d0d0").
+  - `tex`: Path to the texture file.
+  - `glossy`: Glossiness level, ranging from 0 (no gloss) to 1 (fully glossy).
+  - `roughness`: Surface roughness, ranging from 0 (smooth) to 1 (rough).
+  - `transparency`: Transparency level, ranging from 0 (opaque) to 1 (fully transparent).
+  - `refraction`: Refraction index, ranging from 0 to 1.
+
+# Mesh File Formats
+
+RayGen supports the following mesh file formats:
+
+- **RayGen Original Binary Mesh Format**: This format includes the mesh's data such as vertices, normals, texture coordinates, and more.
+- **.obj File Format**: A widely-used 3D object file format. RayGen can read vertices, normals, faces, texture coordinates, and material information from .obj files.
+- **FBX File Format**: Currently not supported but under development.
+
+# Test Scenes
+
+Several sample scenes for rendering can be found inside the `resources/scenes` folder:
+
+- **Cube Room** - A well-known scene featuring two cubes, commonly used to benchmark ray-tracing engines.
+- **Sphere Array** - A scene with five spheres demonstrating various material types.
+- **suzanne** - The Suzanne model, used to showcase transparency and refraction materials.
 
 # Dependency modules
 
-The following modules are required to build this software. They can be found inside `/inc` folder as git submodules.
+The following modules are required to build this software and can be found in the `/inc` folder as git submodules:
 
 - C++ Common Module (https://github.com/jingwood/cpp-common-class)
 - C++ Graphics Module (https://github.com/jingwood/cpp-graphics-module)
 
 # License
 
-Released under MIT License.
+Released under the MIT License.
 
-Copyright © Jingwood, unvell.com, all Rights Reserved.
+Copyright © Jingwood, unvell Inc. All Rights Reserved.
