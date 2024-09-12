@@ -6,6 +6,8 @@
 //  (c) 2016-2020 Jingwood, unvell.com, all rights reserved.
 ///////////////////////////////////////////////////////////////////////////////
 
+#include <cassert>
+
 #include "sceneloader.h"
 #include "ucm/jsonreader.h"
 #include "ucm/strutil.h"
