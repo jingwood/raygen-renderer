@@ -4,23 +4,15 @@
 <dict>
 	<key>SchemeUserState</key>
 	<dict>
-		<key>raygen.xcscheme_^#shared#^_</key>
+		<key>afgen.xcscheme_^#shared#^_</key>
 		<dict>
 			<key>orderHint</key>
 			<integer>0</integer>
 		</dict>
-		<key>release.xcscheme_^#shared#^_</key>
+		<key>raygen.xcscheme_^#shared#^_</key>
 		<dict>
 			<key>orderHint</key>
-			<integer>1</integer>
-		</dict>
-	</dict>
-	<key>SuppressBuildableAutocreation</key>
-	<dict>
-		<key>3FAF55CC23C78F110038479B</key>
-		<dict>
-			<key>primary</key>
-			<true/>
+			<integer>0</integer>
 		</dict>
 	</dict>
 </dict>
