@@ -1,10 +1,10 @@
 CXX=clang++
 AR=ar
-CXXFLAGS=-O3 -std=c++11 -pthread -Wall -arch arm64 #-pedantic
+CXXFLAGS=-O3 -std=c++11 -pthread -Wall   #-pedantic
 #INC=-I../../inc/jpeg-6b -I../../inc/
 PD=../../      # Project Directory
-LIB=../../lib/mac/libjpeg.a ../../lib/mac/libpng.a ../../lib/mac/libz.a \
-    ../../lib/mac/libucm.a ../../lib/mac/libugm.a
+LIB=../../lib/mac-intel/libjpeg.a ../../lib/mac-intel/libpng.a ../../lib/mac-intel/libz.a \
+    ../../lib/mac-intel/libucm.a ../../lib/mac-intel/libugm.a
 CX=$(CXX) $(CXXFLAGS)
 BIN=raygen
 DEV_BIN=libraygen.a
