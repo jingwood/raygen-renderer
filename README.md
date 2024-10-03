@@ -82,7 +82,7 @@ Shading system: (specified by `-d` or `--shader` argument)
 
 Shading system comparison:
 
-| Value | Name | Directional Lighting | Indirect Lighting | AO | Global Illumination | Transparency | Reflection/Refraction | 
+| Value | Name | Directional Lighting | Indirect Lighting | Ambient Occlusion | Global Illumination | Transparency | Reflection/Refraction | 
 |---|---|:---:|:---:|:---:|:---:|:---:|:---:|
 | 0 | Simple Shading | - | - | - | - | - | - |
 | 1 | Ambient Occlusion | - | - | Yes | - | - | - |
