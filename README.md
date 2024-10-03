@@ -83,11 +83,11 @@ Shading system: (specified by `-d` or `--shader` argument)
 Shading system comparison:
 
 | Value | Name | Directional Lighting | Indirect Lighting | AO | Global Illumination | Transparency | Reflection/Refraction | 
-|---|---|---|---|---|---|---|---|
-| 0 | Simple Shading | No | No | No | No | No | No |
-| 1 | Ambient Occlusion | No | No | Yes | No | No | No |
-| 2 | Lambert Shading | Yes | No | No | No | Yes | No |
-| 3 | Lambert Shading + AO | Yes | No | Yes | No | Yes | No |
+|---|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| 0 | Simple Shading | - | - | - | - | - | - |
+| 1 | Ambient Occlusion | - | - | Yes | - | - | - |
+| 2 | Lambert Shading | Yes | - | - | - | Yes | - |
+| 3 | Lambert Shading + AO | Yes | - | Yes | - | Yes | - |
 | 4 | (Reserved) | | | | | | |
 | 5 | BSDF | Yes | Yes | Yes | Yes | Yes | Yes |
 
