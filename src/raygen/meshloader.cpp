@@ -13,6 +13,7 @@ namespace raygen {
 #define CURRENT_MESH_VER 0x0105
 
 void MeshLoader::load(Mesh& mesh, const string& path) {
+    
 	FileStream stream(path);
 	stream.openRead();
 

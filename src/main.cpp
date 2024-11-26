@@ -255,6 +255,10 @@ int main(int argc, const char * argv[]) {
 	if (cmd.isEmpty()) {
 		errorExit("no command specified.\n");
 	}
+    
+    if (cmd != "render") {
+        errorExit("only render command is supported\n");
+    }
 	
 	if (scenefile.isEmpty()) {
 		errorExit("no input file specified.\n");

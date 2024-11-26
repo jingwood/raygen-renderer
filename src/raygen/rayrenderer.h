@@ -131,7 +131,7 @@ private:
 	std::vector<LightSource> pointLightSources;
 	
 	void initRenderThreadContext(RenderThreadContext* ctx);
-  void renderThread(const RenderThreadContext& ctx, const int threadId);
+    void renderThread(const RenderThreadContext& ctx, const int threadId);
 	void renderAsyncThread(RenderThreadCallback* callback);
 	
 	void findNearestTriangle(const Ray& ray, RayMeshIntersection& rmi) const;
@@ -139,10 +139,10 @@ private:
 	void scanBoundingBoxSpaceTreeNearestTriangle(const Ray& ray, RayMeshIntersection& rmi) const;
 	float scanBoundingBoxRayBlocked(const Ray& ray, const float maxt, const RayRenderTriangle* hitrt) const;
 
-  bool putTriangleIntoChildrenNode(RaySpaceTreeNode* node, const RayRenderTriangle* rt);
-  bool putTriangleIntoTree(RaySpaceTreeNode* node, const RayRenderTriangle* rt);
+    bool putTriangleIntoChildrenNode(RaySpaceTreeNode* node, const RayRenderTriangle* rt);
+    bool putTriangleIntoTree(RaySpaceTreeNode* node, const RayRenderTriangle* rt);
 	void scanSpaceTreeNearestTriangle(const RaySpaceTreeNode* node, const Ray& ray, RayMeshIntersection& rmi) const;
-  float scanSpaceTreeRayBlocked(const RaySpaceTreeNode* node, const Ray& ray, const float maxt, float* t_out = NULL) const;
+    float scanSpaceTreeRayBlocked(const RaySpaceTreeNode* node, const Ray& ray, const float maxt, float* t_out = NULL) const;
 	float scanBoundingBoxSpaceTreeRayBlocked(const Ray& ray, const float maxt, float* t_out = NULL) const;
 	void scanSpaceTreeBoundingBox(const RaySpaceTreeNode* node, const Ray& ray,
 																const RayRenderTriangle* hitrt, RayMeshIntersection& rmi) const;
@@ -186,28 +186,28 @@ public:
 //	bool enableRenderingPostProcess = false;
 //	bool enableBakingPostProcess = true;
 
-  void init();
-  void render();
+    void init();
+    void render();
 	
 	color3 tracePath(const Ray& ray, void* shaderParam) const;
 	color3 traceLight(const RayMeshIntersection& rmi, const VertexInterpolation& srchi, const int samples = 1) const;
 	color3 traceAllLight(const RayMeshIntersection& rmi, const VertexInterpolation& srchi) const;
 
-  float calcAO(const vec3& vertex, const vec3& normal, const float traceDistance = RAY_MAX_DISTANCE) const;
+    float calcAO(const vec3& vertex, const vec3& normal, const float traceDistance = RAY_MAX_DISTANCE) const;
 	float calcVertexAO(const Mesh& mesh, const int triangleIndex, const int vertexIndex, const float traceDistance);
 	void calcVertexColors(Mesh& mesh);
 	
-  inline void setRenderSize(const sizei& size) {
-		this->setRenderSize(size.width, size.height);
-  }
+    inline void setRenderSize(const sizei& size) {
+        this->setRenderSize(size.width, size.height);
+    }
 	
 	inline void setRenderSize(const int width, const int height) {
 		this->renderingImage.createEmpty(width, height);
 	}
   
-  inline const Image& getRenderResult() const {
-    return this->renderingImage;
-  }
+    inline const Image& getRenderResult() const {
+        return this->renderingImage;
+    }
 	
 	void clearRenderResult();
   

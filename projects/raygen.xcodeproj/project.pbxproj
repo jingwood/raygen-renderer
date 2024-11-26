@@ -388,7 +388,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = G7CG96PLZ4;
+				DEVELOPMENT_TEAM = R5L9H5VE5R;
 				ENABLE_HARDENED_RUNTIME = YES;
 				HEADER_SEARCH_PATHS = (
 					"$(PROJECT_DIR)/../../cpp-common-class/src/",
@@ -396,6 +396,7 @@
 					"$(PROJECT_DIR)/../../cpp-graphics-module/src/",
 				);
 				LIBRARY_SEARCH_PATHS = "$(PROJECT_DIR)/../lib/mac-m";
+				"PRODUCT_BUNDLE_IDENTIFIER[sdk=macosx*]" = raygen;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
 			};
@@ -405,7 +406,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = G7CG96PLZ4;
+				DEVELOPMENT_TEAM = R5L9H5VE5R;
 				ENABLE_HARDENED_RUNTIME = YES;
 				HEADER_SEARCH_PATHS = (
 					"$(PROJECT_DIR)/../../cpp-common-class/src/",
@@ -413,6 +414,7 @@
 					"$(PROJECT_DIR)/../../cpp-graphics-module/src/",
 				);
 				LIBRARY_SEARCH_PATHS = "$(PROJECT_DIR)/../lib/mac-m";
+				"PRODUCT_BUNDLE_IDENTIFIER[sdk=macosx*]" = raygen;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
 			};
