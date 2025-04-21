@@ -380,7 +380,16 @@ void SceneJsonLoader::readSceneObject(SceneObject& obj, const JSObject& jsobj, A
 					obj.addMesh(*new PlaneMesh());
 				} else if (*meshType == "cube") {
 					obj.addMesh(*new CubeMesh());
-				}
+                } else if (*meshType == "sphere") {
+                    
+                    float radius = 1, stacks = 16, slices = 32;
+                    val.object->tryGetNumberProperty("radius", &radius);
+                    val.object->tryGetNumberProperty("stacks", &stacks);
+                    val.object->tryGetNumberProperty("slices", &slices);
+                    
+                    auto* sphere = new SphereMesh(radius, stacks, slices);
+                    obj.addMesh(*sphere);
+                }
 			}
 		}
 		else if (key == "mat") {
