@@ -114,9 +114,10 @@ void RayRenderer::initRenderThreadContext(RenderThreadContext* ctx) {
 	
 	ctx->aspectRate = ctx->renderSize.width / ctx->renderSize.height;
 	const float length = fabsf(camera->viewFar - camera->viewNear);
-	const float viewportWidth = length * atanf(ANGLE_TO_DEGREE(camera->fieldOfView * 0.5f)) * 2.0;
-	const float viewportHeight = viewportWidth / ctx->aspectRate;
-	
+    const float fovRad = DEGREE_TO_RADIAN(camera->fieldOfView);
+    const float viewportHeight = 2.0f * length * tanf(fovRad * 0.5f);
+    const float viewportWidth = viewportHeight * ctx->aspectRate;
+    
 	ctx->viewportSize = sizef(viewportWidth, viewportHeight);
 	
 	ctx->viewScaleX = ctx->viewportSize.width / ctx->renderSize.width;
