@@ -1066,28 +1066,28 @@ void RayRenderer::scanBoundingBoxSpaceTreeNearestTriangle(const Ray& ray, RayMes
 }
 
 void RayRenderer::scanSpaceTreeNearestTriangle(const RaySpaceTreeNode* node,
-																							 const Ray& ray, RayMeshIntersection& rmi) const
+                                               const Ray& ray, RayMeshIntersection& rmi) const
 {
   // self
   for (const RayRenderTriangle* rt : node->list) {
-		float t;
+    float t;
     vec3 hit;
-    
-		if (rt->intersectsRay(ray, rmi.t, t, hit)
-				&& (!this->cullBackFace || dot(rt->faceNormal, normalize(ray.dir)) < 0)
-				) {
-			rmi = RayMeshIntersection(rt, t, hit);
-		}
+
+    if (rt->intersectsRay(ray, rmi.t, t, hit)
+        && (!this->cullBackFace || dot(rt->faceNormal, normalize(ray.dir)) < 0)
+        ) {
+      rmi = RayMeshIntersection(rt, t, hit);
+    }
   }
 
   // children
   if (node->splitted) {
     if (node->left->intersectRay(ray)) {
-			scanSpaceTreeNearestTriangle(node->left, ray, rmi);
+	  scanSpaceTreeNearestTriangle(node->left, ray, rmi);
     }
     
     if (node->right->intersectRay(ray)) {
-			scanSpaceTreeNearestTriangle(node->right, ray, rmi);
+      scanSpaceTreeNearestTriangle(node->right, ray, rmi);
     }
   }
 }
