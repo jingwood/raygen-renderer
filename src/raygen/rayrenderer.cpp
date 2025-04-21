@@ -463,9 +463,23 @@ color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const
 				sampleColor = color3::zero;
 				
 				for (int i = 0; i < this->settings.dofSamples; i++) {
-					ray.origin.x = randomValue() * ctx.aperture - ctx.halfAperture;
-					ray.origin.y = randomValue() * ctx.aperture - ctx.halfAperture;
-					ray.dir = (F - ray.origin).normalize();
+                    
+                    // square分布
+//					ray.origin.x = randomValue() * ctx.aperture - ctx.halfAperture;
+//					ray.origin.y = randomValue() * ctx.aperture - ctx.halfAperture;
+                    
+                    // ランダム円形分布（正規化済み）
+                    float r = sqrtf(randomValue());
+                    float theta = randomValue() * 2.0f * M_PI;
+
+                    float offsetX = r * cosf(theta) * ctx.aperture;
+                    float offsetY = r * sinf(theta) * ctx.aperture;
+
+                    ray.origin.x = offsetX;
+                    ray.origin.y = offsetY;
+
+                    ray.dir = (F - ray.origin).normalize();
+
 					sampleColor += this->traceRay(ray);
 				}
 				
