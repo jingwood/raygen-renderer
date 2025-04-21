@@ -388,7 +388,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = G7CG96PLZ4;
+				DEVELOPMENT_TEAM = 999S8Y3998;
 				ENABLE_HARDENED_RUNTIME = YES;
 				HEADER_SEARCH_PATHS = (
 					"$(PROJECT_DIR)/../../../cpp-common-class/src/",
@@ -405,7 +405,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = G7CG96PLZ4;
+				DEVELOPMENT_TEAM = 999S8Y3998;
 				ENABLE_HARDENED_RUNTIME = YES;
 				HEADER_SEARCH_PATHS = (
 					"$(PROJECT_DIR)/../../../cpp-common-class/src/",

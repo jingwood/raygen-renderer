@@ -86,7 +86,6 @@
 		3FBD308B2DB5221400E1F801 /* ugm.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ugm.h; sourceTree = "<group>"; };
 		3FBD308C2DB5221400E1F801 /* vector.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = vector.h; sourceTree = "<group>"; };
 		3FBD308D2DB5221400E1F801 /* vector.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = vector.cpp; sourceTree = "<group>"; };
-		3FBD309C2DB5EB0B00E1F801 /* scene.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = scene.json; path = ../resources/scenes/sphereArray/scene.json; sourceTree = SOURCE_ROOT; };
 		3FC0BD2C2C9201D700FC5F49 /* raygen */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = raygen; sourceTree = BUILT_PRODUCTS_DIR; };
 		3FC0BDA32C9203FE00FC5F49 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
 		3FC0BDA52C92048300FC5F49 /* libz.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libz.a; path = "../../lib/mac-m/libz.a"; sourceTree = "<group>"; };
@@ -130,6 +129,31 @@
 		3FC0BE082C92807700FC5F49 /* texture.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = texture.cpp; sourceTree = "<group>"; };
 		3FC0BE092C92807700FC5F49 /* texture.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = texture.h; sourceTree = "<group>"; };
 		3FC0BE0B2C92807700FC5F49 /* main.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = main.cpp; path = ../src/main.cpp; sourceTree = "<group>"; };
+		3FE0C68D2DB6033B00FDF51C /* cubeRoom.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = cubeRoom.jpg; sourceTree = "<group>"; };
+		3FE0C68E2DB6033B00FDF51C /* cubeRoom.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = cubeRoom.json; sourceTree = "<group>"; };
+		3FE0C68F2DB6033B00FDF51C /* cubeRoom_ao.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = cubeRoom_ao.jpg; sourceTree = "<group>"; };
+		3FE0C6902DB6033B00FDF51C /* cubeRoom_lambert.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = cubeRoom_lambert.jpg; sourceTree = "<group>"; };
+		3FE0C6912DB6033B00FDF51C /* cubeRoom_lambert_ao.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = cubeRoom_lambert_ao.jpg; sourceTree = "<group>"; };
+		3FE0C6922DB6033B00FDF51C /* cubeRoom_reflection.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = cubeRoom_reflection.jpg; sourceTree = "<group>"; };
+		3FE0C6932DB6033B00FDF51C /* sample.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = sample.jpg; sourceTree = "<group>"; };
+		3FE0C6952DB6033B00FDF51C /* RenderResult2.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = RenderResult2.jpg; sourceTree = "<group>"; };
+		3FE0C6962DB6033B00FDF51C /* sample.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = sample.jpg; sourceTree = "<group>"; };
+		3FE0C6972DB6033B00FDF51C /* scene.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = scene.json; sourceTree = "<group>"; };
+		3FE0C6982DB6033B00FDF51C /* Sphere.mesh */ = {isa = PBXFileReference; lastKnownFileType = file; path = Sphere.mesh; sourceTree = "<group>"; };
+		3FE0C6992DB6033B00FDF51C /* sphereArray.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = sphereArray.jpg; sourceTree = "<group>"; };
+		3FE0C69A2DB6033B00FDF51C /* sphereArray.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = sphereArray.json; sourceTree = "<group>"; };
+		3FE0C69B2DB6033B00FDF51C /* SphereArray.mesh */ = {isa = PBXFileReference; lastKnownFileType = file; path = SphereArray.mesh; sourceTree = "<group>"; };
+		3FE0C69D2DB6033B00FDF51C /* suzanne.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = suzanne.jpg; sourceTree = "<group>"; };
+		3FE0C69E2DB6033B00FDF51C /* suzanne.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = suzanne.json; sourceTree = "<group>"; };
+		3FE0C69F2DB6033B00FDF51C /* Suzanne.mesh */ = {isa = PBXFileReference; lastKnownFileType = file; path = Suzanne.mesh; sourceTree = "<group>"; };
+		3FE0C6A02DB6033B00FDF51C /* Suzanne Amber.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "Suzanne Amber.jpg"; sourceTree = "<group>"; };
+		3FE0C6A12DB6033B00FDF51C /* Suzanne Glass.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "Suzanne Glass.jpg"; sourceTree = "<group>"; };
+		3FE0C6A22DB6033B00FDF51C /* Suzanne Jade.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "Suzanne Jade.jpg"; sourceTree = "<group>"; };
+		3FE0C6A32DB6033B00FDF51C /* Suzanne Texture.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "Suzanne Texture.jpg"; sourceTree = "<group>"; };
+		3FE0C6A52DB6033B00FDF51C /* scene.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = scene.jpg; sourceTree = "<group>"; };
+		3FE0C6A62DB6033B00FDF51C /* scene.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = scene.json; sourceTree = "<group>"; };
+		3FE0C6A92DB6036E00FDF51C /* bokeh.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = bokeh.json; sourceTree = "<group>"; };
+		3FE0C6AA2DB60D7900FDF51C /* bokeh.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = bokeh.jpg; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -184,19 +208,10 @@
 			path = "/Users/jing/Projects/jingwood/cpp-graphics-module/src/ugm";
 			sourceTree = "<absolute>";
 		};
-		3FBD309D2DB5EB1800E1F801 /* test-scene */ = {
-			isa = PBXGroup;
-			children = (
-				3FBD309C2DB5EB0B00E1F801 /* scene.json */,
-			);
-			name = "test-scene";
-			path = "../../cpp-graphics-module/src/test-scene";
-			sourceTree = "<group>";
-		};
 		3FC0BD232C9201D700FC5F49 = {
 			isa = PBXGroup;
 			children = (
-				3FBD309D2DB5EB1800E1F801 /* test-scene */,
+				3FE0C6A82DB6033B00FDF51C /* scenes */,
 				3FC0BE0B2C92807700FC5F49 /* main.cpp */,
 				3FC0BE0A2C92807700FC5F49 /* raygen */,
 				3FC0BD2D2C9201D700FC5F49 /* Products */,
@@ -268,6 +283,71 @@
 			name = raygen;
 			path = ../src/raygen;
 			sourceTree = "<group>";
+		};
+		3FE0C6942DB6033B00FDF51C /* cubeRoom */ = {
+			isa = PBXGroup;
+			children = (
+				3FE0C68D2DB6033B00FDF51C /* cubeRoom.jpg */,
+				3FE0C68E2DB6033B00FDF51C /* cubeRoom.json */,
+				3FE0C68F2DB6033B00FDF51C /* cubeRoom_ao.jpg */,
+				3FE0C6902DB6033B00FDF51C /* cubeRoom_lambert.jpg */,
+				3FE0C6912DB6033B00FDF51C /* cubeRoom_lambert_ao.jpg */,
+				3FE0C6922DB6033B00FDF51C /* cubeRoom_reflection.jpg */,
+				3FE0C6932DB6033B00FDF51C /* sample.jpg */,
+			);
+			path = cubeRoom;
+			sourceTree = "<group>";
+		};
+		3FE0C69C2DB6033B00FDF51C /* sphereArray */ = {
+			isa = PBXGroup;
+			children = (
+				3FE0C6952DB6033B00FDF51C /* RenderResult2.jpg */,
+				3FE0C6962DB6033B00FDF51C /* sample.jpg */,
+				3FE0C6972DB6033B00FDF51C /* scene.json */,
+				3FE0C6982DB6033B00FDF51C /* Sphere.mesh */,
+				3FE0C6992DB6033B00FDF51C /* sphereArray.jpg */,
+				3FE0C69A2DB6033B00FDF51C /* sphereArray.json */,
+				3FE0C69B2DB6033B00FDF51C /* SphereArray.mesh */,
+			);
+			path = sphereArray;
+			sourceTree = "<group>";
+		};
+		3FE0C6A42DB6033B00FDF51C /* suzanne */ = {
+			isa = PBXGroup;
+			children = (
+				3FE0C69D2DB6033B00FDF51C /* suzanne.jpg */,
+				3FE0C69E2DB6033B00FDF51C /* suzanne.json */,
+				3FE0C69F2DB6033B00FDF51C /* Suzanne.mesh */,
+				3FE0C6A02DB6033B00FDF51C /* Suzanne Amber.jpg */,
+				3FE0C6A12DB6033B00FDF51C /* Suzanne Glass.jpg */,
+				3FE0C6A22DB6033B00FDF51C /* Suzanne Jade.jpg */,
+				3FE0C6A32DB6033B00FDF51C /* Suzanne Texture.jpg */,
+			);
+			path = suzanne;
+			sourceTree = "<group>";
+		};
+		3FE0C6A72DB6033B00FDF51C /* test */ = {
+			isa = PBXGroup;
+			children = (
+				3FE0C6AA2DB60D7900FDF51C /* bokeh.jpg */,
+				3FE0C6A92DB6036E00FDF51C /* bokeh.json */,
+				3FE0C6A52DB6033B00FDF51C /* scene.jpg */,
+				3FE0C6A62DB6033B00FDF51C /* scene.json */,
+			);
+			path = test;
+			sourceTree = "<group>";
+		};
+		3FE0C6A82DB6033B00FDF51C /* scenes */ = {
+			isa = PBXGroup;
+			children = (
+				3FE0C6942DB6033B00FDF51C /* cubeRoom */,
+				3FE0C69C2DB6033B00FDF51C /* sphereArray */,
+				3FE0C6A42DB6033B00FDF51C /* suzanne */,
+				3FE0C6A72DB6033B00FDF51C /* test */,
+			);
+			name = scenes;
+			path = ../resources/scenes;
+			sourceTree = SOURCE_ROOT;
 		};
 /* End PBXGroup section */
 
@@ -486,7 +566,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = R5L9H5VE5R;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				HEADER_SEARCH_PATHS = (
 					"$(PROJECT_DIR)/../../cpp-common-class/src/",
@@ -506,7 +586,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = R5L9H5VE5R;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				HEADER_SEARCH_PATHS = (
 					"$(PROJECT_DIR)/../../cpp-common-class/src/",
