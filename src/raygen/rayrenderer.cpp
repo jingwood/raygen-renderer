@@ -523,7 +523,7 @@ color4 RayRenderer::traceRay(const Ray& ray) const {
 //				return color3::zero;
 //			}
 
-			return clamp(this->shaderProvider->shade(rmi, ray, hi), 0.0f, 1.0f);
+            return this->shaderProvider->shade(rmi, ray, hi);
 		}
 	}
 
@@ -1214,8 +1214,7 @@ color3 RayBSDFShaderProvider::shade(const RayMeshIntersection& rmi, const Ray& i
 	BSDFParam param(*this->renderer, rmi, inray, hi);
 
 	if (m.emission > 0.0f) {
-		return (normalize(m.color) + 1.0f);
-//		return this->emissionShader.shade(param);
+		return this->emissionShader.shade(param);
 	}
 
 #ifdef CUT_OFF_BACK_TRACE
