@@ -29,6 +29,11 @@ public:
 	CubeMesh();
 };
 
+class SphereMesh: public Mesh {
+public:
+    SphereMesh(float radius = 1, int stacks = 16, int slices = 32);
+};
+
 }
 
 #endif /* polygons3d_h */
