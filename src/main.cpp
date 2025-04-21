@@ -313,8 +313,10 @@ int main(int argc, const char * argv[]) {
 	}
 	
 	if (scene.mainCamera) {
-		Camera& camera = *scene.mainCamera;
-		camera.focusOnObjectName = focusObjectName;
+		Camera* camera = scene.mainCamera;
+        if (!focusObjectName.isEmpty()) {
+            camera->focusOnObjectName = focusObjectName;
+        }
 	} else {
 		std::cout << "warning: main camera not specified\n";
 	}
