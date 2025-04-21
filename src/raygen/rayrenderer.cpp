@@ -24,8 +24,8 @@
 #define SPACE_TREE_NODE_ELEMENTS 3
 #define SPACE_TREE_MAX_DEPTH 2
 
-//#define USE_KDTREE
-#define USE_SPACETREE
+#define USE_KDTREE
+//#define USE_SPACETREE
 
 #ifdef USE_SPACETREE
 #define USE_BOUNDING_BOX
