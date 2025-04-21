@@ -116,6 +116,7 @@ struct RenderThreadContext {
 	float depthOfFieldScale;
 	float aperture;
 	float halfAperture;
+    float exposure = 1.0;
 };
 
 class RayRenderer : public Renderer {

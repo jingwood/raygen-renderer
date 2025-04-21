@@ -331,6 +331,10 @@ void SceneJsonLoader::readSceneObject(SceneObject& obj, const JSObject& jsobj, A
 		if (jsobj.hasProperty("aperture", JSType::JSType_Number)) {
 			camera->aperture = (float)jsobj.getNumberProperty("aperture");
 		}
+        
+        if (jsobj.hasProperty("exposure", JSType::JSType_Number)) {
+            camera->exposure = (float)jsobj.getNumberProperty("exposure");
+        }
 		
 		if (jsobj.hasProperty("focusOn", JSType::JSType_String)) {
 			const string* focusAtObjName = jsobj.getStringProperty("focusOn");

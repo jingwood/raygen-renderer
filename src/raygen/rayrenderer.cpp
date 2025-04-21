@@ -127,6 +127,7 @@ void RayRenderer::initRenderThreadContext(RenderThreadContext* ctx) {
 	ctx->depthOfFieldScale = (camera->depthOfField / length);
 	ctx->aperture = 1.0f / camera->aperture;
 	ctx->halfAperture = ctx->aperture * 0.5f;
+    ctx->exposure = camera->exposure;
 }
 
 void RayRenderer::clearRenderResult() {
@@ -337,24 +338,30 @@ void RayRenderer::render() {
 	
 	Scene& scene = *this->scene;
 	Camera& camera = *scene.mainCamera;
-	const SceneObject* focusOnObj = NULL;
-
+    
 	if (scene.mainCamera != NULL) {
 		
 		if (!camera.focusOnObjectName.isEmpty()) {
-			focusOnObj = scene.findObjectByName(camera.focusOnObjectName);
+            const SceneObject* focusOnObj = scene.findObjectByName(camera.focusOnObjectName);
 		
 			if (focusOnObj) {
 				
 				BoundingBox bbox = focusOnObj->getBoundingBox();
-				const float size = fmaxf(bbox.size.x, fmaxf(bbox.size.y, bbox.size.z));
-				const vec3 ray = camera.getWorldLocation() - bbox.origin;
-				const vec3 dir = ray.normalize();
-				
-				const float distance = size * 0.5 + size * 0.5f / tanf(camera.fieldOfView * 0.5f * M_PI / 180.f);
-
-				camera.location = bbox.origin + dir * distance;
+//				const float size = fmaxf(bbox.size.x, fmaxf(bbox.size.y, bbox.size.z));
+//				const vec3 ray = camera.getWorldLocation() - bbox.origin;
+//				const vec3 dir = ray.normalize();
+//				
+//				const float distance = size * 0.5 + size * 0.5f / tanf(camera.fieldOfView * 0.5f * M_PI / 180.f);
+//
+//				camera.location = bbox.origin + dir * distance;
 				camera.lookAt(bbox.origin, vec3::up);
+                
+                vec3 focusPoint = bbox.origin;
+                camera.depthOfField = length(camera.getWorldLocation() - focusPoint);
+                
+                const float length = fabsf(camera.viewFar - camera.viewNear);
+                ctx.depthOfField = camera.depthOfField;
+                ctx.depthOfFieldScale = (camera.depthOfField / length);
 			}
 		}
 		
@@ -456,7 +463,7 @@ color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const
 
 			color4f sampleColor;
 
-			if (ctx.depthOfField >= 0.001f && this->settings.dofSamples > 0) {
+			if (ctx.depthOfField >= 0.001f && ctx.aperture > 0 && this->settings.dofSamples > 0) {
 				F.x = dx * ctx.depthOfFieldScale;
 				F.y = dy * ctx.depthOfFieldScale;
 

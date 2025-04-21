@@ -115,6 +115,7 @@ public:
 	float viewFar = 50.0f;
 	float depthOfField = 0.0f;
 	float aperture = 1.8f;
+    float exposure = 1.0f;
 	string focusOnObjectName;
 
 	Camera() : SceneObject() {
