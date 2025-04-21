@@ -1,14 +1,16 @@
 {
 
 	"mainCamera": {
-		"location": [0, 0, 7.8],
+		"location": [0, 0, 4.8],
+		"exposure": 2,
 		"fieldOfView": 80
 	},
 	"top-light": {
 		"location": [0, 2.95, 0],
+		"angle": [180, 0, 0],
 		"scale": [1.5, 1, 1.5],
 		"mesh": { "type": "plane" },
-		"mat": { "color": "#fffff0", "emission": 20.0 }
+		"mat": { "color": "#fffff0", "emission": 7.0 }
 	},
 	"ceiling": {
 		"location": [ 0, 3, 0 ],
