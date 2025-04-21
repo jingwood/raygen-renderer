@@ -37,19 +37,14 @@ color3 DiffuseShader::shade(BSDFParam& param) {
 
 color3 EmissionShader::shade(BSDFParam& param) {
     const RayMeshIntersection& rmi = param.rmi;
-    
     const SceneObject& obj = rmi.rt->object;
     const Material& m = obj.material;
     
-    const vec3 lightray = rmi.hit - param.inray.origin;
-    
-    const float dist = powf(lightray.length(), -2.0f);
-    
-    return m.color * m.emission
-    //* fmax(dot(param., -param.hi.normal), 0.0f)
-    * dist
-    //	* (1.0f - block)
-    * fmax(dot(lightray, -param.hi.normal), 0.0f);
+    // 面がカメラ方向に向いているか確認
+    const vec3 viewDir = normalize(param.inray.origin - rmi.hit);
+    const float cosTheta = fmax(dot(param.hi.normal, viewDir), 0.0f);
+
+    return m.color * m.emission * cosTheta;
 }
 
 color3 GlossyShader::shade(BSDFParam& param) {
