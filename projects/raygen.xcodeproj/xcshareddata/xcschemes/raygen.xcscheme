@@ -57,12 +57,20 @@
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "/Users/jing/Projects/jingwood/raygen-renderer/resources/scenes/test/scene.json"
+            argument = "/Users/jing/Projects/jingwood/raygen-renderer/resources/scenes/sphereArray/scene.json"
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "-d 5 -s 20"
+            argument = "-s 10"
             isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "-s 50"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "-s 1"
+            isEnabled = "NO">
          </CommandLineArgument>
       </CommandLineArguments>
    </LaunchAction>
