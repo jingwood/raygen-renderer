@@ -301,10 +301,10 @@ void RayRenderer::transformObject(SceneTransformStack& transformStack, SceneObje
 		if (obj.getMeshes().size() > 0) {
 			this->areaLightSources.push_back(ls);
 		} else {
-			const float s1 = sinf(ANGLE_TO_DEGREE(obj.angle.x));
-			const float c1 = cosf(ANGLE_TO_DEGREE(obj.angle.x));
-			const float s2 = sinf(ANGLE_TO_DEGREE(obj.angle.y));
-			const float c2 = cosf(ANGLE_TO_DEGREE(obj.angle.y));
+			const float s1 = sinf(RADIAN_TO_DEGREE(obj.angle.x));
+			const float c1 = cosf(RADIAN_TO_DEGREE(obj.angle.x));
+			const float s2 = sinf(RADIAN_TO_DEGREE(obj.angle.y));
+			const float c2 = cosf(RADIAN_TO_DEGREE(obj.angle.y));
 			
 			vec3 v = (vec4(0.0f, 0.0f, 0.0f, 1.0f) * viewModelMatrix).xyz;
 			vec3 n = (vec4(normalize(vec3(c2 * s1, c2 * c1, s2)), 0.0f) * normalMatrix).xyz;
@@ -710,7 +710,7 @@ color3 RayRenderer::tracePointLight(const LightSource& lightSource, const RayMes
 
 			if (lightMat.spotRange > 0) {
 				// spot light
-				const float spotRangeDot = cosf(ANGLE_TO_DEGREE(lightMat.spotRange * 0.5f));
+				const float spotRangeDot = cosf(RADIAN_TO_DEGREE(lightMat.spotRange * 0.5f));
 				dotToLight = dotToLight * smoothstep(fmaxf(spotRangeDot - 0.1f, 0.0f), fminf(spotRangeDot + 0.1f, 1.0f), dotToLight);
 			}
 			else {
