@@ -24,14 +24,12 @@
 #define SPACE_TREE_NODE_ELEMENTS 3
 #define SPACE_TREE_MAX_DEPTH 2
 
-#define USE_KDTREE
-//#define USE_SPACETREE
+//#define USE_KDTREE
+#define USE_SPACETREE
 
 #ifdef USE_SPACETREE
 #define USE_BOUNDING_BOX
 #define USE_SPACE_TREE_IN_BOUNDING_BOX
-#else
-#define USE_KDTREE
 #endif
 
 #define AO_SAMPLES 50
@@ -40,7 +38,7 @@
 
 #define TRACE_LIGHT_TRIES 1
 #define TRACE_PATH_TRIES 1
-#define TRACE_MAX_DEPTH 6
+#define TRACE_MAX_DEPTH 3
 
 #define PP_GLOW_SIZE 0.1
 #define PP_GLOW_GAMMA 0.9f
@@ -372,6 +370,10 @@ void RayRenderer::render() {
 
 	this->clearTransformedScene();
 	this->transformScene();
+    
+    this->normalBuffer.createEmpty(ctx.renderSize.width, ctx.renderSize.height);
+    this->depthBuffer.createEmpty(ctx.renderSize.width, ctx.renderSize.height);
+    this->albedoBuffer.createEmpty(ctx.renderSize.width, ctx.renderSize.height);
 	
 	this->progressRate = 0;
 
@@ -384,6 +386,10 @@ void RayRenderer::render() {
 	for (std::thread &th : threads) {
 		th.join();
 	}
+    
+    Image3f denoised = this->denoiseImage(this->renderingImage, this->normalBuffer, this->depthBuffer, this->albedoBuffer);
+    Image::copy(denoised, this->renderingImage);  // 表示用バッファへ上書き
+//    Image::copy(this->albedoBuffer, this->renderingImage);
 	
 	if (this->settings.enableRenderingPostProcess) {
 		Image glowimg(this->renderingImage.getPixelDataFormat(), 32);
@@ -444,11 +450,31 @@ void RayRenderer::renderThread(const RenderThreadContext& ctx, const int threadI
 	}
 }
 
-color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const int x, const int y) const {
+color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const int x, const int y) {
 	
 	vec3 F(0, 0, -ctx.depthOfField);
 	color4f c = color4f(colors::black, this->settings.backColor.a);
 
+    // Guided Denoise Meta Data - Start
+    TraceRayInfo traceRayInfo;
+    this->traceRayInfo(ray, &traceRayInfo);
+    
+    // 法線バッファ（-1〜1 → 0〜1にマッピングして保存）
+    vec3 normalColor = traceRayInfo.hi.normal * 0.5f + 0.5f;
+    this->normalBuffer.setPixel(x, y, color4(normalColor, 1.0f));
+
+    // アルベド（diffuse color）
+    this->albedoBuffer.setPixel(x, y, traceRayInfo.mat->color); // or texture sampled color
+
+    // 深度（距離をグレースケール化）
+    float distance = (traceRayInfo.rmi.hit - cameraWorldPos).length();
+    float depth = distance / scene->mainCamera->viewFar;
+    depth = sqrt(depth);
+    depth = 1.0 - clamp(depth, 0.0f, 1.0f);
+    this->depthBuffer.setPixel(x, y, vec3(depth));
+    // Guided Denoise Meta Data - End
+
+    
 	const bool antialiasAvailable = this->settings.enableAntialias && this->settings.antialiasKernelSize > 1;
 	const int antialiasKernelSize = this->settings.enableAntialias ? this->settings.antialiasKernelSize : 1;
 	const float halfAntialiasSize = (float)antialiasKernelSize * 0.5f;
@@ -470,7 +496,6 @@ color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const
 				sampleColor = color3::zero;
 				
 				for (int i = 0; i < this->settings.dofSamples; i++) {
-                    
                     // square分布
 //					ray.origin.x = randomValue() * ctx.aperture - ctx.halfAperture;
 //					ray.origin.y = randomValue() * ctx.aperture - ctx.halfAperture;
@@ -506,7 +531,8 @@ color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const
 		}
 	}
 	
-	return c;
+    const color3f radiance = c * ctx.exposure;
+	return clamp(radiance, 0.0f, 1.0f);
 }
 
 color4 RayRenderer::traceRay(const Ray& ray) const {
@@ -519,15 +545,32 @@ color4 RayRenderer::traceRay(const Ray& ray) const {
 		this->calcVertexInterpolation(*rmi.rt, rmi.hit, &hi);
 
 		if (rmi.rt->object.visible) {
-//			if (rmi.rt->object.material.emission <= 0 && dot(-ray.dir, hi.normal) < 0) {
-//				return color3::zero;
-//			}
-
             return this->shaderProvider->shade(rmi, ray, hi);
 		}
 	}
 
 	return this->settings.backColor;
+}
+
+void RayRenderer::traceRayInfo(const Ray& ray, TraceRayInfo* info) const {
+
+    RayMeshIntersection rmi(NULL, 9999999.0f);
+    this->findNearestTriangle(ray, rmi);
+
+    if (rmi.rt != NULL) {
+        VertexInterpolation hi;
+        this->calcVertexInterpolation(*rmi.rt, rmi.hit, &hi);
+
+        if (rmi.rt->object.visible) {
+            info->hitted = true;
+            info->rmi = rmi;
+            info->hi = hi;
+            info->mat = &rmi.rt->object.material;
+            return;
+        }
+    }
+
+    info->hitted = false;
 }
 
 color3 RayRenderer::tracePath(const Ray& ray, void* shaderParam) const {
@@ -591,6 +634,35 @@ void RayRenderer::findNearestTriangle(const Ray& ray, RayMeshIntersection& rmi) 
 	#endif /* USE_KDTREE */
 }
 
+vec3 cosineWeightedPointInTriangle(const Triangle& tri, const vec3& normal) {
+    // まず三角形上のランダム点を取得（Barycentric Coordinates）
+    float u = randomValue();
+    float v = randomValue();
+
+    if (u + v > 1.0f) {
+        u = 1.0f - u;
+        v = 1.0f - v;
+    }
+
+    vec3 p = tri.v1 + (tri.v2 - tri.v1) * u + (tri.v3 - tri.v1) * v;
+
+    // コサイン加重分布のために法線に従ってサンプルを重み付け（微調整として最小限）
+    vec3 tangent = normalize(cross(normal, vec3(0.0072f, 1.0f, 0.0034f)));
+    vec3 bitangent = cross(normal, tangent);
+
+    // 円形分布に基づく局所座標系内でのオフセットを作成
+    float r = sqrtf(randomValue());
+    float theta = 2.0f * M_PI * randomValue();
+
+    float x = r * cosf(theta);
+    float y = r * sinf(theta);
+
+    vec3 offset = tangent * x + bitangent * y;
+    vec3 cosinePoint = p + offset * 0.001f; // 小さなオフセットで重みを近似
+
+    return cosinePoint;
+}
+
 color3 RayRenderer::traceAreaLight(const LightSource& lightSource, const RayMeshIntersection& rmi, const VertexInterpolation& srchi) const {
 	const SceneObject* obj = lightSource.object;
 	if (obj == NULL) return color3::zero;
@@ -605,11 +677,13 @@ color3 RayRenderer::traceAreaLight(const LightSource& lightSource, const RayMesh
 
 	const auto& triangle = *triangleList[rand() % triangleList.size()];
 
-	const vec3 p = randomPointInTriangle(triangle.tri);
+//    const vec3 p = randomPointInTriangle(triangle.tri);
+    const vec3 p = cosineWeightedPointInTriangle(triangle.tri, srchi.normal);
 	const vec3 lightRay = p - rmi.hit;
-	const vec3 lightNormal = normalize(lightRay);
+    const float dist2 = lightRay.length2();
+    const vec3 lightDir = lightRay.normalize();
 
-	const float dotObjectToLight = dot(lightNormal, srchi.normal);
+    const float dotObjectToLight = fmaxf(dot(lightDir, srchi.normal), 0.0f);
 
 	constexpr float maxt = 0.99999f;
 	
@@ -666,9 +740,13 @@ color3 RayRenderer::traceAreaLight(const LightSource& lightSource, const RayMesh
 
 		if (block < 1.0f) {
 			const auto& lightMat = lightSource.object->material;
-			const float dist = powf(lightRay.length(), -2.0f);
+            const float lightIntensity = lightMat.emission / (dist2 + 1e-4f);
+//			const float dist = powf(lightRay.length(), -2.0f);
+//            const float dist = 1.0f / (lightRay.length2() + 1e-4f);
+            const float dotLight = fmaxf(dot(-lightDir, lightHit.normal), 0.0f);
 			
-			return lightMat.color * (lightMat.emission * dist * dotObjectToLight * fabs(dot(-lightNormal, lightHit.normal)));
+//			return lightMat.color * (lightMat.emission * dist * dotObjectToLight * fabs(dot(-lightNormal, lightHit.normal)));
+            return lightMat.color * lightIntensity * dotObjectToLight * dotLight;
 		}
 	}
 
@@ -782,18 +860,13 @@ color3 RayRenderer::traceLight(const RayMeshIntersection& rmi, const VertexInter
 				pointLightColor += this->tracePointLight(ls, rmi, srchi);
 			}
 			pointLightColor /= (float)pointLightSourceCount;
-
-//			for (const LightSource& ls : pointLightSources) {
-//				pointLightColor += this->tracePointLight(ls, vertex, srchi);
-//			}
-
 		}
 	}
 
 	return areaLightColor + pointLightColor;
 }
 
-color3 RayRenderer::traceAllLight(const RayMeshIntersection& rmi, const VertexInterpolation& srchi) const {
+color3 RayRenderer::lambertTraceLights(const RayMeshIntersection& rmi, const VertexInterpolation& srchi) const {
 	
 	color3 areaLightColor, pointLightColor;
 
@@ -1207,6 +1280,54 @@ float RayRenderer::scanSpaceTreeRayBlocked(const RaySpaceTreeNode* node, const R
 
 #endif /* USE_SPACETREE */
 
+Image3f RayRenderer::denoiseImage(const Image3f& noisy, const Image3f& normal, const Image3f& depth, const Image3f& albedo) {
+  Image3f denoised;
+  denoised.createEmpty(noisy.width(), noisy.height());
+
+  const int radius = 2;
+  const float sigmaColor = 0.6f;
+  const float sigmaNormal = 0.4f;
+  const float sigmaDepth = 0.2f;
+
+  for (int y = 0; y < noisy.height(); ++y) {
+    for (int x = 0; x < noisy.width(); ++x) {
+      const vec3 centerColor = noisy.getPixel(x, y).rgb;
+      const vec3 centerNormal = normal.getPixel(x, y).rgb * 2.0f - 1.0f;
+      const float centerDepth = depth.getPixel(x, y).r;
+
+      vec3 sum = vec3(0);
+      float totalWeight = 0.0f;
+
+      for (int dy = -radius; dy <= radius; ++dy) {
+        for (int dx = -radius; dx <= radius; ++dx) {
+          int nx = x + dx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= noisy.width() || ny >= noisy.height()) continue;
+
+          const vec3 sampleColor = noisy.getPixel(nx, ny).rgb;
+          const vec3 sampleNormal = normal.getPixel(nx, ny).rgb * 2.0f - 1.0f;
+          const float sampleDepth = depth.getPixel(nx, ny).r;
+
+          float wColor = expf(-(sampleColor - centerColor).length2() / (2 * sigmaColor * sigmaColor));
+          float wNormal = expf(-(sampleNormal - centerNormal).length2() / (2 * sigmaNormal * sigmaNormal));
+          float wDepth = expf(-powf(sampleDepth - centerDepth, 2.0f) / (2 * sigmaDepth * sigmaDepth));
+
+          float weight = wColor * wNormal * wDepth;
+
+          sum += sampleColor * weight;
+          totalWeight += weight;
+        }
+      }
+
+      vec3 finalColor = (totalWeight > 0) ? sum / totalWeight : centerColor;
+      denoised.setPixel(x, y, color4(finalColor, 1.0f));
+    }
+  }
+
+  return denoised;
+}
+
+//--------------------------------------
+
 color3 RayBSDFShaderProvider::shade(const RayMeshIntersection& rmi, const Ray& inray,
                                     const VertexInterpolation& hi, void* shaderParam) {
 	const Material& m = rmi.rt->object.material;
@@ -1249,22 +1370,25 @@ color3 RayBSDFShaderProvider::shade(const RayMeshIntersection& rmi, const Ray& i
 		const BSDFParam* sp = (BSDFParam*)shaderParam;
 
 		if (sp->passes + 1 >= TRACE_MAX_DEPTH) {
-			if (1.0f - m.glossy - m.refraction > 0.00001f) {
-				const color3 light = this->renderer->traceLight(rmi, hi);
-
-				color3 color;
-				if (this->renderer->settings.enableColorSampling) {
-					color = m.color;
-
-					if (m.texture != NULL) {
-						color *= m.texture->sample(param.hi.uv * m.texTiling).rgb;
-					}
-				}
-
-				return light * color;
-			} else {
-				return color3::zero;
-			}
+            float rr = 0.9f;  // 高速化のため打ち切り率を上げる
+            if (randomValue() > rr) return color3::zero;
+            
+//			if (1.0f - m.glossy - m.refraction > 0.00001f) {
+//				const color3 light = this->renderer->traceLight(rmi, hi);
+//
+//				color3 color;
+//				if (this->renderer->settings.enableColorSampling) {
+//					color = m.color;
+//
+//					if (m.texture != NULL) {
+//						color *= m.texture->sample(param.hi.uv * m.texTiling).rgb;
+//					}
+//				}
+//
+//				return light * color;
+//			} else {
+//				return color3::zero;
+//			}
 		}
 
 		if (m.transparency > 0.001f) {
@@ -1278,10 +1402,8 @@ color3 RayBSDFShaderProvider::shade(const RayMeshIntersection& rmi, const Ray& i
 	else {
 		
 		color3 color;
-		
-		//int diffuse = 1.0f - m.glossy - m.refraction - m.transparency;
-		
-		const int samples = renderer->settings.samples;// (diffuse > 0.001f || m.roughness > 0.001f) ? renderer->samples : 1;
+				
+		const int samples = renderer->settings.samples;
 		
 		for (int i = 0; i < samples; i++) {
 			
@@ -1294,17 +1416,6 @@ color3 RayBSDFShaderProvider::shade(const RayMeshIntersection& rmi, const Ray& i
 		}
 		
 		return color /= (float)samples;
-//		color3 color;
-//		
-//			if (m.transparency > 0.01f) {
-//				color = mixShader.shade(param) * (1.0f - m.transparency) + transparencyShader.shade(param);
-//			}
-//			else {
-//				color = mixShader.shade(param);
-//			}
-//		}
-//		
-//		return color;
 	}
 }
 
@@ -1353,3 +1464,4 @@ color3 RayBSDFBakeShaderProvider::shade(const RayMeshIntersection& rmi, const Ra
 }
 
 }
+

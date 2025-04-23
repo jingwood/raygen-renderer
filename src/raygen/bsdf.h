@@ -25,6 +25,7 @@ public:
   const Ray& inray;
 	void* sourceShader = NULL;
 	int passes = 0;
+    bool enableLightSample = false;
 
 	BSDFParam(RayRenderer& renderer, const RayMeshIntersection& rmi, const Ray& inray, const VertexInterpolation& hi,
 		int passes = 0, void* sourceShader = NULL)

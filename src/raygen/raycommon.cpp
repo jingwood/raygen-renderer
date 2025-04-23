@@ -32,32 +32,52 @@ void RayRenderTriangle::precalc() {
 }
 
 bool RayRenderTriangle::intersectsRay(const Ray& ray, float maxt, float& t, vec3& hit) const {
-	
-//	if (dot(this->faceNormal, normalize(ray.dir)) < 0) {
+//	const float dist = -dot(this->ti.l, vec4(ray.origin, 1.0f)) / dot(this->ti.l, vec4(ray.dir, 0.0f));
+//
+//	if (dist < 0 || std::isnan(dist) || dist > maxt) {
 //		return false;
 //	}
-	
-	const float dist = -dot(this->ti.l, vec4(ray.origin, 1.0f)) / dot(this->ti.l, vec4(ray.dir, 0.0f));
+//
+//	t = dist;
+//	hit = ray.origin + ray.dir * dist;
+//
+//	vec3 c;
+//
+//	c = cross(this->v2 - this->v1, hit - this->v1);
+//	if (dot(this->ti.pd, c) < 0) return false;
+//
+//	c = cross(this->v3 - this->v2, hit - this->v2);
+//	if (dot(this->ti.pd, c) < 0) return false;
+//
+//	c = cross(this->v1 - this->v3, hit - this->v3);
+//	if (dot(this->ti.pd, c) < 0) return false;
+//
+//	return true;
+    const float EPSILON = 1e-6f;
+    vec3 edge1 = v2 - v1;
+    vec3 edge2 = v3 - v1;
+    vec3 h = cross(ray.dir, edge2);
+    float a = dot(edge1, h);
 
-	if (dist < 0 || std::isnan(dist) || dist > maxt) {
-		return false;
-	}
+    if (fabs(a) < EPSILON) return false;  // レイは三角形と平行
 
-	t = dist;
-	hit = ray.origin + ray.dir * dist;
+    float f = 1.0f / a;
+    vec3 s = ray.origin - v1;
+    float u = f * dot(s, h);
+    if (u < 0.0f || u > 1.0f) return false;
 
-	vec3 c;
+    vec3 q = cross(s, edge1);
+    float v = f * dot(ray.dir, q);
+    if (v < 0.0f || u + v > 1.0f) return false;
 
-	c = cross(this->v2 - this->v1, hit - this->v1);
-	if (dot(this->ti.pd, c) < 0) return false;
+    float tempT = f * dot(edge2, q);
+    if (tempT > EPSILON && tempT < maxt) {
+        t = tempT;
+        hit = ray.origin + ray.dir * t;
+        return true;
+    }
 
-	c = cross(this->v3 - this->v2, hit - this->v2);
-	if (dot(this->ti.pd, c) < 0) return false;
-
-	c = cross(this->v1 - this->v3, hit - this->v3);
-	if (dot(this->ti.pd, c) < 0) return false;
-
-	return true;
+    return false;
 }
 
 bool RayRenderTriangle::containsUVPoint(const vec2& uv) const {

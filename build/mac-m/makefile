@@ -1,7 +1,6 @@
 CXX=clang++
 AR=ar
 CXXFLAGS=-O3 -std=c++14 -pthread -Wall -arch arm64 #-pedantic
-#INC=-I../../inc/jpeg-6b -I../../inc/
 PD=../../      # Project Directory
 LIB=../../lib/mac-m/libjpeg.a ../../lib/mac-m/libpng.a ../../lib/mac-m/libz.a \
     ../../lib/mac-m/libucm.a ../../lib/mac-m/libugm.a
@@ -10,7 +9,7 @@ BIN=raygen
 DEV_BIN=libraygen.a
 
 # Change this to the folder (cpp-common-class, libucm)
-INC+=-I../../inc/cpp-common-class/src -I../../inc/cpp-graphics-module/src
+INC+=-I../../inc/cpp-common-class/src -I../../../cpp-graphics-module/src
 
 VPATH=../../src/raygen
 

@@ -20,9 +20,9 @@ color3 LambertShaderProvider::shade(const RayMeshIntersection& rmi, const Ray& i
     
     color3 light;
     
-    light = this->renderer->traceAllLight(rmi, hi) * (0.75f + m.roughness * 0.5f);
+    light = this->renderer->lambertTraceLights(rmi, hi) * 0.5f;
     
-    color3f color = light;// + light * powf(fmaxf(dot(hi.normal, rmi.hit - ), 0.0), m.glossy);
+    color3f color = light;
     
     if (this->renderer->settings.enableColorSampling) {
         color *= m.color;
@@ -47,7 +47,7 @@ color3 LambertWithAOShaderProvider::shade(const RayMeshIntersection& rmi, const 
         return m.color * m.emission;
     }
     
-    const color3 light = this->renderer->traceAllLight(rmi, hi) * (0.75f + m.roughness * 0.5f);
+    const color3 light = this->renderer->lambertTraceLights(rmi, hi) * (0.75f + m.roughness * 0.5f);
     
     color3 color = light * 0.2 + light * 0.8 * renderer->calcAO(rmi.hit, hi.normal, 2.0);
     
@@ -77,7 +77,7 @@ color3 LambertWithAOLightShaderProvider::shade(const RayMeshIntersection& rmi, c
         return this->renderer->tracePath(ThicknessRay(rmi.hit, inray.dir), shaderParam);
     }
     
-    const color3 light = this->renderer->traceAllLight(rmi, hi) * (0.75f + m.roughness * 0.5f);
+    const color3 light = this->renderer->lambertTraceLights(rmi, hi) * (0.75f + m.roughness * 0.5f);
     
     color3 color = (light + powf(renderer->calcAO(rmi.hit, hi.normal, 1.0f), 0.5f) * 0.5f);
     

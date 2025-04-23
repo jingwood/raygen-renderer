@@ -33,13 +33,13 @@
 #define ANTIALIAS_KERNEL_SIZE 1
 #define PIXEL_BLOCK 1
 #define TRACE_PATH_SAMPLES 2
-#define DOF_SAMPLES 1
+#define DOF_SAMPLES 128
 #define RENDER_THREADS 7
 #else /* RELEASE */
 #define ANTIALIAS_KERNEL_SIZE 3
 #define PIXEL_BLOCK 1
 #define TRACE_PATH_SAMPLES 20
-#define DOF_SAMPLES 5
+#define DOF_SAMPLES 16
 #define RENDER_THREADS 7
 #endif /* END OF DEBUG */
 
@@ -119,6 +119,14 @@ struct RenderThreadContext {
     float exposure = 1.0;
 };
 
+struct TraceRayInfo {
+    bool hitted;
+//    color4 color;
+    RayMeshIntersection rmi;
+    VertexInterpolation hi;
+    const Material* mat;
+};
+
 class RayRenderer : public Renderer {
 private:
 	int totalSampled = 0;
@@ -152,8 +160,9 @@ private:
 	color3 traceAreaLight(const LightSource& lightSource, const RayMeshIntersection& rmi, const VertexInterpolation& srchi) const;
 	color3 tracePointLight(const LightSource& lightSource, const RayMeshIntersection& rmi, const VertexInterpolation& srchi) const;
 
-	color4 renderPixel(const RenderThreadContext& ctx, Ray& ray, const int x, const int y) const;
+	color4 renderPixel(const RenderThreadContext& ctx, Ray& ray, const int x, const int y);
 	color4 traceRay(const Ray& ray) const;
+    void traceRayInfo(const Ray& ray, TraceRayInfo* info) const;
 
 protected:
 	RaySpaceTree tree;
@@ -170,7 +179,13 @@ protected:
 	void clearTransformedScene();
 	
 	std::map<const Mesh*, RayRenderTriangleList> meshTriangles;
-	
+    
+    // ガイド付きデノイズ用バッファ
+    Image3f normalBuffer;
+    Image3f albedoBuffer;
+    Image3f depthBuffer;
+    Image3f denoiseImage(const Image3f& noisy, const Image3f& normal, const Image3f& depth, const Image3f& albedo);
+    
 public:
 	RendererSettings settings;
 	RayShaderProvider* shaderProvider = NULL;
@@ -192,8 +207,9 @@ public:
 	
 	color3 tracePath(const Ray& ray, void* shaderParam) const;
 	color3 traceLight(const RayMeshIntersection& rmi, const VertexInterpolation& srchi, const int samples = 1) const;
-	color3 traceAllLight(const RayMeshIntersection& rmi, const VertexInterpolation& srchi) const;
-
+	color3 lambertTraceLights(const RayMeshIntersection& rmi, const VertexInterpolation& srchi) const;
+    std::vector<LightSource> getAllLights() { return this->pointLightSources; }
+    
     float calcAO(const vec3& vertex, const vec3& normal, const float traceDistance = RAY_MAX_DISTANCE) const;
 	float calcVertexAO(const Mesh& mesh, const int triangleIndex, const int vertexIndex, const float traceDistance);
 	void calcVertexColors(Mesh& mesh);

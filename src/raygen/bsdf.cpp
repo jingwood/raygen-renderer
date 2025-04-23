@@ -152,17 +152,37 @@ color3 MixShader::shade(BSDFParam& param) {
     color3 color;
     
     const float diffuse = 1.0f - m.glossy - m.refraction;
+//    
+//    if (diffuse > 0.00001f) {
+//        color += diffuseShader.shade(param) * diffuse;
+//    }
+//    
+//    if (m.glossy > 0.00001f) {
+//        color += glossyShader.shade(param) * m.glossy;
+//    }
+//    
+//    if (m.refraction > 0.00001f) {
+//        color += refractionShader.shade(param) * m.refraction;
+//    }
     
-    if (diffuse > 0.00001f) {
-        color += diffuseShader.shade(param) * diffuse;
-    }
+    //1. Fresnel反射を考慮
+//    •    物理的に、入射角度によって反射と屈折の比率が変化する。
+//    •    もしガラスや水のような質感を目指すなら：
+//    float fresnel = fresnelSchlick(dot(viewDir, normal), ior);
+//    color3 reflected = glossyShader.shade(param);
+//    color3 refracted = refractionShader.shade(param);
+//    color += reflected * fresnel + refracted * (1.0f - fresnel);
     
-    if (m.glossy > 0.00001f) {
-        color += glossyShader.shade(param) * m.glossy;
-    }
-    
-    if (m.refraction > 0.00001f) {
-        color += refractionShader.shade(param) * m.refraction;
+    float r = randomValue();
+    if (r < diffuse) {
+        param.enableLightSample = true;  // NEEを有効化
+        color = diffuseShader.shade(param) / diffuse;
+    } else if (r < diffuse + m.glossy) {
+        param.enableLightSample = false; // NEEを無効化
+        color = glossyShader.shade(param) / m.glossy;
+    } else {
+        param.enableLightSample = false; // NEEを無効化
+        color = refractionShader.shade(param) / m.refraction;
     }
     
     return color;
