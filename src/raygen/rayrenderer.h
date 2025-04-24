@@ -102,8 +102,8 @@ struct RendererSettings {
 	bool enableBakingPostProcess = true;
 	bool cullBackFace = false;
 
-	color3 worldColor = color3(1.0f, 0.95f, 0.9f) * 0.8f;
-	color4 backColor = color4(1.0f, 0.95f, 0.9f, 0.0f) * 0.1f;
+	color3 worldColor = color3(1.0f, 0.95f, 0.9f) * 0.1f;
+	color4 backColor = color4(1.0f, 0.95f, 0.9f, 0.0f) * 0.2f;
 };
 
 struct RenderThreadContext {
@@ -162,8 +162,8 @@ private:
 	color3 tracePointLight(const LightSource& lightSource, const RayTriangleIntersectionInfo& info, const VertexInterpolation& srchi) const;
 
 	color4 renderPixel(const RenderThreadContext& ctx, Ray& ray, const int x, const int y);
-	color4 traceRay(const Ray& ray) const;
-    void traceRaySurfaceInfo(const Ray& ray, ViewRaySurfaceInfo* info) const;
+	color4 traceEyeRay(const Ray& ray) const;
+    void traceEyeRaySurfaceInfo(const Ray& ray, ViewRaySurfaceInfo* info) const;
 
 protected:
 	RaySpaceTree tree;

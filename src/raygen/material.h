@@ -26,7 +26,7 @@ public:
 
 	color3 color = color3(0.8f, 0.8f, 0.8f);
 	
-    float diffuse = 0.5f;
+    float diffuse = 0.9f;
 	float glossy = 0.0f;
 	float roughness = 0.5f;
 	float transparency = 0.0f;

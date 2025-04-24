@@ -66,11 +66,11 @@
          </CommandLineArgument>
          <CommandLineArgument
             argument = "/Users/jing/Projects/jingwood/raygen-renderer/resources/scenes/cubeRoom/cubeRoom.json"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "/Users/jing/Projects/jingwood/raygen-renderer/resources/scenes/suzanne/suzanne.json"
-            isEnabled = "NO">
+            isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "-s 1"
@@ -82,11 +82,11 @@
          </CommandLineArgument>
          <CommandLineArgument
             argument = "-s 100"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "-s 200 -ds 256"
-            isEnabled = "NO">
+            isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "-s 10 -ds 10"

@@ -19,17 +19,18 @@ color3 DiffuseShader::shade(BSDFParam& param) {
     const SceneObject& obj = interInfo.triangle->object;
     const Material& m = obj.material;
     
-    const vec3 dir = randomRayInHemisphere(param.hi.normal);
+    const vec3 dir = randomRayInHemisphere(param.vi.normal);
     const Ray ray = ThicknessRay(interInfo.hit, dir);
     
-    color3f color = renderer.tracePath(ray, (void*)&param) + renderer.traceLight(interInfo, param.hi);
-    
-    if (renderer.settings.enableColorSampling) {
-        color *= m.color;
-        
-        if (m.texture != NULL) {
-            color *= m.texture->sample(param.hi.uv * m.texTiling).rgb;
-        }
+    color3f indirect = renderer.tracePath(ray, (void*)&param);
+    color3f direct = renderer.traceLight(interInfo, param.vi);
+
+    // Lambert拡散 + 拡散率
+    color3f color = (indirect + direct) * (m.color * m.diffuse) * (1.0f / M_PI);
+
+    // テクスチャがある場合は適用
+    if (renderer.settings.enableColorSampling && m.texture != NULL) {
+        color *= m.texture->sample(param.vi.uv * m.texTiling).rgb;
     }
     
     return color;
@@ -42,7 +43,7 @@ color3 EmissionShader::shade(BSDFParam& param) {
     
     // 面がカメラ方向に向いているか確認
     const vec3 viewDir = normalize(param.inray.origin - interInfo.hit);
-    const float cosTheta = fmax(dot(param.hi.normal, viewDir), 0.0f);
+    const float cosTheta = fmax(dot(param.vi.normal, viewDir), 0.0f);
 
     return m.color * m.emission * cosTheta;
 }
@@ -53,7 +54,7 @@ color3 GlossyShader::shade(BSDFParam& param) {
     const SceneObject& obj = param.interInfo.triangle->object;
     const Material& m = obj.material;
     
-    const vec3& normal = param.hi.normal;
+    const vec3& normal = param.vi.normal;
     
     vec3 r = reflect(param.inray.dir, normal);
     
@@ -114,7 +115,7 @@ color3 RefractionShader::shade(BSDFParam& param) {
     const auto& interInfo = param.interInfo;
     const Material& m = interInfo.triangle->object.material;
 
-    vec3 normal = param.hi.normal;
+    vec3 normal = param.vi.normal;
     vec3 inDir = param.inray.dir;
 
     float cosTheta = fmaxf(0.0f, dot(-inDir, normal));
@@ -144,7 +145,7 @@ color3 GlassShader::shade(BSDFParam& param) {
     const SceneObject& obj = interInfo.triangle->object;
     const Material& m = obj.material;
     
-    vec3 normal = param.hi.normal;
+    vec3 normal = param.vi.normal;
     
     vec3 dir = refract(param.inray.dir, normal, m.refractionRatio);
     
@@ -174,19 +175,19 @@ color3 AnisotropicShader::shade(BSDFParam& param) {
     const SceneObject& obj = interInfo.triangle->object;
     const Material& m = obj.material;
     
-    const vec3& normal = param.hi.normal;
+    const vec3& normal = param.vi.normal;
     
     const vec3 dir = randomRayInHemisphere(normal);
     const Ray ray = ThicknessRay(interInfo.hit, dir);
     
     color3 color = renderer.tracePath(ray, (void*)&param)
-        + renderer.traceLight(interInfo, param.hi);
+        + renderer.traceLight(interInfo, param.vi);
     
     if (renderer.settings.enableColorSampling) {
         color *= m.color;
         
         if (m.texture != NULL) {
-            color *= m.texture->sample(param.hi.uv * m.texTiling).rgb;
+            color *= m.texture->sample(param.vi.uv * m.texTiling).rgb;
         }
     }
     

@@ -21,15 +21,15 @@ class BSDFParam
 public:
 	RayRenderer& renderer;
     const RayTriangleIntersectionInfo& interInfo;
-	const VertexInterpolation& hi;
+	const VertexInterpolation& vi;
   const Ray& inray;
 	void* sourceShader = NULL;
 	int passes = 0;
     bool enableLightSample = false;
 
-	BSDFParam(RayRenderer& renderer, const RayTriangleIntersectionInfo& interInfo, const Ray& inray, const VertexInterpolation& hi,
+	BSDFParam(RayRenderer& renderer, const RayTriangleIntersectionInfo& interInfo, const Ray& inray, const VertexInterpolation& vi,
 		int passes = 0, void* sourceShader = NULL)
-	: renderer(renderer), hi(hi), interInfo(interInfo), inray(inray), sourceShader(sourceShader), passes(passes)
+	: renderer(renderer), vi(vi), interInfo(interInfo), inray(inray), sourceShader(sourceShader), passes(passes)
 	{ }
 };
 

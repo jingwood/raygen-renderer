@@ -472,7 +472,7 @@ color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const
 
     // Guided Denoise Meta Data - Start
     ViewRaySurfaceInfo traceRayInfo;
-    this->traceRaySurfaceInfo(ray, &traceRayInfo);
+    this->traceEyeRaySurfaceInfo(ray, &traceRayInfo);
     
     // 法線バッファ（-1〜1 → 0〜1にマッピングして保存）
     vec3 normalColor = traceRayInfo.hi.normal * 0.5f + 0.5f;
@@ -530,14 +530,14 @@ color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const
 
                     ray.dir = (F - ray.origin).normalize();
 
-					sampleColor += this->traceRay(ray);
+					sampleColor += this->traceEyeRay(ray);
 //				}
 				
 //				sampleColor *= dofSampleInv;
 			} else {
 				ray.origin = vec3(randomValue() * 0.0001f, randomValue() * 0.0001f, 0);
 				ray.dir = vec3(dx, dy, -50).normalize();
-				sampleColor = this->traceRay(ray);
+				sampleColor = this->traceEyeRay(ray);
 			}
 			
 //			if (antialiasAvailable) {
@@ -553,7 +553,7 @@ color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const
 	return clamp(radiance, 0.0f, 1.0f);
 }
 
-color4 RayRenderer::traceRay(const Ray& ray) const {
+color4 RayRenderer::traceEyeRay(const Ray& ray) const {
 
 //	RayMeshIntersection rmi(NULL, 9999999.0f);
     RayTriangleIntersectionInfo interInfo;
@@ -571,7 +571,7 @@ color4 RayRenderer::traceRay(const Ray& ray) const {
 	return this->settings.backColor;
 }
 
-void RayRenderer::traceRaySurfaceInfo(const Ray& ray, ViewRaySurfaceInfo* surfaceInfo) const {
+void RayRenderer::traceEyeRaySurfaceInfo(const Ray& ray, ViewRaySurfaceInfo* surfaceInfo) const {
 
     RayTriangleIntersectionInfo interInfo;
     this->findNearestTriangle(ray, interInfo);
@@ -603,7 +603,9 @@ color3 RayRenderer::tracePath(const Ray& ray, void* shaderParam) const {
         return this->shaderProvider->shade(info, ray, vi, shaderParam);
     }
 
-	return this->settings.backColor;
+//    return color3::zero;
+    return this->settings.worldColor;
+    //	return this->settings.backColor;
 }
 
 void RayRenderer::findNearestTriangle(const Ray& ray, RayTriangleIntersectionInfo& info) const {
@@ -1417,7 +1419,10 @@ color3 RayBSDFShaderProvider::shade(const RayTriangleIntersectionInfo& interInfo
     if (sp != NULL) {
         if (sp->passes >= MAX_TRACE_DEPTH) {
             float rr = 0.5f;  // 高速化のため打ち切り率を上げる
-            if (randomValue() > rr) return color3::zero;
+            if (randomValue() > rr) {
+                return color3::zero;
+//                return renderer->settings.worldColor;
+            }
         }
         param.passes = sp->passes + 1;
 
@@ -1439,6 +1444,7 @@ color3 RayBSDFShaderProvider::shade(const RayTriangleIntersectionInfo& interInfo
 				return transparencyShader.shade(param);
 			} else {
 				return color3::zero;
+//                return renderer->settings.worldColor;
 			}
 		}
 		else if (m.refraction < 0.001f && m.glossy > 0.001f) {
@@ -1453,7 +1459,8 @@ color3 RayBSDFShaderProvider::shade(const RayTriangleIntersectionInfo& interInfo
 //		}
 //		else {
 			return color3::zero;
-		}
+//            return renderer->settings.worldColor;
+        }
 	}
 #endif /* CUT_OFF_BACK_TRACE */
 
