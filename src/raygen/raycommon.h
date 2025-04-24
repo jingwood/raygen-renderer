@@ -37,6 +37,8 @@ inline vec3 reflect(const vec3& d, const vec3& normal) {
 //	return normalize(d * r - normal * ((into ? 1 : -1) * (c * r + sqrt(t))));
 //}
 
+vec3 cosineWeightedDirection(const vec3& normal);
+
 inline Ray ThicknessRay(const vec3& origin, const vec3& dir) {
 	return Ray(origin + dir.normalize() * SURFACE_THICKNESS, dir);
 }

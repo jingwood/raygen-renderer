@@ -11,6 +11,29 @@
 
 namespace raygen {
 
+vec3 cosineWeightedDirection(const vec3& normal) {
+    float r1 = randomValue();
+    float r2 = randomValue();
+
+    float theta = acos(sqrt(1.0f - r1));
+    float phi = 2.0f * M_PI * r2;
+
+    float x = sin(theta) * cos(phi);
+    float y = sin(theta) * sin(phi);
+    float z = cos(theta);
+
+    // 局所座標からグローバルへ変換
+    vec3 tangent;
+    if (fabs(normal.x) > fabs(normal.y)) {
+        tangent = normalize(cross(vec3(0.0f, 1.0f, 0.0f), normal));
+    } else {
+        tangent = normalize(cross(vec3(1.0f, 0.0f, 0.0f), normal));
+    }
+    vec3 bitangent = cross(normal, tangent);
+
+    return normalize(tangent * x + bitangent * y + normal * z);
+}
+
 void RenderMeshTriangle::precalc() {
 	vec3 pd = cross(this->v2 - this->v1, this->v3 - this->v2);
 

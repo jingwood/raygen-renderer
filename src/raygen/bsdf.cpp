@@ -19,7 +19,8 @@ color3 DiffuseShader::shade(BSDFParam& param) {
     const SceneObject& obj = interInfo.triangle->object;
     const Material& m = obj.material;
     
-    const vec3 dir = randomRayInHemisphere(param.vi.normal);
+//    const vec3 dir = randomRayInHemisphere(param.vi.normal);
+    const vec3 dir = cosineWeightedDirection(param.vi.normal);
     const Ray ray = ThicknessRay(interInfo.hit, dir);
     
     color3f indirect = renderer.tracePath(ray, (void*)&param);
@@ -48,30 +49,57 @@ color3 EmissionShader::shade(BSDFParam& param) {
     return m.color * m.emission * cosTheta;
 }
 
-color3 GlossyShader::shade(BSDFParam& param) {
-    const RayRenderer& renderer = param.renderer;
-    
-    const SceneObject& obj = param.interInfo.triangle->object;
-    const Material& m = obj.material;
-    
-    const vec3& normal = param.vi.normal;
-    
-    vec3 r = reflect(param.inray.dir, normal);
-    
-    if (m.roughness > 0.0f) {
-        r = (r + randomRayInHemisphere(normal) * m.roughness).normalize();
-    }
-    
-    const color3f color = renderer.tracePath(ThicknessRay(param.interInfo.hit, r), (void*)&param);
-    
-    return color * m.color;
-}
-
 inline float fresnelSchlick(float cosTheta, float refractiveIndex) {
     float r0 = (1.0f - refractiveIndex) / (1.0f + refractiveIndex);
     r0 = r0 * r0;
     return r0 + (1.0f - r0) * powf(1.0f - cosTheta, 5.0f);
 }
+
+color3 GlossyShader::shade(BSDFParam& param) {
+//    const RayRenderer& renderer = param.renderer;
+//    
+//    const SceneObject& obj = param.interInfo.triangle->object;
+//    const Material& m = obj.material;
+//    
+//    const vec3& normal = param.vi.normal;
+//    
+//    vec3 r = reflect(param.inray.dir, normal);
+//    
+//    if (m.roughness > 0.0f) {
+//        r = (r + cosineWeightedDirection(normal) * m.roughness).normalize();
+//    }
+//    
+//    const color3f color = renderer.tracePath(ThicknessRay(param.interInfo.hit, r), (void*)&param);
+//    
+//    return color * m.color;
+    
+    const RayRenderer& renderer = param.renderer;
+    const SceneObject& obj = param.interInfo.triangle->object;
+    const Material& m = obj.material;
+    
+    const vec3& normal = param.vi.normal;
+    vec3 viewDir = param.inray.dir;
+
+    // 理想的な反射ベクトル
+    vec3 idealReflect = reflect(viewDir, normal);
+
+    // フレネル係数の計算（Schlickの近似）
+    float cosTheta = fmaxf(dot(normal, viewDir), 0.0f);
+    float fresnel = fresnelSchlick(cosTheta, m.glossy);
+
+    // 反射ベクトルの roughness による拡散
+    vec3 reflectDir = idealReflect;
+    if (m.roughness > 0.0f) {
+        reflectDir = (reflectDir + cosineWeightedDirection(normal) * m.roughness).normalize();
+    }
+
+    // 反射レイをトレース
+    const color3f reflectedColor = renderer.tracePath(ThicknessRay(param.interInfo.hit, reflectDir), (void*)&param);
+
+    // フレネルによる調整 + マテリアル色
+    return reflectedColor * fresnel * m.color;
+}
+
 
 inline vec3 refract(const vec3& d, const vec3& normal, float eta) {
     float cosi = clamp(dot(d, normal), -1.0f, 1.0f);
@@ -119,11 +147,11 @@ color3 RefractionShader::shade(BSDFParam& param) {
     vec3 inDir = param.inray.dir;
 
     float cosTheta = fmaxf(0.0f, dot(-inDir, normal));
-    float fresnel = fresnelSchlick(cosTheta, m.refractionRatio);
+    float fresnel = fresnelSchlick(cosTheta, m.refraction);
 
-    vec3 refractedDir = refract(inDir, normal, m.refractionRatio);
+    vec3 refractedDir = refract(inDir, normal, 1.5f);
     if (m.roughness > 0.0f) {
-        refractedDir = (refractedDir + randomRayInHemisphere(normal) * m.roughness).normalize();
+        refractedDir = (refractedDir + cosineWeightedDirection(normal) * m.roughness).normalize();
     }
 
     // 屈折レイをトレース
@@ -150,7 +178,7 @@ color3 GlassShader::shade(BSDFParam& param) {
     vec3 dir = refract(param.inray.dir, normal, m.refractionRatio);
     
     if (m.roughness > 0.0f) {
-        dir = (dir + randomRayInHemisphere(normal) * m.roughness).normalize();
+        dir = (dir + cosineWeightedDirection(normal) * m.roughness).normalize();
     }
     
     const color3f color = renderer.tracePath(ThicknessRay(interInfo.hit, dir), (void*)&param);
@@ -177,7 +205,7 @@ color3 AnisotropicShader::shade(BSDFParam& param) {
     
     const vec3& normal = param.vi.normal;
     
-    const vec3 dir = randomRayInHemisphere(normal);
+    const vec3 dir = cosineWeightedDirection(normal);
     const Ray ray = ThicknessRay(interInfo.hit, dir);
     
     color3 color = renderer.tracePath(ray, (void*)&param)

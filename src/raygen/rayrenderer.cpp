@@ -530,7 +530,7 @@ color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const
 
                     ray.dir = (F - ray.origin).normalize();
 
-					sampleColor += this->traceEyeRay(ray);
+					sampleColor = this->traceEyeRay(ray);
 //				}
 				
 //				sampleColor *= dofSampleInv;
@@ -949,29 +949,6 @@ static vec3 generateHemisphereVectorByEulerAngles(const float a1, const float a2
 	return dir;
 }
 #endif /* AO_RANDOM_HEMISPHERE_RAY */
-
-vec3 cosineWeightedDirection(const vec3& normal) {
-    float r1 = randomValue();
-    float r2 = randomValue();
-
-    float theta = acos(sqrt(1.0f - r1));
-    float phi = 2.0f * M_PI * r2;
-
-    float x = sin(theta) * cos(phi);
-    float y = sin(theta) * sin(phi);
-    float z = cos(theta);
-
-    // 局所座標からグローバルへ変換
-    vec3 tangent;
-    if (fabs(normal.x) > fabs(normal.y)) {
-        tangent = normalize(cross(vec3(0.0f, 1.0f, 0.0f), normal));
-    } else {
-        tangent = normalize(cross(vec3(1.0f, 0.0f, 0.0f), normal));
-    }
-    vec3 bitangent = cross(normal, tangent);
-
-    return normalize(tangent * x + bitangent * y + normal * z);
-}
 
 float RayRenderer::calcAO(const vec3& vertex, const vec3& normal, const float traceDistance) const {
 //	int s = 0;
