@@ -22,11 +22,11 @@ private:
 	void bakeMeshThread(const Mesh& mesh, const int threadId);
 	void bakeMeshThread2(const Mesh& mesh, const int threadId);
 	void bakeMeshThread3(const Mesh& mesh, const int threadId);
-	color3 bakeMeshFragment(const RayRenderTriangle& rt, const vec2& uv);
-	color3 bakePoint(const RayRenderTriangle& rt, const vec2& uv);
+	color3 bakeMeshFragment(const RenderMeshTriangle& rt, const vec2& uv);
+	color3 bakePoint(const RenderMeshTriangle& rt, const vec2& uv);
 	
 	KDNode2D<Triangle2D> tree;
-	void fillVertex(const RayRenderTriangle& rt, const vec2& v);
+	void fillVertex(const RenderMeshTriangle& rt, const vec2& v);
 	byte* imgbits = NULL;
 
 public:

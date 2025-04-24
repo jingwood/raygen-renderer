@@ -57,6 +57,10 @@
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
+            argument = "-r 360"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
             argument = "/Users/jing/Projects/jingwood/raygen-renderer/resources/scenes/test/bokeh.json"
             isEnabled = "NO">
          </CommandLineArgument>
@@ -69,23 +73,27 @@
             isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "-s 10 -ds 1"
-            isEnabled = "YES">
+            argument = "-s 1"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "-s 10"
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "-s 100"
-            isEnabled = "NO">
-         </CommandLineArgument>
-         <CommandLineArgument
-            argument = "-s 100 -ds 128"
-            isEnabled = "NO">
+            isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "-s 200 -ds 256"
             isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "-s 10 -d 2"
+            argument = "-s 10 -ds 10"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "-s 10 -d 5"
             isEnabled = "NO">
          </CommandLineArgument>
       </CommandLineArguments>

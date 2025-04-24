@@ -352,7 +352,7 @@ void BakeRenderer::bakeMeshThread3(const Mesh& mesh, const int threadId) {
 	}
 }
 
-void BakeRenderer::fillVertex(const RayRenderTriangle& rt, const vec2& v) {
+void BakeRenderer::fillVertex(const RenderMeshTriangle& rt, const vec2& v) {
 	const int imgw = this->renderingImage.width();
 	const int imgh = this->renderingImage.height();
 	
@@ -385,7 +385,7 @@ void BakeRenderer::fillVertex(const RayRenderTriangle& rt, const vec2& v) {
 	}
 }
 
-color3 BakeRenderer::bakeMeshFragment(const RayRenderTriangle& rt, const vec2& uv) {
+color3 BakeRenderer::bakeMeshFragment(const RenderMeshTriangle& rt, const vec2& uv) {
 	color3 c;
 	
 	if (this->settings.enableAntialias) {
@@ -404,7 +404,7 @@ color3 BakeRenderer::bakeMeshFragment(const RayRenderTriangle& rt, const vec2& u
 	return c;
 }
 
-color3 BakeRenderer::bakePoint(const RayRenderTriangle& rt, const vec2& uv) {
+color3 BakeRenderer::bakePoint(const RenderMeshTriangle& rt, const vec2& uv) {
 	const vec2 f1 = rt.uv4 - uv;
 	const vec2 f2 = rt.uv5 - uv;
 	const vec2 f3 = rt.uv6 - uv;
@@ -415,13 +415,13 @@ color3 BakeRenderer::bakePoint(const RayRenderTriangle& rt, const vec2& uv) {
 	const float a3 = cross(f1, f2) * a;
 	
 	const vec3 p = rt.v1 * a1 + rt.v2 * a2 + rt.v3 * a3;
-	RayMeshIntersection rmi(&rt, 0, p);
+    RayTriangleIntersectionInfo info(&rt, 0, p);
 	
 	VertexInterpolation hi;
 	hi.uv = uv;
 	hi.normal = rt.n1 * a1 + rt.n2 * a2 + rt.n3 * a3;
 	
-	return this->shaderProvider->shade(rmi, ThicknessRay(p, -hi.normal), hi);
+	return this->shaderProvider->shade(info, ThicknessRay(p, -hi.normal), hi);
 }
 
 void BakeRenderer::bakeCubeTexture(CubeTexture& cubetex, const vec3& cameraLocation) {

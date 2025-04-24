@@ -11,8 +11,8 @@
 
 namespace raygen {
 
-color3 LambertShaderProvider::shade(const RayMeshIntersection& rmi, const Ray& inray, const VertexInterpolation& hi, void* shaderParam) {
-    const Material& m = rmi.rt->object.material;
+color3 LambertShaderProvider::shade(const RayTriangleIntersectionInfo& interInfo, const Ray& inray, const VertexInterpolation& hi, void* shaderParam) {
+    const Material& m = interInfo.triangle->object.material;
     
     if (m.emission > 0) {
         return m.color * m.emission;
@@ -20,7 +20,7 @@ color3 LambertShaderProvider::shade(const RayMeshIntersection& rmi, const Ray& i
     
     color3 light;
     
-    light = this->renderer->lambertTraceLights(rmi, hi) * 0.5f;
+    light = this->renderer->lambertTraceLights(interInfo, hi) * 0.5f;
     
     color3f color = light;
     
@@ -34,22 +34,22 @@ color3 LambertShaderProvider::shade(const RayMeshIntersection& rmi, const Ray& i
     
     if (m.transparency > 0.0f) {
         color = m.color * (light + 0.5f) * (1.0f - m.transparency)
-        + this->renderer->tracePath(ThicknessRay(rmi.hit, inray.dir), shaderParam) * m.transparency;
+        + this->renderer->tracePath(ThicknessRay(interInfo.hit, inray.dir), shaderParam) * m.transparency;
     }
     
     return color;
 }
 
-color3 LambertWithAOShaderProvider::shade(const RayMeshIntersection& rmi, const Ray& inray, const VertexInterpolation& hi, void* shaderParam) {
-    const Material& m = rmi.rt->object.material;
+color3 LambertWithAOShaderProvider::shade(const RayTriangleIntersectionInfo& interInfo, const Ray& inray, const VertexInterpolation& hi, void* shaderParam) {
+    const Material& m = interInfo.triangle->object.material;
     
     if (m.emission > 0) {
         return m.color * m.emission;
     }
     
-    const color3 light = this->renderer->lambertTraceLights(rmi, hi) * (0.75f + m.roughness * 0.5f);
+    const color3 light = this->renderer->lambertTraceLights(interInfo, hi) * (0.75f + m.roughness * 0.5f);
     
-    color3 color = light * 0.2 + light * 0.8 * renderer->calcAO(rmi.hit, hi.normal, 2.0);
+    color3 color = light * 0.2 + light * 0.8 * renderer->calcAO(interInfo.hit, hi.normal, 2.0);
     
     if (this->renderer->settings.enableColorSampling) {
         color *= m.color;
@@ -60,26 +60,26 @@ color3 LambertWithAOShaderProvider::shade(const RayMeshIntersection& rmi, const 
     }
     
     if (m.transparency > 0.0f) {
-        color += this->renderer->tracePath(ThicknessRay(rmi.hit, inray.dir), shaderParam) * m.transparency;
+        color += this->renderer->tracePath(ThicknessRay(interInfo.hit, inray.dir), shaderParam) * m.transparency;
     }
     
     return color;
 }
 
-color3 LambertWithAOLightShaderProvider::shade(const RayMeshIntersection& rmi, const Ray& inray, const VertexInterpolation& hi, void* shaderParam) {
-    const Material& m = rmi.rt->object.material;
+color3 LambertWithAOLightShaderProvider::shade(const RayTriangleIntersectionInfo& interInfo, const Ray& inray, const VertexInterpolation& hi, void* shaderParam) {
+    const Material& m = interInfo.triangle->object.material;
     
     if (m.emission > 0.0f) {
         return m.color * m.emission;
     }
     
     if (!this->renderer->settings.enableColorSampling && m.transparency > 0.0f) {
-        return this->renderer->tracePath(ThicknessRay(rmi.hit, inray.dir), shaderParam);
+        return this->renderer->tracePath(ThicknessRay(interInfo.hit, inray.dir), shaderParam);
     }
     
-    const color3 light = this->renderer->lambertTraceLights(rmi, hi) * (0.75f + m.roughness * 0.5f);
+    const color3 light = this->renderer->lambertTraceLights(interInfo, hi) * (0.75f + m.roughness * 0.5f);
     
-    color3 color = (light + powf(renderer->calcAO(rmi.hit, hi.normal, 1.0f), 0.5f) * 0.5f);
+    color3 color = (light + powf(renderer->calcAO(interInfo.hit, hi.normal, 1.0f), 0.5f) * 0.5f);
     
     if (this->renderer->settings.enableColorSampling) {
         color *= m.color;
@@ -91,7 +91,7 @@ color3 LambertWithAOLightShaderProvider::shade(const RayMeshIntersection& rmi, c
     
     if (m.transparency > 0.0f) {
         color = color * (1.0f - m.transparency)
-        + this->renderer->tracePath(ThicknessRay(rmi.hit, inray.dir), shaderParam) * m.transparency;
+        + this->renderer->tracePath(ThicknessRay(interInfo.hit, inray.dir), shaderParam) * m.transparency;
     }
     
     return color;

@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <iostream>
 #include <thread>
+#include <cassert>
 
 #include "ugm/functions.h"
 #include "ugm/imgfilter.h"
@@ -24,8 +25,8 @@
 #define SPACE_TREE_NODE_ELEMENTS 3
 #define SPACE_TREE_MAX_DEPTH 2
 
-//#define USE_KDTREE
-#define USE_SPACETREE
+#define USE_KDTREE
+//#define USE_SPACETREE
 
 #ifdef USE_SPACETREE
 #define USE_BOUNDING_BOX
@@ -38,10 +39,10 @@
 
 #define TRACE_LIGHT_TRIES 1
 #define TRACE_PATH_TRIES 1
-#define TRACE_MAX_DEPTH 3
+#define MAX_TRACE_DEPTH 3
 
-#define PP_GLOW_SIZE 0.1
-#define PP_GLOW_GAMMA 0.9f
+#define PP_GLOW_SIZE_ASPECT 0.1
+#define PP_GLOW_GAMMA 1.2
 #define PP_GLOW_KERNEL 11
 
 namespace raygen {
@@ -244,7 +245,7 @@ void RayRenderer::transformObject(SceneTransformStack& transformStack, SceneObje
 				n2 = (vec4(n2, 0.0f) * normalMatrix).xyz.normalize();
 				n3 = (vec4(n3, 0.0f) * normalMatrix).xyz.normalize();
 				
-				RayRenderTriangle* rt = new RayRenderTriangle(v1, v2, v3,
+				RenderMeshTriangle* rt = new RenderMeshTriangle(v1, v2, v3,
 															  n1, n2, n3,
 															  uv1, uv2, uv3,
 															  uv4, uv5, uv6,
@@ -324,6 +325,19 @@ void RayRenderer::transformObject(SceneTransformStack& transformStack, SceneObje
 	transformStack.popObject();
 }
 
+int calculateGaussianKernelSize(int width, int height) {
+    int maxDim = std::max(width, height);
+
+    // 画像サイズに応じたカーネルサイズ係数
+    float factor = 0.01f;  // 1% をカーネルサイズとする目安
+    int kernelSize = int(maxDim * factor);
+
+    // 奇数に丸め、最小3、最大25に制限
+    kernelSize = std::max(3, std::min(25, kernelSize | 1));  // 奇数へ
+
+    return kernelSize;
+}
+
 void RayRenderer::render() {
 	if (this->shaderProvider == NULL) return;
 	
@@ -389,17 +403,18 @@ void RayRenderer::render() {
     
     Image3f denoised = this->denoiseImage(this->renderingImage, this->normalBuffer, this->depthBuffer, this->albedoBuffer);
     Image::copy(denoised, this->renderingImage);  // 表示用バッファへ上書き
-//    Image::copy(this->albedoBuffer, this->renderingImage);
 	
 	if (this->settings.enableRenderingPostProcess) {
 		Image glowimg(this->renderingImage.getPixelDataFormat(), 32);
 		Image::copy(this->renderingImage, glowimg);
-		glowimg.resize((int)((float)this->renderingImage.width() * PP_GLOW_SIZE),
-			(int)((float)this->renderingImage.height() * PP_GLOW_SIZE));
-		img::gamma(glowimg, PP_GLOW_GAMMA);
-		img::gaussBlur(glowimg, PP_GLOW_KERNEL);
+		glowimg.resize((int)((float)this->renderingImage.width() * PP_GLOW_SIZE_ASPECT),
+			(int)((float)this->renderingImage.height() * PP_GLOW_SIZE_ASPECT));
+        img::thresholdSoft(glowimg, 0.3f, 1);
+        img::gamma(glowimg, PP_GLOW_GAMMA);
+        int kernelSize = calculateGaussianKernelSize(glowimg.width(), glowimg.height());
+        img::gaussBlur(glowimg, kernelSize);
 		glowimg.resize(this->renderingImage.getSize());
-		img::calc(this->renderingImage, glowimg, img::CalcMethods::Lighter, 0.35f);
+		img::calc(this->renderingImage, glowimg, img::CalcMethods::Add, 0.35f);
 	}
 }
 
@@ -453,11 +468,11 @@ void RayRenderer::renderThread(const RenderThreadContext& ctx, const int threadI
 color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const int x, const int y) {
 	
 	vec3 F(0, 0, -ctx.depthOfField);
-	color4f c = color4f(colors::black, this->settings.backColor.a);
+//	color4f c = color4f(colors::black, this->settings.backColor.a);
 
     // Guided Denoise Meta Data - Start
-    TraceRayInfo traceRayInfo;
-    this->traceRayInfo(ray, &traceRayInfo);
+    ViewRaySurfaceInfo traceRayInfo;
+    this->traceRaySurfaceInfo(ray, &traceRayInfo);
     
     // 法線バッファ（-1〜1 → 0〜1にマッピングして保存）
     vec3 normalColor = traceRayInfo.hi.normal * 0.5f + 0.5f;
@@ -467,7 +482,7 @@ color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const
     this->albedoBuffer.setPixel(x, y, traceRayInfo.mat->color); // or texture sampled color
 
     // 深度（距離をグレースケール化）
-    float distance = (traceRayInfo.rmi.hit - cameraWorldPos).length();
+    float distance = (traceRayInfo.interInfo.hit - cameraWorldPos).length();
     float depth = distance / scene->mainCamera->viewFar;
     depth = sqrt(depth);
     depth = 1.0 - clamp(depth, 0.0f, 1.0f);
@@ -475,27 +490,30 @@ color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const
     // Guided Denoise Meta Data - End
 
     
-	const bool antialiasAvailable = this->settings.enableAntialias && this->settings.antialiasKernelSize > 1;
-	const int antialiasKernelSize = this->settings.enableAntialias ? this->settings.antialiasKernelSize : 1;
-	const float halfAntialiasSize = (float)antialiasKernelSize * 0.5f;
-	constexpr float aaoffset = 1.0f / ANTIALIAS_KERNEL_SIZE;
-	const float dofSampleInv = 1.0f / (float)this->settings.dofSamples;
+//	const bool antialiasAvailable = this->settings.enableAntialias && this->settings.antialiasKernelSize > 1;
+//	const int antialiasKernelSize = this->settings.enableAntialias ? this->settings.antialiasKernelSize : 1;
+//	const float halfAntialiasSize = (float)antialiasKernelSize * 0.5f;
+//	constexpr float aaoffset = 1.0f / ANTIALIAS_KERNEL_SIZE;
+//	const float dofSampleInv = 1.0f / (float)this->settings.dofSamples;
 
-	for (int oy = 0; oy < antialiasKernelSize; oy++) {
-		const float dy = -((float)y + ((float)oy - halfAntialiasSize) * aaoffset - ctx.halfRenderSize.height) * ctx.viewScaleY;
-		
-		for (int ox = 0; ox < antialiasKernelSize; ox++) {
-			const float dx = ((float)x + ((float)ox - halfAntialiasSize) * aaoffset - ctx.halfRenderSize.width) * ctx.viewScaleX;
+//	for (int oy = 0; oy < antialiasKernelSize; oy++) {
+//		const float dy = -((float)y + ((float)oy - halfAntialiasSize) * aaoffset - ctx.halfRenderSize.height) * ctx.viewScaleY;
+//
+//		for (int ox = 0; ox < antialiasKernelSize; ox++) {
+//			const float dx = ((float)x + ((float)ox - halfAntialiasSize) * aaoffset - ctx.halfRenderSize.width) * ctx.viewScaleX;
+
+    const float dx = ((float)x - ctx.halfRenderSize.width) * ctx.viewScaleX;
+    const float dy = -((float)y - ctx.halfRenderSize.height) * ctx.viewScaleY;
 
 			color4f sampleColor;
 
-			if (ctx.depthOfField >= 0.001f && ctx.aperture > 0 && this->settings.dofSamples > 0) {
+			if (ctx.depthOfField >= 0.001f && ctx.aperture > 0) {
 				F.x = dx * ctx.depthOfFieldScale;
 				F.y = dy * ctx.depthOfFieldScale;
 
 				sampleColor = color3::zero;
 				
-				for (int i = 0; i < this->settings.dofSamples; i++) {
+//				for (int i = 0; i < this->settings.dofSamples; i++) {
                     // square分布
 //					ray.origin.x = randomValue() * ctx.aperture - ctx.halfAperture;
 //					ray.origin.y = randomValue() * ctx.aperture - ctx.halfAperture;
@@ -513,125 +531,120 @@ color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const
                     ray.dir = (F - ray.origin).normalize();
 
 					sampleColor += this->traceRay(ray);
-				}
+//				}
 				
-				sampleColor *= dofSampleInv;
+//				sampleColor *= dofSampleInv;
 			} else {
 				ray.origin = vec3(randomValue() * 0.0001f, randomValue() * 0.0001f, 0);
 				ray.dir = vec3(dx, dy, -50).normalize();
 				sampleColor = this->traceRay(ray);
 			}
 			
-			if (antialiasAvailable) {
-				const float d = this->antialiasKernel[oy * this->settings.antialiasKernelSize + ox];
-				c += sampleColor * d;
-			} else {
-				c += sampleColor;
-			}
-		}
-	}
+//			if (antialiasAvailable) {
+//				const float d = this->antialiasKernel[oy * this->settings.antialiasKernelSize + ox];
+//				c += sampleColor * d;
+//			} else {
+//				c += sampleColor;
+//			}
+//		}
+//	}
 	
-    const color3f radiance = c * ctx.exposure;
+    const color3f radiance = sampleColor * ctx.exposure;
 	return clamp(radiance, 0.0f, 1.0f);
 }
 
 color4 RayRenderer::traceRay(const Ray& ray) const {
 
-	RayMeshIntersection rmi(NULL, 9999999.0f);
-	this->findNearestTriangle(ray, rmi);
+//	RayMeshIntersection rmi(NULL, 9999999.0f);
+    RayTriangleIntersectionInfo interInfo;
+	this->findNearestTriangle(ray, interInfo);
 
-	if (rmi.rt != NULL) {
-		VertexInterpolation hi;
-		this->calcVertexInterpolation(*rmi.rt, rmi.hit, &hi);
+	if (interInfo.triangle != NULL) {
+		VertexInterpolation vi;
+		this->calcVertexInterpolation(interInfo, &vi);
 
-		if (rmi.rt->object.visible) {
-            return this->shaderProvider->shade(rmi, ray, hi);
+		if (interInfo.triangle->object.visible) {
+            return this->shaderProvider->shade(interInfo, ray, vi);
 		}
 	}
 
 	return this->settings.backColor;
 }
 
-void RayRenderer::traceRayInfo(const Ray& ray, TraceRayInfo* info) const {
+void RayRenderer::traceRaySurfaceInfo(const Ray& ray, ViewRaySurfaceInfo* surfaceInfo) const {
 
-    RayMeshIntersection rmi(NULL, 9999999.0f);
-    this->findNearestTriangle(ray, rmi);
+    RayTriangleIntersectionInfo interInfo;
+    this->findNearestTriangle(ray, interInfo);
 
-    if (rmi.rt != NULL) {
+    if (interInfo.triangle != NULL) {
         VertexInterpolation hi;
-        this->calcVertexInterpolation(*rmi.rt, rmi.hit, &hi);
+        this->calcVertexInterpolation(interInfo, &hi);
 
-        if (rmi.rt->object.visible) {
-            info->hitted = true;
-            info->rmi = rmi;
-            info->hi = hi;
-            info->mat = &rmi.rt->object.material;
+        if (interInfo.triangle->object.visible) {
+            surfaceInfo->hitted = true;
+            surfaceInfo->interInfo = interInfo;
+            surfaceInfo->hi = hi;
+            surfaceInfo->mat = &interInfo.triangle->object.material;
             return;
         }
     }
 
-    info->hitted = false;
+    surfaceInfo->hitted = false;
 }
 
 color3 RayRenderer::tracePath(const Ray& ray, void* shaderParam) const {
-	for (int i = 0; i < TRACE_PATH_TRIES; i++) {
-		RayMeshIntersection rmi(NULL, RAY_MAX_DISTANCE);
-		this->findNearestTriangle(ray, rmi);
+    RayTriangleIntersectionInfo info;
+    this->findNearestTriangle(ray, info);
 
-		if (rmi.rt != NULL) {
-			VertexInterpolation hi;
-			this->calcVertexInterpolation(*rmi.rt, rmi.hit, &hi);
+    if (info.triangle != NULL) {
+        VertexInterpolation vi;
+        this->calcVertexInterpolation(info, &vi);
 
-			return this->shaderProvider->shade(rmi, ray, hi, shaderParam);
-		}
-	}
+        return this->shaderProvider->shade(info, ray, vi, shaderParam);
+    }
 
 	return this->settings.backColor;
 }
 
-void RayRenderer::findNearestTriangle(const Ray& ray, RayMeshIntersection& rmi) const {
+void RayRenderer::findNearestTriangle(const Ray& ray, RayTriangleIntersectionInfo& info) const {
 
-	#ifndef USE_KDTREE
-	{
-		#ifdef USE_BOUNDING_BOX
-			this->scanBoundingBoxSpaceTreeNearestTriangle(ray, rmi);
-		#else
-			this->scanSpaceTreeNearestTriangle(&this->tree.root, ray, &srcrt, rmi);
-		#endif // USE_BOUNDING_BOX
-	}
-	#elif defined(USE_KDTREE_MESH)
-	{
-		for (auto& tmesh : this->transformedMeshes) {
-			if (rayIntersectBox(ray, tmesh->bbox)) {
-				tmesh->kdtree.iterate(ray, [&ray, &srcrt, &rmi](const RayRenderTriangle* rt) {
-					if (&srcrt == rt) return true;
-
-					float t;
-					vec3 hit;
-					if (rt->intersectsRay(ray, rmi.t, t, hit)) {
-						rmi = RayMeshIntersection(rt, t, hit);
-					}
-
-					return true;
-				});
-			}
-		}
-	}
-	#else
-	{
-		this->kdtree.iterate(ray, [&ray, &rmi](const RayRenderTriangle* rt) {
-			// if (&srcrt == rt) return true;
-
-			float t;
-			vec3 hit;
-			if (rt->intersectsRay(ray, rmi.t, t, hit)) {
-				rmi = RayMeshIntersection(rt, t, hit);
+//	#ifndef USE_KDTREE
+//	{
+//		#ifdef USE_BOUNDING_BOX
+//			this->scanBoundingBoxSpaceTreeNearestTriangle(ray, rmi);
+//		#else
+//			this->scanSpaceTreeNearestTriangle(&this->tree.root, ray, &srcrt, rmi);
+//		#endif // USE_BOUNDING_BOX
+//	}
+//	#elif defined(USE_KDTREE_MESH)
+//	{
+//		for (auto& tmesh : this->transformedMeshes) {
+//			if (rayIntersectBox(ray, tmesh->bbox)) {
+//				tmesh->kdtree.iterate(ray, [&ray, &srcrt, &rmi](const RayRenderTriangle* rt) {
+//					if (&srcrt == rt) return true;
+//
+//					float t;
+//					vec3 hit;
+//					if (rt->intersectsRay(ray, rmi.t, t, hit)) {
+//						rmi = RayMeshIntersection(rt, t, hit);
+//					}
+//
+//					return true;
+//				});
+//			}
+//		}
+//	}
+//	#else
+//	{
+		this->kdtree.iterate(ray, [&ray, &info](const RenderMeshTriangle* rt) {
+			if (rt->intersectsRay(ray, info)) {
+//                return true;
 			}
 
-			return true;
+			return false;
 		});
-	}
-	#endif /* USE_KDTREE */
+//	}
+//	#endif /* USE_KDTREE */
 }
 
 vec3 cosineWeightedPointInTriangle(const Triangle& tri, const vec3& normal) {
@@ -663,7 +676,7 @@ vec3 cosineWeightedPointInTriangle(const Triangle& tri, const vec3& normal) {
     return cosinePoint;
 }
 
-color3 RayRenderer::traceAreaLight(const LightSource& lightSource, const RayMeshIntersection& rmi, const VertexInterpolation& srchi) const {
+color3 RayRenderer::traceAreaLight(const LightSource& lightSource, const RayTriangleIntersectionInfo& interInfo, const VertexInterpolation& srchi) const {
 	const SceneObject* obj = lightSource.object;
 	if (obj == NULL) return color3::zero;
 
@@ -679,7 +692,7 @@ color3 RayRenderer::traceAreaLight(const LightSource& lightSource, const RayMesh
 
 //    const vec3 p = randomPointInTriangle(triangle.tri);
     const vec3 p = cosineWeightedPointInTriangle(triangle.tri, srchi.normal);
-	const vec3 lightRay = p - rmi.hit;
+	const vec3 lightRay = p - interInfo.hit;
     const float dist2 = lightRay.length2();
     const vec3 lightDir = lightRay.normalize();
 
@@ -691,7 +704,7 @@ color3 RayRenderer::traceAreaLight(const LightSource& lightSource, const RayMesh
 		VertexInterpolation lightHit;
 		calcVertexInterpolation(triangle, p, &lightHit);
 
-		Ray ray = ThicknessRay(rmi.hit, lightRay);
+		Ray ray = ThicknessRay(interInfo.hit, lightRay);
 
 #ifdef USE_SPACETREE
 
@@ -725,20 +738,20 @@ color3 RayRenderer::traceAreaLight(const LightSource& lightSource, const RayMesh
 
 #elif defined(USE_KDTREE)
 
-		const float block = this->kdtree.iterate(ray, [&ray](const RayRenderTriangle* rt) {
+		const float block = this->kdtree.iterate(ray, [&ray](const RenderMeshTriangle* rt) {
 
 			float t;
 			vec3 hit;
 			if (rt->intersectsRay(ray, maxt, t, hit)) {
-				return false;
+				return true;
 			}
 
-			return true;
-		}) ? 0.0f : 1.0f;
+			return false;
+		});
 
 #endif /* USE_KDTREE */
 
-		if (block < 1.0f) {
+		if (!block) {
 			const auto& lightMat = lightSource.object->material;
             const float lightIntensity = lightMat.emission / (dist2 + 1e-4f);
 //			const float dist = powf(lightRay.length(), -2.0f);
@@ -753,10 +766,10 @@ color3 RayRenderer::traceAreaLight(const LightSource& lightSource, const RayMesh
 	return color3::zero;
 }
 
-color3 RayRenderer::tracePointLight(const LightSource& lightSource, const RayMeshIntersection& rmi, const VertexInterpolation& srchi) const {
-	const vec3 lightray = lightSource.transformedLocation - rmi.hit;
+color3 RayRenderer::tracePointLight(const LightSource& lightSource, const RayTriangleIntersectionInfo& interInfo, const VertexInterpolation& srchi) const {
+	const vec3 lightray = lightSource.transformedLocation - interInfo.hit;
 
-	Ray ray = ThicknessRay(rmi.hit, lightray);
+	Ray ray = ThicknessRay(interInfo.hit, lightray);
 	constexpr float maxt = 0.99999f;
 
 #ifndef USE_KDTREE
@@ -769,22 +782,22 @@ color3 RayRenderer::tracePointLight(const LightSource& lightSource, const RayMes
 
 #else
 
-	const float block = this->kdtree.iterate(ray, [&ray](const RayRenderTriangle* rt) {
+	const float block = this->kdtree.iterate(ray, [&ray](const RenderMeshTriangle* rt) {
 		float t;
 		vec3 hit_unused;
 		if (rt->intersectsRay(ray, maxt, t, hit_unused)) {
 			if ((rt->object.material.transparency < 0.01f || rt->object.material.refraction > 0.1f))
-				return false;
+				return true;
 		}
 
-		return true;
-	}) ? 0.0f : 1.0f;
+		return false;
+	});
 
 #endif /* USE_KDTREE */
 	
 	const SceneObject* light = lightSource.object;
 
-	if (block < 1.0f) {
+	if (!block) {
 		const vec3 lightrayNormal = lightray.normalize();
 
 		float dotToObject = dot(lightrayNormal, srchi.normal);
@@ -812,12 +825,12 @@ color3 RayRenderer::tracePointLight(const LightSource& lightSource, const RayMes
 				// calc the phong specluar
 				float specluar = 0;
 				
-				const float glossy = rmi.rt->object.material.glossy;
+				const float glossy = interInfo.triangle->object.material.glossy;
 				
 				if (glossy > 0) {
 					if (this->settings.shaderProvider < 5) {
 						const vec3 r = reflect(-lightray, srchi.normal).normalize();
-						const float d = dot(r, (cameraWorldPos - rmi.hit).normalize());
+						const float d = dot(r, (cameraWorldPos - interInfo.hit).normalize());
 						if (d > 0) {
 							specluar = powf(d, 10000 * glossy);
 						}
@@ -835,7 +848,7 @@ color3 RayRenderer::tracePointLight(const LightSource& lightSource, const RayMes
 	return color3::zero;
 }
 
-color3 RayRenderer::traceLight(const RayMeshIntersection& rmi, const VertexInterpolation& srchi, const int samples) const {
+color3 RayRenderer::traceLight(const RayTriangleIntersectionInfo& interInfo, const VertexInterpolation& srchi, const int samples) const {
 	color3 areaLightColor, pointLightColor;
 
 	const int areaLightSourceCount = (int)this->areaLightSources.size();
@@ -844,7 +857,7 @@ color3 RayRenderer::traceLight(const RayMeshIntersection& rmi, const VertexInter
 	if (areaLightSourceCount > 0) {
 		for (int i = 0; i < samples; i++) {
 			const LightSource& ls = this->areaLightSources[rand() % areaLightSourceCount];
-			areaLightColor += this->traceAreaLight(ls, rmi, srchi);
+			areaLightColor += this->traceAreaLight(ls, interInfo, srchi);
 		}
 
 		areaLightColor /= (float)samples;
@@ -852,12 +865,12 @@ color3 RayRenderer::traceLight(const RayMeshIntersection& rmi, const VertexInter
 
 	if (pointLightSourceCount > 0) {
 		if (pointLightSourceCount == 1) {
-			pointLightColor = this->tracePointLight(this->pointLightSources[0], rmi, srchi);
+			pointLightColor = this->tracePointLight(this->pointLightSources[0], interInfo, srchi);
 		}
 		else {
 			for (int i = 0; i < samples; i++) {
 				const LightSource& ls = this->pointLightSources[rand() % pointLightSourceCount];
-				pointLightColor += this->tracePointLight(ls, rmi, srchi);
+				pointLightColor += this->tracePointLight(ls, interInfo, srchi);
 			}
 			pointLightColor /= (float)pointLightSourceCount;
 		}
@@ -866,7 +879,7 @@ color3 RayRenderer::traceLight(const RayMeshIntersection& rmi, const VertexInter
 	return areaLightColor + pointLightColor;
 }
 
-color3 RayRenderer::lambertTraceLights(const RayMeshIntersection& rmi, const VertexInterpolation& srchi) const {
+color3 RayRenderer::lambertTraceLights(const RayTriangleIntersectionInfo& interInfo, const VertexInterpolation& srchi) const {
 	
 	color3 areaLightColor, pointLightColor;
 
@@ -878,20 +891,20 @@ color3 RayRenderer::lambertTraceLights(const RayMeshIntersection& rmi, const Ver
 		for (int i = 0; i < samples; i++) {
 
 			const LightSource& ls = this->areaLightSources[rand() % areaLightSourceCount];
-			areaLightColor += this->traceAreaLight(ls, rmi, srchi);
+			areaLightColor += this->traceAreaLight(ls, interInfo, srchi);
 		}
 
 		areaLightColor /= (float)samples;
 	}
 
 	for (const LightSource& ls : this->pointLightSources) {
-		pointLightColor += this->tracePointLight(ls, rmi, srchi);
+		pointLightColor += this->tracePointLight(ls, interInfo, srchi);
 	}
 	
 	return areaLightColor + pointLightColor + this->settings.worldColor;
 }
 
-void RayRenderer::calcVertexInterpolation(const RayRenderTriangle& rt, const vec3& hit, VertexInterpolation* hi) const {
+void RayRenderer::calcVertexInterpolation(const RenderMeshTriangle& rt, const vec3& hit, VertexInterpolation* hi) const {
 	const vec3 f1 = rt.v1 - hit;
 	const vec3 f2 = rt.v2 - hit;
 	const vec3 f3 = rt.v3 - hit;
@@ -906,6 +919,16 @@ void RayRenderer::calcVertexInterpolation(const RayRenderTriangle& rt, const vec
 
 	hi->uv = rt.uv1 * a1 + rt.uv2 * a2 + rt.uv3 * a3;
 	hi->normal = rt.n1 * a1 + rt.n2 * a2 + rt.n3 * a3;
+}
+
+void RayRenderer::calcVertexInterpolation(const RayTriangleIntersectionInfo& info, VertexInterpolation* vi) const {
+    const auto* rt = info.triangle;
+    
+    // UV座標のバリセンター補間
+    vi->uv = rt->uv1 * info.w + rt->uv2 * info.u + rt->uv3 * info.v;
+
+    // 法線のバリセンター補間（正規化）
+    vi->normal = (rt->n1 * info.w + rt->n2 * info.u + rt->n3 * info.v).normalize();
 }
 
 #if !defined(AO_RANDOM_HEMISPHERE_RAY)
@@ -925,67 +948,124 @@ static vec3 generateHemisphereVectorByEulerAngles(const float a1, const float a2
 }
 #endif /* AO_RANDOM_HEMISPHERE_RAY */
 
+vec3 cosineWeightedDirection(const vec3& normal) {
+    float r1 = randomValue();
+    float r2 = randomValue();
+
+    float theta = acos(sqrt(1.0f - r1));
+    float phi = 2.0f * M_PI * r2;
+
+    float x = sin(theta) * cos(phi);
+    float y = sin(theta) * sin(phi);
+    float z = cos(theta);
+
+    // 局所座標からグローバルへ変換
+    vec3 tangent;
+    if (fabs(normal.x) > fabs(normal.y)) {
+        tangent = normalize(cross(vec3(0.0f, 1.0f, 0.0f), normal));
+    } else {
+        tangent = normalize(cross(vec3(1.0f, 0.0f, 0.0f), normal));
+    }
+    vec3 bitangent = cross(normal, tangent);
+
+    return normalize(tangent * x + bitangent * y + normal * z);
+}
+
 float RayRenderer::calcAO(const vec3& vertex, const vec3& normal, const float traceDistance) const {
-	int s = 0;
-	//float s = 0;
+//	int s = 0;
 
-#if defined(AO_RANDOM_HEMISPHERE_RAY)
-
+//#if defined(AO_RANDOM_HEMISPHERE_RAY)
+    int unblockedCount = 0;
+    float aoSum = 0.0f;
+    
 	for (int i = 0; i < this->settings.samples; i++) {
 		
-		const vec3& dir = randomRayInHemisphere(normal);
+//		const vec3 dir = randomRayInHemisphere(normal);
+        const vec3 dir = cosineWeightedDirection(normal);
+//        const vec3 dir = cosineWeightedPointInTriangle()
 		Ray ray = ThicknessRay(vertex, dir);
 
-#if defined(USE_SPACETREE)
+//#if defined(USE_SPACETREE)
+//
+//#if !defined(USE_BOUNDING_BOX)
+//		const float block = this->scanSpaceTreeRayBlocked(&this->tree.root, ray, traceDistance);
+//#else
+//		const float block = this->scanBoundingBoxSpaceTreeRayBlocked(ray, traceDistance);
+//#endif /* USE_BOUNDING_BOX */
+//
+//#elif defined(USE_KDTREE)
 
-#if !defined(USE_BOUNDING_BOX)
-		const float block = this->scanSpaceTreeRayBlocked(&this->tree.root, ray, traceDistance);
-#else
-		const float block = this->scanBoundingBoxSpaceTreeRayBlocked(ray, traceDistance);
-#endif /* USE_BOUNDING_BOX */
+//		const bool block = this->kdtree.iterate(ray, [&ray, &traceDistance](const RayRenderTriangle* rt) {
+//			//if (rmi.rt == rt) return true;
+//
+//			float t;
+//			vec3 hit;
+//			if (rt->intersectsRay(ray, traceDistance, t, hit)) {
+//				if ((rt->object.material.transparency < 0.01f || rt->object.material.refraction > 0.1f))
+//					return false;
+//			}
+//
+//			return true;
+//		});
 
-#elif defined(USE_KDTREE)
+//#endif /* USE_SPACETREE */
 
-		const float block = this->kdtree.iterate(ray, [&ray, &traceDistance](const RayRenderTriangle* rt) {
-			//if (rmi.rt == rt) return true;
+//		if (block) {
+//			s++;
+//		}
+        
+        const RenderMeshTriangle* foundTri = NULL;
+        
+        bool occluded = this->kdtree.iterate(ray, [&ray, &traceDistance, &foundTri](const RenderMeshTriangle* rt) {
+            float t;
+            vec3 hit;
+            
+            if (rt->intersectsRay(ray, traceDistance, t, hit)) {
+                if (rt->object.material.transparency < 0.01f) {
+                    foundTri = rt;
+                    return true; // 遮蔽あり
+                }
+            }
+            return false; // 遮蔽なし
+        });
 
-			float t;
-			vec3 hit;
-			if (rt->intersectsRay(ray, traceDistance, t, hit)) {
-				if ((rt->object.material.transparency < 0.01f || rt->object.material.refraction > 0.1f))
-					return false;
-			}
-
-			return true;
-		}) ? 0.0f : 1.0f;
-
-#endif /* USE_SPACETREE */
-
-		if (block < 1.0f) {
-			s++;
-		}
+        if (!occluded) {
+            float cosineTerm = fmaxf(dot(dir, normal), 0.0f); // Cosine-weight
+            float distanceWeight = 1.0f; // 距離減衰は無し、または任意
+            aoSum += cosineTerm * distanceWeight; // 遮蔽なしなら貢献
+//            aoSum+=1.0f;
+            unblockedCount++;
+        }
 	}
 
-#else /* NOT: AO_RANDOM_HEMISPHERE_RAY */
+//#else /* NOT: AO_RANDOM_HEMISPHERE_RAY */
+//	
+//	const float stride = PI / this->samples;
+//
+//	for (float a1 = 0; a1 < 1; a1 += stride) {
+//
+//		const vec3& dir = generateHemisphereVectorByEulerAngles(a1, 1.0f - a1, hi.normal);
+//
+//#if !defined(USE_BOUNDING_BOX)
+//		if (this->scanSpaceTreeRayBlocked(&this->tree.root, ThicknessRay(rmi.hit, dir), traceDistance))
+//#else
+//		if (this->scanBoundingBoxSpaceTreeRayBlocked(Ray(rmi.hit, dir), traceDistance) < 1.0f)
+//#endif /* USE_BOUNDING_BOX */
+//		{
+//			s++;
+//		}
+//	}
+//#endif /* AO_RANDOM_HEMISPHERE_RAY */
 	
-	const float stride = PI / this->samples;
+//	return (float)s / this->settings.samples;
+    
+    // サンプル数で正規化
+    float ao = aoSum / float(this->settings.samples);
 
-	for (float a1 = 0; a1 < 1; a1 += stride) {
+    // AO値は [0,1] に制限（真っ白問題防止）
+    //ao = powf(clamp(ao, 0.0f, 1.0f), 0.75f);
 
-		const vec3& dir = generateHemisphereVectorByEulerAngles(a1, 1.0f - a1, hi.normal);
-
-#if !defined(USE_BOUNDING_BOX)
-		if (this->scanSpaceTreeRayBlocked(&this->tree.root, ThicknessRay(rmi.hit, dir), traceDistance))
-#else
-		if (this->scanBoundingBoxSpaceTreeRayBlocked(Ray(rmi.hit, dir), traceDistance) < 1.0f)
-#endif /* USE_BOUNDING_BOX */
-		{
-			s++;
-		}
-	}
-#endif /* AO_RANDOM_HEMISPHERE_RAY */
-	
-	return (float)s / this->settings.samples;
+    return ao;
 }
 
 float RayRenderer::calcVertexAO(const Mesh& mesh, const int triangleIndex, const int vertexIndex, const float traceDistance) {
@@ -1010,7 +1090,7 @@ float RayRenderer::calcVertexAO(const Mesh& mesh, const int triangleIndex, const
 #endif /* USE_BOUNDING_BOX */
 		
 #elif defined(USE_KDTREE)
-		const float block = this->kdtree.iterate(ray, [&ray, &traceDistance](const RayRenderTriangle* rt) {
+		const float block = this->kdtree.iterate(ray, [&ray, &traceDistance](const RenderMeshTriangle* rt) {
 			
 			float t;
 			vec3 hit;
@@ -1040,27 +1120,27 @@ void RayRenderer::calcVertexColors(Mesh &mesh) {
 	for (int ti = 0; ti < triangleList.size(); ti++) {
 		color3 gray[3];
 		
-		RayMeshIntersection rmi;
-		VertexInterpolation hi;
+		RayTriangleIntersectionInfo interInfo;
+		VertexInterpolation vi;
 		
 //		vec3 vs[3], ns[3];
 		const auto* t = triangleList[ti];
 		
-		for (int vi = 0; vi < 3; vi++) {
-			const vec3& vertex = t->vs[vi];
-			hi.normal = t->ns[vi];
-			rmi.hit = vertex;
-			gray[vi] = color3(.1, .1, .1) + this->traceLight(rmi, hi) * 0.9;
-//			if ( vi==0) gray[vi] = colors::red;
-//			if ( vi==1) gray[vi] = colors::green;
-//			if ( vi==2) gray[vi] = colors::blue;
+		for (int i = 0; i < 3; i++) {
+			const vec3& vertex = t->vs[i];
+			vi.normal = t->ns[i];
+            interInfo.hit = vertex;
+			gray[i] = color3(.1, .1, .1) + this->traceLight(interInfo, vi) * 0.9;
+//			if ( vi==0) gray[i] = colors::red;
+//			if ( vi==1) gray[i] = colors::green;
+//			if ( vi==2) gray[i] = colors::blue;
 		}
 		
 		mesh.setColor(ti, gray[0], gray[1], gray[2]);
 	}
 }
 
-inline bool RayRenderer::putTriangleIntoChildrenNode(RaySpaceTreeNode* node, const RayRenderTriangle* rt) {
+inline bool RayRenderer::putTriangleIntoChildrenNode(RaySpaceTreeNode* node, const RenderMeshTriangle* rt) {
   bool inLeft = node->left->intersectTriangle(rt->tri);
   bool inRight = node->right->intersectTriangle(rt->tri);
   
@@ -1074,7 +1154,7 @@ inline bool RayRenderer::putTriangleIntoChildrenNode(RaySpaceTreeNode* node, con
     return false;
 }
 
-bool RayRenderer::putTriangleIntoTree(RaySpaceTreeNode* node, const RayRenderTriangle* rt) {
+bool RayRenderer::putTriangleIntoTree(RaySpaceTreeNode* node, const RenderMeshTriangle* rt) {
 	if (!node->splitted
 		|| !putTriangleIntoChildrenNode(node, rt))
 	{
@@ -1084,7 +1164,7 @@ bool RayRenderer::putTriangleIntoTree(RaySpaceTreeNode* node, const RayRenderTri
 	return true;
 }
 
-inline bool rayIntersectTriangle3(const Ray& ray, const RayRenderTriangle& rt, const float maxt, float& t, vec3& hit) {
+inline bool rayIntersectTriangle3(const Ray& ray, const RenderMeshTriangle& rt, const float maxt, float& t, vec3& hit) {
 	const float dist = -dot(rt.ti.l, vec4(ray.origin, 1.0f)) / dot(rt.ti.l, vec4(ray.dir, 0.0f));
 	
 	if (dist < 0/* || isnan(dist)*/ || dist > maxt) {
@@ -1110,7 +1190,7 @@ inline bool rayIntersectTriangle3(const Ray& ray, const RayRenderTriangle& rt, c
 }
 
 #if !defined(USE_SPACE_TREE_IN_BOUNDING_BOX)
-void RayRenderer::scanBoundingBoxNearestTriangle(const Ray& ray, const RayRenderTriangle* hitrt,
+void RayRenderer::scanBoundingBoxNearestTriangle(const Ray& ray, const RenderMeshTriangle* hitrt,
 																								 RayMeshIntersection& rmi) const
 {
 	float t;
@@ -1328,12 +1408,23 @@ Image3f RayRenderer::denoiseImage(const Image3f& noisy, const Image3f& normal, c
 
 //--------------------------------------
 
-color3 RayBSDFShaderProvider::shade(const RayMeshIntersection& rmi, const Ray& inray,
+color3 RayBSDFShaderProvider::shade(const RayTriangleIntersectionInfo& interInfo, const Ray& inray,
                                     const VertexInterpolation& hi, void* shaderParam) {
-	const Material& m = rmi.rt->object.material;
+	const Material& m = interInfo.triangle->object.material;
 
-	BSDFParam param(*this->renderer, rmi, inray, hi);
+    const BSDFParam* sp = (BSDFParam*)shaderParam;
+	BSDFParam param(*this->renderer, interInfo, inray, hi);
+    if (sp != NULL) {
+        if (sp->passes >= MAX_TRACE_DEPTH) {
+            float rr = 0.5f;  // 高速化のため打ち切り率を上げる
+            if (randomValue() > rr) return color3::zero;
+        }
+        param.passes = sp->passes + 1;
 
+//        assert(sp->passes <= 10);
+    }
+    
+    
 	if (m.emission > 0.0f) {
 		return this->emissionShader.shade(param);
 	}
@@ -1341,10 +1432,10 @@ color3 RayBSDFShaderProvider::shade(const RayMeshIntersection& rmi, const Ray& i
 #ifdef CUT_OFF_BACK_TRACE
 	if (dot(inray.dir, hi.normal) > 0.0f) {
 		if (m.transparency > 0.001f) {
-			const BSDFParam* sp = (BSDFParam*)shaderParam;
+//			const BSDFParam* sp = (BSDFParam*)shaderParam;
 
-			if (sp != NULL && sp->passes + 1 <= TRACE_MAX_DEPTH) {
-				param.passes = sp->passes + 1;
+			if (sp != NULL && sp->passes + 1 <= MAX_TRACE_DEPTH) {
+//				param.passes = sp->passes + 1;
 				return transparencyShader.shade(param);
 			} else {
 				return color3::zero;
@@ -1355,7 +1446,7 @@ color3 RayBSDFShaderProvider::shade(const RayMeshIntersection& rmi, const Ray& i
 //			if (shaderParam != NULL) {
 //				const BSDFParam* sp = (BSDFParam*)shaderParam;
 //				
-//				if (sp->passes + 1 >= TRACE_MAX_DEPTH) {
+//				if (sp->passes + 1 >= MAX_TRACE_DEPTH) {
 //					return color3::zero;
 //				}
 //			}
@@ -1367,14 +1458,14 @@ color3 RayBSDFShaderProvider::shade(const RayMeshIntersection& rmi, const Ray& i
 #endif /* CUT_OFF_BACK_TRACE */
 
 	if (shaderParam != NULL) {
-		const BSDFParam* sp = (BSDFParam*)shaderParam;
+//		const BSDFParam* sp = (BSDFParam*)shaderParam;
 
-		if (sp->passes + 1 >= TRACE_MAX_DEPTH) {
-            float rr = 0.9f;  // 高速化のため打ち切り率を上げる
+		if (sp->passes + 1 >= MAX_TRACE_DEPTH) {
+            float rr = 0.5f;  // 高速化のため打ち切り率を上げる
             if (randomValue() > rr) return color3::zero;
             
 //			if (1.0f - m.glossy - m.refraction > 0.00001f) {
-//				const color3 light = this->renderer->traceLight(rmi, hi);
+//				const color3 light = this->renderer->traceLight(interInfo, hi);
 //
 //				color3 color;
 //				if (this->renderer->settings.enableColorSampling) {
@@ -1395,7 +1486,7 @@ color3 RayBSDFShaderProvider::shade(const RayMeshIntersection& rmi, const Ray& i
 			return transparencyShader.shade(param);
 		}
 		else {
-			param.passes = sp->passes + 1;
+//			param.passes = sp->passes + 1;
 			return mixShader.shade(param);
 		}
 	}
@@ -1419,15 +1510,15 @@ color3 RayBSDFShaderProvider::shade(const RayMeshIntersection& rmi, const Ray& i
 	}
 }
 
-color3 RayBSDFBakeShaderProvider::shade(const RayMeshIntersection& rmi, const Ray& inray,
-																				const VertexInterpolation& hi, void* shaderParam) {
-	const Material& m = rmi.rt->object.material;
+color3 RayBSDFBakeShaderProvider::shade(const RayTriangleIntersectionInfo& interInfo, const Ray& inray,
+                                        const VertexInterpolation& vi, void* shaderParam) {
+	const Material& m = interInfo.triangle->object.material;
 	
 	if (m.emission > 0.0f) {
 		return (m.color * m.emission);
 	}
 
-	BSDFParam param(*this->renderer, rmi, inray, hi);
+	BSDFParam param(*this->renderer, interInfo, inray, vi);
 
 	if (m.transparency > 0.01f) {
 		return this->transparencyShader.shade(param);
@@ -1438,14 +1529,14 @@ color3 RayBSDFBakeShaderProvider::shade(const RayMeshIntersection& rmi, const Ra
 		BSDFParam* sp = (BSDFParam*)shaderParam;
 		
 		if (sp->passes >= 2) {
-			return this->renderer->traceLight(rmi, hi) * m.color;
+			return this->renderer->traceLight(interInfo, vi) * m.color;
 		}
 
 		param.passes = sp->passes + 1;
 	}
 	
 #ifdef CUT_OFF_BACK_TRACE
-	if (m.transparency <= 0.001f && dot(-inray.dir, hi.normal) <= 0.0f) {
+	if (m.transparency <= 0.001f && dot(-inray.dir, vi.normal) <= 0.0f) {
 		return color3::zero;
 	}
 #endif /* CUT_OFF_BACK_TRACE */

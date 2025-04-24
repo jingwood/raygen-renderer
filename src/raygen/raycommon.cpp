@@ -11,7 +11,7 @@
 
 namespace raygen {
 
-void RayRenderTriangle::precalc() {
+void RenderMeshTriangle::precalc() {
 	vec3 pd = cross(this->v2 - this->v1, this->v3 - this->v2);
 
 	this->ti.a = 1.0f / cross(this->v1 - this->v2, this->v1 - this->v3).length();
@@ -31,7 +31,7 @@ void RayRenderTriangle::precalc() {
 	this->uvt2Info.area = -uv5.y * uv6.x + uv4.y * (uv6.x - uv5.x) + uv4.x * (uv5.y - uv6.y) + uv5.x * uv6.y;
 }
 
-bool RayRenderTriangle::intersectsRay(const Ray& ray, float maxt, float& t, vec3& hit) const {
+bool RenderMeshTriangle::intersectsRay(const Ray& ray, float maxt, float& t, vec3& hit) const {
 //	const float dist = -dot(this->ti.l, vec4(ray.origin, 1.0f)) / dot(this->ti.l, vec4(ray.dir, 0.0f));
 //
 //	if (dist < 0 || std::isnan(dist) || dist > maxt) {
@@ -80,7 +80,45 @@ bool RayRenderTriangle::intersectsRay(const Ray& ray, float maxt, float& t, vec3
     return false;
 }
 
-bool RayRenderTriangle::containsUVPoint(const vec2& uv) const {
+bool RenderMeshTriangle::intersectsRay(const Ray& ray, RayTriangleIntersectionInfo& info) const {
+    // 三角形のエッジ計算
+    vec3 edge1 = v2 - v1;
+    vec3 edge2 = v3 - v1;
+    vec3 pvec = cross(ray.dir, edge2);
+    float det = dot(edge1, pvec);
+
+    if (fabs(det) < 1e-8f) return false;
+
+    float invDet = 1.0f / det;
+    vec3 tvec = ray.origin - v1;
+    float u = dot(tvec, pvec) * invDet;
+    if (u < 0.0f || u > 1.0f) return false;
+
+    vec3 qvec = cross(tvec, edge1);
+    float v = dot(ray.dir, qvec) * invDet;
+    if (v < 0.0f || u + v > 1.0f) return false;
+
+    float t = dot(edge2, qvec) * invDet;
+    if (t < 0.0f)
+    {
+        return false;
+    }
+    if (t >= info.t) {
+        return false;  // すでにもっと近いものがある
+    }
+    
+    info.t = t;
+    info.hit = ray.origin + ray.dir * t;
+    info.u = u;
+    info.v = v;
+    info.w = 1.0f - u - v;
+    info.triangle = this;
+    
+    return true;
+}
+
+
+bool RenderMeshTriangle::containsUVPoint(const vec2& uv) const {
 
 //	if (!this->uvt2Info.box.contains(uv)) {
 //		return false;

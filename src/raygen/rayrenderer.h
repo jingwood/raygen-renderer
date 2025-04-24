@@ -58,14 +58,14 @@ namespace raygen {
 
 class RayShaderProvider;
 
-typedef SpaceTreeNode<const RayRenderTriangle*> RaySpaceTreeNode;
-typedef SpaceTree<const RayRenderTriangle*> RaySpaceTree;
+typedef SpaceTreeNode<const RenderMeshTriangle*> RaySpaceTreeNode;
+typedef SpaceTree<const RenderMeshTriangle*> RaySpaceTree;
 
 #ifndef USE_SPACETREE
-typedef KDNode<const RayRenderTriangle*> RaySpaceKDTree;
+typedef KDNode<const RenderMeshTriangle*> RaySpaceKDTree;
 #endif
 
-typedef std::vector<const RayRenderTriangle*> RayRenderTriangleList;
+typedef std::vector<const RenderMeshTriangle*> RayRenderTriangleList;
 typedef void (*MeshBakedCallback(const SceneObject& obj, const Image& img))();
 
 struct LightSource {
@@ -119,10 +119,10 @@ struct RenderThreadContext {
     float exposure = 1.0;
 };
 
-struct TraceRayInfo {
+struct ViewRaySurfaceInfo {
     bool hitted;
 //    color4 color;
-    RayMeshIntersection rmi;
+    RayTriangleIntersectionInfo interInfo;
     VertexInterpolation hi;
     const Material* mat;
 };
@@ -143,26 +143,27 @@ private:
     void renderThread(const RenderThreadContext& ctx, const int threadId);
 	void renderAsyncThread(RenderThreadCallback* callback);
 	
-	void findNearestTriangle(const Ray& ray, RayMeshIntersection& rmi) const;
-	void scanBoundingBoxNearestTriangle(const Ray& ray, const RayRenderTriangle* hitrt, RayMeshIntersection& rmi) const;
+	void findNearestTriangle(const Ray& ray, RayTriangleIntersectionInfo& info) const;
+	void scanBoundingBoxNearestTriangle(const Ray& ray, const RenderMeshTriangle* hitrt, RayMeshIntersection& rmi) const;
 	void scanBoundingBoxSpaceTreeNearestTriangle(const Ray& ray, RayMeshIntersection& rmi) const;
-	float scanBoundingBoxRayBlocked(const Ray& ray, const float maxt, const RayRenderTriangle* hitrt) const;
+	float scanBoundingBoxRayBlocked(const Ray& ray, const float maxt, const RenderMeshTriangle* hitrt) const;
 
-    bool putTriangleIntoChildrenNode(RaySpaceTreeNode* node, const RayRenderTriangle* rt);
-    bool putTriangleIntoTree(RaySpaceTreeNode* node, const RayRenderTriangle* rt);
+    bool putTriangleIntoChildrenNode(RaySpaceTreeNode* node, const RenderMeshTriangle* rt);
+    bool putTriangleIntoTree(RaySpaceTreeNode* node, const RenderMeshTriangle* rt);
 	void scanSpaceTreeNearestTriangle(const RaySpaceTreeNode* node, const Ray& ray, RayMeshIntersection& rmi) const;
     float scanSpaceTreeRayBlocked(const RaySpaceTreeNode* node, const Ray& ray, const float maxt, float* t_out = NULL) const;
 	float scanBoundingBoxSpaceTreeRayBlocked(const Ray& ray, const float maxt, float* t_out = NULL) const;
 	void scanSpaceTreeBoundingBox(const RaySpaceTreeNode* node, const Ray& ray,
-																const RayRenderTriangle* hitrt, RayMeshIntersection& rmi) const;
-	void calcVertexInterpolation(const RayRenderTriangle& rt, const vec3& hit, VertexInterpolation* hi) const;
-
-	color3 traceAreaLight(const LightSource& lightSource, const RayMeshIntersection& rmi, const VertexInterpolation& srchi) const;
-	color3 tracePointLight(const LightSource& lightSource, const RayMeshIntersection& rmi, const VertexInterpolation& srchi) const;
+																const RenderMeshTriangle* hitrt, RayMeshIntersection& rmi) const;
+	void calcVertexInterpolation(const RenderMeshTriangle& rt, const vec3& hit, VertexInterpolation* hi) const;
+    void calcVertexInterpolation(const RayTriangleIntersectionInfo& info, VertexInterpolation* vi) const;
+    
+	color3 traceAreaLight(const LightSource& lightSource, const RayTriangleIntersectionInfo& info, const VertexInterpolation& srchi) const;
+	color3 tracePointLight(const LightSource& lightSource, const RayTriangleIntersectionInfo& info, const VertexInterpolation& srchi) const;
 
 	color4 renderPixel(const RenderThreadContext& ctx, Ray& ray, const int x, const int y);
 	color4 traceRay(const Ray& ray) const;
-    void traceRayInfo(const Ray& ray, TraceRayInfo* info) const;
+    void traceRaySurfaceInfo(const Ray& ray, ViewRaySurfaceInfo* info) const;
 
 protected:
 	RaySpaceTree tree;
@@ -170,7 +171,7 @@ protected:
 	RaySpaceKDTree kdtree;
 #endif
 	
-	std::vector<const RayRenderTriangle*> triangleList;
+	std::vector<const RenderMeshTriangle*> triangleList;
 	Image4f renderingImage;
 	float progressRate = 0.0f;
 
@@ -206,8 +207,8 @@ public:
     void render();
 	
 	color3 tracePath(const Ray& ray, void* shaderParam) const;
-	color3 traceLight(const RayMeshIntersection& rmi, const VertexInterpolation& srchi, const int samples = 1) const;
-	color3 lambertTraceLights(const RayMeshIntersection& rmi, const VertexInterpolation& srchi) const;
+	color3 traceLight(const RayTriangleIntersectionInfo& interInfo, const VertexInterpolation& srchi, const int samples = 1) const;
+	color3 lambertTraceLights(const RayTriangleIntersectionInfo& interInfo, const VertexInterpolation& srchi) const;
     std::vector<LightSource> getAllLights() { return this->pointLightSources; }
     
     float calcAO(const vec3& vertex, const vec3& normal, const float traceDistance = RAY_MAX_DISTANCE) const;
@@ -242,7 +243,7 @@ public:
 
 	RayShaderProvider(RayRenderer* renderer = NULL) : renderer(renderer) { }
 	virtual ~RayShaderProvider() { }
-	virtual color3 shade(const RayMeshIntersection& rmi, const Ray& inray, const VertexInterpolation& hi, void* shaderParam = NULL) = 0;
+	virtual color3 shade(const RayTriangleIntersectionInfo& interInfo, const Ray& inray, const VertexInterpolation& vi, void* shaderParam = NULL) = 0;
 };
 
 class RaySimpleShaderProvider : public RayShaderProvider
@@ -255,8 +256,8 @@ public:
 		, lightSrc(normalize(vec3(1, 1, 1)))
 	{ }
 	
-	color3 shade(const RayMeshIntersection& rmi, const Ray& inray, const VertexInterpolation& hi, void* shaderParam = NULL) {
-		const float n = 0.1f + fmaxf(dot(lightSrc, hi.normal), 0);
+	color3 shade(const RayTriangleIntersectionInfo& interInfo, const Ray& inray, const VertexInterpolation& vi, void* shaderParam = NULL) {
+		const float n = 0.1f + fmaxf(dot(lightSrc, vi.normal), 0);
     return color3(n, n, n);
   }
 };
@@ -270,10 +271,10 @@ public:
 		: RayShaderProvider(renderer)
 	{ }
 
-  color3 shade(const RayMeshIntersection& rmi, const Ray& inray, const VertexInterpolation& hi, void* shaderParam = NULL) {
-    const float c = clamp(this->renderer->calcAO(rmi.hit, hi.normal, traceDistance), 0.0f, 1.0f);
-    return color3(c, c, c);
-  }
+    color3 shade(const RayTriangleIntersectionInfo& interInfo, const Ray& inray, const VertexInterpolation& vi, void* shaderParam = NULL) {
+        const float c = clamp(this->renderer->calcAO(interInfo.hit, vi.normal, traceDistance), 0.0f, 1.0f);
+        return color3(c, c, c);
+    }
 };
 
 class RayBSDFShaderProvider : public RayShaderProvider
@@ -292,8 +293,7 @@ public:
 	: RayShaderProvider(renderer)	{
 	}
 	
-	color3 shade(const RayMeshIntersection& rmi, const Ray& inray,
-							 const VertexInterpolation& hi, void* shaderParam = NULL);
+	color3 shade(const RayTriangleIntersectionInfo& interInfo, const Ray& inray, const VertexInterpolation& vi, void* shaderParam = NULL);
 };
 
 class RayBSDFBakeShaderProvider : public RayShaderProvider
@@ -306,8 +306,7 @@ public:
 	: RayShaderProvider(renderer) {
 	}
 	
-	color3 shade(const RayMeshIntersection& rmi, const Ray& inray,
-							 const VertexInterpolation& hi, void* shaderParam = NULL);
+	color3 shade(const RayTriangleIntersectionInfo& interInfo, const Ray& inray, const VertexInterpolation& vi, void* shaderParam = NULL);
 };
 
 }

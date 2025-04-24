@@ -13,6 +13,7 @@
 #include "scene.h"
 
 #define SURFACE_THICKNESS 0.00001f
+#define MAX_RAY_DISTANCE 999.9f
 
 namespace raygen {
 
@@ -20,27 +21,29 @@ inline vec3 reflect(const vec3& d, const vec3& normal) {
 	return d - normal * (dot(d, normal) * 2.0f);
 }
 
-inline vec3 refract(const vec3& d, const vec3& normal, float r = 1.45) {
-	const vec3 nl = dot(d, normal) < 0 ? normal : -normal;
-	const bool into = dot(nl, normal) > 0;
-	if (into) r = 1.0f / r;
-	
-	const float c = dot(d, nl);
-	const float t = 1.0f - r * r * (1.0f - c * c);
-	
-	if (t < 0) {
-		return reflect(d, normal);
-	}
-	
-	//	return d * r - normal * (r * c + sqrtf(t));
-	return normalize(d * r - normal * ((into ? 1 : -1) * (c * r + sqrt(t))));
-}
+//inline vec3 refract(const vec3& d, const vec3& normal, float r = 1.45) {
+//	const vec3 nl = dot(d, normal) < 0 ? normal : -normal;
+//	const bool into = dot(nl, normal) > 0;
+//	if (into) r = 1.0f / r;
+//	
+//	const float c = dot(d, nl);
+//	const float t = 1.0f - r * r * (1.0f - c * c);
+//	
+//	if (t < 0) {
+//		return reflect(d, normal);
+//	}
+//	
+//	//	return d * r - normal * (r * c + sqrtf(t));
+//	return normalize(d * r - normal * ((into ? 1 : -1) * (c * r + sqrt(t))));
+//}
 
 inline Ray ThicknessRay(const vec3& origin, const vec3& dir) {
 	return Ray(origin + dir.normalize() * SURFACE_THICKNESS, dir);
 }
 
-class RayRenderTriangle {
+struct RayTriangleIntersectionInfo;
+
+class RenderMeshTriangle {
 public:
 	union {
 		struct {
@@ -96,7 +99,7 @@ public:
 	const SceneObject& object;
 	const Mesh& mesh;
 
-	RayRenderTriangle(const vec3& v1, const vec3& v2, const vec3& v3,
+	RenderMeshTriangle(const vec3& v1, const vec3& v2, const vec3& v3,
 		const vec3& n1, const vec3& n2, const vec3& n3,
 		const vec2& uv1, const vec2& uv2, const vec2& uv3,
 		const vec2& uv4, const vec2& uv5, const vec2& uv6,
@@ -112,16 +115,31 @@ public:
 
 	void precalc();
 	bool intersectsRay(const Ray& ray, float maxt, float& t, vec3& hit) const;
-	
+    bool intersectsRay(const Ray& ray, RayTriangleIntersectionInfo& interInfo) const;
+    
 	bool containsUVPoint(const vec2& uv) const;
 };
 
+struct RayTriangleIntersectionInfo {
+    const RenderMeshTriangle* triangle;
+    float t;        // disance
+    vec3 hit;       // hit point
+    float u, v, w;  // hit interpolation middle info
+    
+    RayTriangleIntersectionInfo(const RenderMeshTriangle* triangle = NULL, float t = MAX_RAY_DISTANCE,
+                                vec3 hit = vec3::zero, float u = 0, float v = 0, float w = 0)
+        : triangle(triangle), t(t), hit(hit), u(u), v(v), w(w)
+    {
+        
+    }
+};
+
 struct RayMeshIntersection {
-	const RayRenderTriangle* rt;
+	const RenderMeshTriangle* rt;
 	float t;
 	vec3 hit;
 
-	RayMeshIntersection(const RayRenderTriangle* rt = NULL, const float t = 0, const vec3& hit = vec3::zero)
+	RayMeshIntersection(const RenderMeshTriangle* rt = NULL, const float t = 0, const vec3& hit = vec3::zero)
 		: rt(rt), t(t), hit(hit)
 	{ }
 };
@@ -134,9 +152,9 @@ struct VertexInterpolation
 
 struct TracePath
 {
-	const RayRenderTriangle* fromRt;
+	const RenderMeshTriangle* fromRt;
 	Ray fromRay;
-	const RayRenderTriangle* hitRt;
+	const RenderMeshTriangle* hitRt;
   color3f hitColor;
 };
 

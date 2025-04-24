@@ -119,6 +119,7 @@ void SceneJsonLoader::readMaterial(Material& mat, const JSObject& jsmat, SceneRe
 	SceneJsonLoader::tryReadVec2Property(jsmat, "texTiling", &mat.texTiling);
 
 	jsmat.tryGetNumberProperty("emission", &mat.emission);
+    jsmat.tryGetNumberProperty("diffuse", &mat.diffuse);
 	jsmat.tryGetNumberProperty("glossy", &mat.glossy);
 	jsmat.tryGetNumberProperty("roughness", &mat.roughness);
 	jsmat.tryGetNumberProperty("transparency", &mat.transparency);
