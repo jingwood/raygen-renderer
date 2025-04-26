@@ -1,0 +1,50 @@
+{
+  "_renderSettings": {
+    "enableAntialias": false
+  },
+
+  "mainCamera": {
+    "location": [0, 1.5, 4],
+    "angle": [-5, 0, 0],
+    "fieldOfView": 50,
+    "depthOfField": 4,
+    "focusOn": "ball",
+    "aperture": 2.8,
+  },
+
+  "world": {
+//    "Floor": {
+//      "location": [0, -0.5, 0],
+//      "scale": [10, 1, 10],
+//      "mesh": { "type": "plane" },
+//      "mat": { "color": "#222222", "glossy": 0, "roughness": 0 }
+//    },
+
+   "ball": {
+     "mesh": { "type": "sphere", stacks: 16, slices: 32 },
+     "location": [0, 0.5, 0],
+     "mat": { "color": "#ffffff", "diffuse": 0.8, "glossy": 0, "roughness": 0 }
+   },
+//
+//    "bgLight1": {
+//      "location": [2, 1.5, -6],
+//      "scale": [0.1, 0.1, 0.1],
+//      "mesh": { "type": "sphere", stacks: 8, slices: 12 },
+//      "mat": { "color": "#ffcc00", "emission": 500 }
+//    },
+//
+    "bgLight2": {
+      "location": [-2, 2.0, -8],
+      "scale": [0.1, 0.1, 0.1],
+      "mesh": { "type": "sphere", stacks: 6, slices: 12 },
+      "mat": { "color": "#00aaff", "emission": 200 }
+    },
+//
+//    "topLight": {
+//      "location": [0, 4, 0],
+//      "scale": [5, 0.1, 5],
+//      "mesh": { "type": "plane" },
+//      "mat": { "emission": 80 }
+//    }
+  }
+}

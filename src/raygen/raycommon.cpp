@@ -34,6 +34,10 @@ vec3 cosineWeightedDirection(const vec3& normal) {
     return normalize(tangent * x + bitangent * y + normal * z);
 }
 
+float triangleArea(const vec3& v1, const vec3& v2, const vec3& v3) {
+    return 0.5f * cross(v2 - v1, v3 - v1).length();
+}
+
 void RenderMeshTriangle::precalc() {
 	vec3 pd = cross(this->v2 - this->v1, this->v3 - this->v2);
 
@@ -52,6 +56,9 @@ void RenderMeshTriangle::precalc() {
 	this->uvt2Info.e = uv4.y - uv5.y;
 	this->uvt2Info.f = uv5.x - uv4.x;
 	this->uvt2Info.area = -uv5.y * uv6.x + uv4.y * (uv6.x - uv5.x) + uv4.x * (uv5.y - uv6.y) + uv5.x * uv6.y;
+    
+    this->area = triangleArea(this->v1, this->v2, this->v3);
+    this->pdf = 1.0f / this->area;
 }
 
 bool RenderMeshTriangle::intersectsRay(const Ray& ray, float maxt, float& t, vec3& hit) const {

@@ -98,11 +98,11 @@ struct RendererSettings {
 	bool enableAntialias = true;
 	bool enablePointLightAntialias = true;
 	bool enableColorSampling = true;
-	bool enableRenderingPostProcess = true;
+	bool enableRenderingPostProcess = false;
 	bool enableBakingPostProcess = true;
 	bool cullBackFace = false;
 
-	color3 worldColor = color3(1.0f, 0.95f, 0.9f) * 0.8f;
+	color3 worldColor = color3(1.0f, 0.95f, 0.9f) * 0.1f;
 	color4 backColor = color4(1.0f, 0.95f, 0.9f, 0.0f) * 0.2f;
 };
 
@@ -158,8 +158,8 @@ private:
 	void calcVertexInterpolation(const RenderMeshTriangle& rt, const vec3& hit, VertexInterpolation* hi) const;
     void calcVertexInterpolation(const RayTriangleIntersectionInfo& info, VertexInterpolation* vi) const;
     
-	color3 traceAreaLight(const LightSource& lightSource, const RayTriangleIntersectionInfo& info, const VertexInterpolation& srchi) const;
-	color3 tracePointLight(const LightSource& lightSource, const RayTriangleIntersectionInfo& info, const VertexInterpolation& srchi) const;
+	color3 traceAreaLight(const LightSource& lightSource, const vec3& hit, const vec3& normal) const;
+	color3 tracePointLight(const LightSource& lightSource, const vec3& hit, const vec3& objectNormal) const;
 
 	color4 renderPixel(const RenderThreadContext& ctx, Ray& ray, const int x, const int y);
 	color4 traceEyeRay(const Ray& ray) const;
@@ -207,8 +207,8 @@ public:
     void render();
 	
 	color3 tracePath(const Ray& ray, void* shaderParam) const;
-	color3 traceLight(const RayTriangleIntersectionInfo& interInfo, const VertexInterpolation& srchi, const int samples = 1) const;
-	color3 lambertTraceLights(const RayTriangleIntersectionInfo& interInfo, const VertexInterpolation& srchi) const;
+	color3 traceLight(const vec3& hit, const vec3& objectNormal) const;
+	color3 lambertTraceLights(const vec3& hit, const vec3& objectNormal) const;
     std::vector<LightSource> getAllLights() { return this->pointLightSources; }
     
     float calcAO(const vec3& vertex, const vec3& normal, const float traceDistance = RAY_MAX_DISTANCE) const;

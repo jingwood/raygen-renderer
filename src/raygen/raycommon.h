@@ -95,6 +95,8 @@ public:
 	} uvt2Info;
 	
 	vec3 faceNormal;
+    float area;
+    float pdf;
 
 	BoundingBox bbox;
 

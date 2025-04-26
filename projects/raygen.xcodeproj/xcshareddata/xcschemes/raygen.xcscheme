@@ -57,28 +57,32 @@
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "-r 360"
+            argument = "-r 500"
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "/Users/jing/Projects/jingwood/raygen-renderer/resources/scenes/test/bokeh.json"
-            isEnabled = "YES">
+            argument = "/Users/jing/Projects/jingwood/raygen-renderer/resources/scenes/test/test.json"
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "/Users/jing/Projects/jingwood/raygen-renderer/resources/scenes/cubeRoom/cubeRoom.json"
-            isEnabled = "NO">
+            isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "/Users/jing/Projects/jingwood/raygen-renderer/resources/scenes/suzanne/suzanne.json"
             isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "-s 1"
+            argument = "-s 1 -d 2"
             isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "-s 10"
+            argument = "-s 5"
             isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "-s 20"
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "-s 100"

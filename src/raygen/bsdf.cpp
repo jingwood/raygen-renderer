@@ -15,24 +15,26 @@ namespace raygen {
 color3 DiffuseShader::shade(BSDFParam& param) {
     const RayRenderer& renderer = param.renderer;
     const auto& interInfo = param.interInfo;
-    
     const SceneObject& obj = interInfo.triangle->object;
     const Material& m = obj.material;
     
+    const vec3 objectVertex = interInfo.hit;
+    const vec3 objectNormal = param.vi.normal;
+    
 //    const vec3 dir = randomRayInHemisphere(param.vi.normal);
-    const vec3 dir = cosineWeightedDirection(param.vi.normal);
-    const Ray ray = ThicknessRay(interInfo.hit, dir);
+    vec3 dir = cosineWeightedDirection(objectNormal);
+    
+//    if (m.roughness > 0.0f) {
+//        dir = (dir + cosineWeightedDirection(param.vi.normal) * m.roughness).normalize();
+//    }
+    
+    const Ray ray = ThicknessRay(objectVertex, dir);
     
     color3f indirect = renderer.tracePath(ray, (void*)&param);
-    color3f direct = renderer.traceLight(interInfo, param.vi);
+    color3f direct = renderer.traceLight(objectVertex, objectNormal);
 
     // Lambert拡散 + 拡散率
-    color3f color = (indirect + direct) * (m.color * m.diffuse) * (1.0f / M_PI);
-
-    // テクスチャがある場合は適用
-    if (renderer.settings.enableColorSampling && m.texture != NULL) {
-        color *= m.texture->sample(param.vi.uv * m.texTiling).rgb;
-    }
+    color3f color = (indirect + direct) * m.color * m.diffuse;// * M_PI;
     
     return color;
 }
@@ -125,34 +127,32 @@ color3 RefractionShader::shade(BSDFParam& param) {
     const auto& interInfo = param.interInfo;
     const Material& m = interInfo.triangle->object.material;
 
-    vec3 normal = param.vi.normal;
+    vec3 objectHit = param.interInfo.hit;
+    vec3 objectNormal = param.vi.normal;
     vec3 inDir = param.inray.dir;
+    
+    return renderer.tracePath(ThicknessRay(objectHit, inDir), (void*)&param);
 
-    // 正確なFresnel係数を計算
-    float cosTheta = clamp(dot(-inDir, normal), 0.0f, 1.0f);
+    // Fresnel計算
+    float cosTheta = clamp(dot(-inDir, objectNormal), 0.0f, 1.0f);
     float fresnel = fresnelSchlick(cosTheta, m.refractionRatio);
 
-    // 屈折レイの方向
-    vec3 refractedDir = refract(inDir, normal, m.refractionRatio);
+    // 屈折方向
+    vec3 refractedDir = refract(inDir, objectNormal, m.refractionRatio);
     if (m.roughness > 0.0f) {
-        refractedDir = (refractedDir + cosineWeightedDirection(normal) * m.roughness).normalize();
+        refractedDir = (refractedDir + cosineWeightedDirection(objectNormal) * m.roughness).normalize();
     }
-    
-    // 屈折レイをトレース
+
+    // 反射方向
+    vec3 reflectedDir = reflect(inDir, objectNormal);
+
+    // トレース
     color3 refractedColor = renderer.tracePath(ThicknessRay(interInfo.hit, refractedDir), (void*)&param);
-
-    // 反射レイをトレース
-    vec3 reflectedDir = reflect(inDir, normal);
     color3 reflectedColor = renderer.tracePath(ThicknessRay(interInfo.hit, reflectedDir), (void*)&param);
-    
-    // Fresnelブレンド + 色補正
-//    color3 finalColor = (refractedColor * (1.0f - fresnel) + reflectedColor * fresnel) * m.color;
 
-   return (refractedColor * (1.0f - fresnel) + reflectedColor * fresnel) * m.color * 1.5f; // 明度補正
-    
-    // 反射率1や0でもゼロにはならないように調整（数値誤差対策）
-//    return finalColor;
-//    return clamp(finalColor, 0.0f, 1.0f);
+    // Fresnelブレンド + 色
+    color3 finalColor = (refractedColor * (1.0f - fresnel) + reflectedColor * fresnel) * m.color;
+    return clamp(finalColor, 0.0f, 1.0f);
 }
 
 color3 GlassShader::shade(BSDFParam& param) {
@@ -198,7 +198,7 @@ color3 AnisotropicShader::shade(BSDFParam& param) {
     const Ray ray = ThicknessRay(interInfo.hit, dir);
     
     color3 color = renderer.tracePath(ray, (void*)&param)
-        + renderer.traceLight(interInfo, param.vi);
+        + renderer.traceLight(interInfo.hit, param.vi.normal);
     
     if (renderer.settings.enableColorSampling) {
         color *= m.color;
