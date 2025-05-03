@@ -580,6 +580,7 @@ color3 RayRenderer::tracePath(const Ray& ray, void* shaderParam) const {
     }
 
     // the ray out of scene
+    return colors::green;
     return color3::zero;
 }
 

@@ -131,7 +131,7 @@ color3 RefractionShader::shade(BSDFParam& param) {
     vec3 objectNormal = param.vi.normal;
     vec3 inDir = param.inray.dir;
     
-    return renderer.tracePath(ThicknessRay(objectHit, inDir), (void*)&param);
+    return renderer.tracePath(ThicknessRay(objectHit+inDir*0.01, inDir), (void*)&param);
 
     // Fresnel計算
     float cosTheta = clamp(dot(-inDir, objectNormal), 0.0f, 1.0f);
