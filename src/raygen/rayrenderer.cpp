@@ -388,21 +388,21 @@ void RayRenderer::render() {
         th.join();
     }
     
-//    if (this->settings.enableRenderingPostProcess) {
-//        Image3f denoised = this->denoiseImage(this->renderingImage, this->normalBuffer, this->depthBuffer, this->albedoBuffer);
-//        Image::copy(denoised, this->renderingImage);  // 表示用バッファへ上書き
-//        
-//        Image glowimg(this->renderingImage.getPixelDataFormat(), 32);
-//        Image::copy(this->renderingImage, glowimg);
-//        glowimg.resize((int)((float)this->renderingImage.width() * PP_GLOW_SIZE_ASPECT),
-//            (int)((float)this->renderingImage.height() * PP_GLOW_SIZE_ASPECT));
-//        img::thresholdSoft(glowimg, 0.5f, 1);
-//        img::gamma(glowimg, PP_GLOW_GAMMA);
-//        int kernelSize = calculateGaussianKernelSize(glowimg.width(), glowimg.height());
-//        img::gaussBlur(glowimg, kernelSize);
-//        glowimg.resize(this->renderingImage.getSize());
-//        img::calc(this->renderingImage, glowimg, img::CalcMethods::Add, 0.5f);
-//    }
+    if (this->settings.enableRenderingPostProcess) {
+        Image3f denoised = this->denoiseImage(this->renderingImage, this->normalBuffer, this->depthBuffer, this->albedoBuffer);
+        Image::copy(denoised, this->renderingImage);
+
+        Image glowimg(this->renderingImage.getPixelDataFormat(), 32);
+        Image::copy(this->renderingImage, glowimg);
+        glowimg.resize((int)((float)this->renderingImage.width() * PP_GLOW_SIZE_ASPECT),
+            (int)((float)this->renderingImage.height() * PP_GLOW_SIZE_ASPECT));
+        img::thresholdSoft(glowimg, 0.5f, 1);
+        img::gamma(glowimg, PP_GLOW_GAMMA);
+        int kernelSize = calculateGaussianKernelSize(glowimg.width(), glowimg.height());
+        img::gaussBlur(glowimg, kernelSize);
+        glowimg.resize(this->renderingImage.getSize());
+        img::calc(this->renderingImage, glowimg, img::CalcMethods::Add, 0.5f);
+    }
 }
 
 void RayRenderer::renderAsyncThread(RenderThreadCallback* callback) {
@@ -580,7 +580,6 @@ color3 RayRenderer::tracePath(const Ray& ray, void* shaderParam) const {
     }
 
     // the ray out of scene
-    return colors::green;
     return color3::zero;
 }
 
@@ -648,55 +647,38 @@ color3 RayRenderer::traceAreaLight(const LightSource& lightSource, const vec3& h
 
     const auto& triangle = *triangleList[rand() % triangleList.size()];
 
-    const vec3 lightPos = cosineWeightedPointInTriangle(triangle.tri, objectNormal);
-    const vec3 lightRay = lightPos - hit;
-    const float distanceSquared = lightRay.length2();
-    const vec3 lightDir = lightRay.normalize();
+    const vec3 p = randomPointInTriangle(triangle.tri);
+    const vec3 lightRay = p - hit;
+    const vec3 lightDir = normalize(lightRay);
 
-    const float dotObjectToLight = fmaxf(dot(lightDir, objectNormal), 0.0f);
-    
+    const float dotObjectToLight = dot(lightDir, objectNormal);
+
+    constexpr float maxt = 0.99999f;
+
     if (dotObjectToLight > 0) {
         VertexInterpolation lightHit;
-        calcVertexInterpolation(triangle, lightPos, &lightHit);
-        const vec3 lightNormal = lightHit.normal;
-        const float dotLight = fmaxf(dot(-lightDir, lightHit.normal), 0.0f);
-        
-        if (dotLight > 0) {
-            Ray ray = ThicknessRay(hit, lightDir);
+        calcVertexInterpolation(triangle, p, &lightHit);
 
-            // Use correct max distance for shadow ray culling
-            const float maxDistance = sqrtf(distanceSquared) - 1e-3f; // small epsilon to avoid self-intersection
-            bool occluded = this->kdtree.iterate(ray, [&ray, maxDistance](const RenderMeshTriangle* rt) {
-                float t;
-                vec3 hit;
-                if (rt->intersectsRay(ray, maxDistance, t, hit)) {
-                    return true; // hit something within range, occluded
-                }
-                return false; // no hit, not occluded
-            });
+        Ray ray = ThicknessRay(hit, lightRay);
 
-            if (!occluded) {
-                const auto& lightMat = lightSource.object->material;
-//
-//                float G = dotObjectToLight * dotLight / (dist2 + 1e-4f);  // 幾何項
-//                float lightIntensity = (lightMat.emission * G) / triangle.pdf;
-//
-//                return lightMat.color * lightIntensity;
-                float cosTheta = dot(objectNormal, lightDir);
-                float cosThetaLight = dot(lightNormal, -lightDir);
-//                float pdfLight = lightPDF(hit, lightPos, lightNormal, triangle.area);
-
-//                vec3 fr = hit.material.brdf; // Lambertならρ/π
-                color3f Li = lightMat.emission;
-
-                // 直接光の寄与
-                return Li * cosTheta * cosThetaLight * triangle.area / (M_PI * distanceSquared);
+        const bool blocked = !this->kdtree.iterate(ray, [&ray](const RenderMeshTriangle* rt) {
+            float t;
+            vec3 hit;
+            if (rt->intersectsRay(ray, maxt, t, hit)) {
+                return false;
             }
+            return true;
+        });
+
+        if (!blocked) {
+            const auto& lightMat = lightSource.object->material;
+            const float dist = powf(lightRay.length(), -2.0f);
+
+            return lightMat.color * (lightMat.emission * dist * dotObjectToLight * fabs(dot(-lightDir, lightHit.normal)));
         }
     }
 
-    return color3f::zero;
-//    return this->settings.worldColor;
+    return color3::zero;
 }
 
 color3 RayRenderer::tracePointLight(const LightSource& lightSource, const vec3& hit, const vec3& objectNormal) const {
@@ -1100,61 +1082,63 @@ Image3f RayRenderer::denoiseImage(const Image3f& noisy, const Image3f& normal, c
 
 color3 RayBSDFShaderProvider::shade(const RayTriangleIntersectionInfo& interInfo, const Ray& inray,
                                     const VertexInterpolation& vi, void* shaderParam) {
-  const Material& m = interInfo.triangle->object.material;
-  BSDFParam param(*this->renderer, interInfo, inray, vi);
-  const vec3& objectNormal = vi.normal;
+    const Material& m = interInfo.triangle->object.material;
+    BSDFParam param(*this->renderer, interInfo, inray, vi);
 
-  if (shaderParam != NULL) {
-    const BSDFParam* sp = static_cast<const BSDFParam*>(shaderParam);
-    param.passes = sp->passes + 1;
-
-    if (param.passes >= MAX_TRACE_DEPTH) {
-      // Russian Roulette for path termination
-      if (randomValue() > 0.9f) return color3f::zero;
+    if (m.emission > 0.0f) {
+        return (normalize(m.color) + 1.0f);
     }
-  } else {
-      // Handle emission
-      if (m.emission > 0.0f) {
-        return this->emissionShader.shade(param);
-      }
 
-      param.passes = 0;
-  }
-
-  // Handle backface for non-refractive, non-glossy materials
-  if (dot(inray.dir, objectNormal) > 0.0f) {
-    if (m.refraction < 0.001f || m.transparency > 0.001f) {
-//        return colors::blue;
-      return color3::zero;
+    if (dot(inray.dir, vi.normal) > 0.0f) {
+        if (m.transparency > 0.001f) {
+            const BSDFParam* sp = (const BSDFParam*)shaderParam;
+            if (sp != NULL && sp->passes + 1 <= MAX_TRACE_DEPTH) {
+                param.passes = sp->passes + 1;
+                return transparencyShader.shade(param);
+            } else {
+                return color3::zero;
+            }
+        }
+        else if (m.refraction < 0.001f && m.glossy > 0.001f) {
+            return color3::zero;
+        }
     }
-  }
 
-  // Compute diffuse, glossy, refraction weights
-  float totalWeight = m.diffuse + m.glossy + m.refraction;
-  float diffuseWeight = m.diffuse / totalWeight;
-  float glossyWeight = m.glossy / totalWeight;
-  float refractionWeight = m.refraction / totalWeight;
+    if (shaderParam != NULL) {
+        const BSDFParam* sp = (const BSDFParam*)shaderParam;
 
-  // Sample based on weights
-  float r = randomValue();
-  color3 result = color3::zero;
+        if (sp->passes + 1 >= MAX_TRACE_DEPTH) {
+            if (1.0f - m.glossy - m.refraction > 0.00001f) {
+                const color3 light = this->renderer->traceLight(interInfo.hit, vi.normal);
 
-  if (r < diffuseWeight) {
-    result = this->diffuseShader.shade(param) / diffuseWeight;
-  } else if (r < diffuseWeight + glossyWeight) {
-    result = this->glossyShader.shade(param) / glossyWeight;
-  } else {
-    result = this->refractionShader.shade(param) / refractionWeight;
-  }
+                color3 color = color3::zero;
+                if (this->renderer->settings.enableColorSampling) {
+                    color = m.color;
 
-  // Apply color tinting if applicable
-  if (this->renderer->settings.enableColorSampling) {
-    if (m.texture != NULL) {
-      result *= m.texture->sample(vi.uv * m.texTiling).rgb;
+                    if (m.texture != NULL) {
+                        color *= m.texture->sample(vi.uv * m.texTiling).rgb;
+                    }
+                }
+
+                return light * color;
+            } else {
+                return color3::zero;
+            }
+        }
+
+        if (m.transparency > 0.001f) {
+            return transparencyShader.shade(param);
+        } else {
+            param.passes = sp->passes + 1;
+            return mixShader.shade(param);
+        }
+    } else {
+        if (m.transparency > 0.01f) {
+            return mixShader.shade(param) * (1.0f - m.transparency) + transparencyShader.shade(param);
+        } else {
+            return mixShader.shade(param);
+        }
     }
-  }
-
-  return result;
 }
 
 color3 RayBSDFBakeShaderProvider::shade(const RayTriangleIntersectionInfo& interInfo, const Ray& inray,
