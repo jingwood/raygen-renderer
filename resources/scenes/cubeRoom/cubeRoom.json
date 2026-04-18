@@ -10,7 +10,7 @@
 		"angle": [180, 0, 0],
 		"scale": [1.5, 1, 1.5],
 		"mesh": { "type": "plane" },
-		"mat": { "color": "#fffff0", "emission": 70 }
+		"mat": { "color": "#fffff0", "emission": 30 }
 	},
 	"ceiling": {
 		"location": [ 0, 3, 0 ],
@@ -24,7 +24,7 @@
 		"angle": [0, 0, 0],
 		"scale": [6, 1, 6],
 		"mesh": { "type": "plane" },
-		"mat": { "color": "#999999", "diffuse": 0.8, "glossy": 0.2, "roughness": 0.1 }
+		"mat": { "color": "#999999", "diffuse": 0.5, "glossy": 0.5, "roughness": 0.2 }
 	},
 	"left-wall": {
 		"location": [ -3, 0, 0 ],
