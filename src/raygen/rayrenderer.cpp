@@ -1079,7 +1079,7 @@ color3 RayBSDFShaderProvider::shade(const RayTriangleIntersectionInfo& interInfo
     BSDFParam param(*this->renderer, interInfo, inray, vi);
 
     if (m.emission > 0.0f) {
-        return (normalize(m.color) + 1.0f);
+        return m.color * m.emission;
     }
 
     if (dot(inray.dir, vi.normal) > 0.0f) {
