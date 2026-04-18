@@ -1,6 +1,6 @@
 CXX=clang++
 AR=ar
-CXXFLAGS=-O3 -std=c++11 -pthread -Wall   #-pedantic
+CXXFLAGS=-O3 -ffast-math -funroll-loops -flto -march=native -std=c++11 -pthread -Wall   #-pedantic
 #INC=-I../../inc/jpeg-6b -I../../inc/
 PD=../../      # Project Directory
 LIB=../../lib/mac-intel/libjpeg.a ../../lib/mac-intel/libpng.a ../../lib/mac-intel/libz.a \
