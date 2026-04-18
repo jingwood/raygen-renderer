@@ -396,12 +396,12 @@ void RayRenderer::render() {
         Image::copy(this->renderingImage, glowimg);
         glowimg.resize((int)((float)this->renderingImage.width() * PP_GLOW_SIZE_ASPECT),
             (int)((float)this->renderingImage.height() * PP_GLOW_SIZE_ASPECT));
-        img::thresholdSoft(glowimg, 0.5f, 1);
+        img::thresholdSoft(glowimg, 0.9f, 3);
         img::gamma(glowimg, PP_GLOW_GAMMA);
         int kernelSize = calculateGaussianKernelSize(glowimg.width(), glowimg.height());
         img::gaussBlur(glowimg, kernelSize);
         glowimg.resize(this->renderingImage.getSize());
-        img::calc(this->renderingImage, glowimg, img::CalcMethods::Add, 0.5f);
+        img::calc(this->renderingImage, glowimg, img::CalcMethods::Lighter, 0.35f);
     }
 }
 
@@ -480,15 +480,9 @@ color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const
     const float dy = -((float)y - ctx.halfRenderSize.height) * ctx.viewScaleY;
 
     color4f sampleColor;
-    color4f previousSample = color4f::zero;
-    float variance = 0.0f;
-    const float MIN_SAMPLES = this->settings.samples / 10;
-    constexpr float VARIANCE_THRESHOLD = 0.0001f;
+    const int totalSamples = this->settings.samples;
 
-    int samples = 0;
-    for (int i = 0; i < this->settings.samples; i++) {
-        color4f currentSample;
-        
+    for (int i = 0; i < totalSamples; i++) {
         if (ctx.depthOfField >= 0.001f && ctx.aperture > 0) {
             F.x = dx * ctx.depthOfFieldScale;
             F.y = dy * ctx.depthOfFieldScale;
@@ -496,36 +490,23 @@ color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const
             // ランダム円形分布（正規化済み）
             float r = sqrtf(randomValue());
             float theta = randomValue() * 2.0f * M_PI;
-            
+
             float offsetX = r * cosf(theta) * ctx.aperture;
             float offsetY = r * sinf(theta) * ctx.aperture;
-            
+
             ray.origin.x = offsetX;
             ray.origin.y = offsetY;
-            
+
             ray.dir = (F - ray.origin).normalize();
         } else {
             ray.origin = vec3(randomValue() * 0.0001f, randomValue() * 0.0001f, 0);
             ray.dir = vec3(dx, dy, -50).normalize();
         }
-        
-        currentSample = this->traceEyeRay(ray);
 
-        // 差分を計算
-        float diff = vec3(currentSample.rgb - previousSample.rgb).length();
-        variance += diff;
-
-        sampleColor += currentSample;
-        previousSample = currentSample;
-        samples++;
-
-        // 差分が十分に小さければ打ち切り
-        if (i >= MIN_SAMPLES && (variance / i) < VARIANCE_THRESHOLD) {
-            break;
-        }
+        sampleColor += this->traceEyeRay(ray);
     }
-    
-    const color3f radiance = sampleColor * ctx.exposure / samples;
+
+    const color3f radiance = sampleColor * ctx.exposure / (float)totalSamples;
     return clamp(radiance, 0.0f, 1.0f);
 }
 
@@ -540,7 +521,7 @@ color4 RayRenderer::traceEyeRay(const Ray& ray) const {
         this->calcVertexInterpolation(interInfo, &vi);
 
         if (interInfo.triangle->object.visible) {
-            return this->shaderProvider->shade(interInfo, ray, vi);
+            return clamp(this->shaderProvider->shade(interInfo, ray, vi), 0.0f, 1.0f);
         }
     }
 
