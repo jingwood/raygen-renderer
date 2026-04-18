@@ -28,7 +28,16 @@
 
 #define TRACE_LIGHT_TRIES 1
 #define TRACE_PATH_TRIES 1
-#define MAX_TRACE_DEPTH 6
+// Safety cap on recursion. Russian Roulette handles typical path termination
+// (see RayBSDFShaderProvider::shade), so this only bounds worst-case depth.
+#define MAX_TRACE_DEPTH 16
+// Start Russian Roulette after this many bounces so early, high-throughput
+// bounces are always traced — only the tail of the path is stochastic.
+#define MIN_RR_DEPTH 3
+// Continuation probability is clamped to this range: low enough that dim
+// paths can die quickly, high enough that variance from 1/q stays bounded.
+#define RR_MIN_PROB 0.05f
+#define RR_MAX_PROB 0.95f
 
 #define PP_GLOW_SIZE_ASPECT 0.15
 #define PP_GLOW_GAMMA 1.4
@@ -1087,6 +1096,7 @@ color3 RayBSDFShaderProvider::shade(const RayTriangleIntersectionInfo& interInfo
             const BSDFParam* sp = (const BSDFParam*)shaderParam;
             if (sp != NULL && sp->passes + 1 <= MAX_TRACE_DEPTH) {
                 param.passes = sp->passes + 1;
+                param.throughput = sp->throughput;
                 return transparencyShader.shade(param);
             } else {
                 return color3::zero;
@@ -1119,11 +1129,26 @@ color3 RayBSDFShaderProvider::shade(const RayTriangleIntersectionInfo& interInfo
             }
         }
 
+        param.passes = sp->passes + 1;
+        param.throughput = sp->throughput;
+
+        // Russian Roulette: kill low-contribution paths probabilistically and
+        // rescale survivors by 1/q to keep the estimator unbiased. The max
+        // channel of the accumulated throughput is a cheap, reasonable q:
+        // bright paths survive, dim paths die off quickly.
+        float rrWeight = 1.0f;
+        if (param.passes >= MIN_RR_DEPTH) {
+            const color3& t = param.throughput;
+            float q = fmaxf(t.r, fmaxf(t.g, t.b));
+            q = fminf(RR_MAX_PROB, fmaxf(RR_MIN_PROB, q));
+            if (randomValue() >= q) return color3::zero;
+            rrWeight = 1.0f / q;
+        }
+
         if (m.transparency > 0.001f) {
-            return transparencyShader.shade(param);
+            return transparencyShader.shade(param) * rrWeight;
         } else {
-            param.passes = sp->passes + 1;
-            return mixShader.shade(param);
+            return mixShader.shade(param) * rrWeight;
         }
     } else {
         if (m.transparency > 0.01f) {

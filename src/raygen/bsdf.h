@@ -24,6 +24,10 @@ public:
     const Ray& inray;
 	const VertexInterpolation& vi;
 	int passes = 0;
+    // Accumulated path throughput from the eye to this hit (before this hit's
+    // own BSDF attenuation). Consumed by Russian Roulette in the shader
+    // provider to decide whether to keep extending the path.
+    color3 throughput = color3(1.0f, 1.0f, 1.0f);
     void* sourceShader = NULL;
     bool enableLightSample = false;
 

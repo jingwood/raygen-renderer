@@ -48,18 +48,23 @@ color3 DiffuseShader::shade(BSDFParam& param) {
     const vec3 dir = cosineWeightedDirection(param.vi.normal);
     const Ray ray = ThicknessRay(interInfo.hit, dir);
 
-    color3f color = renderer.tracePath(ray, (void*)&param)
-                  + renderer.traceLight(interInfo.hit, param.vi.normal);
-
+    color3 albedo(1.0f, 1.0f, 1.0f);
     if (renderer.settings.enableColorSampling) {
-        color *= m.color;
-
+        albedo = m.color;
         if (m.texture != NULL) {
-            color *= m.texture->sample(param.vi.uv * m.texTiling).rgb;
+            albedo *= m.texture->sample(param.vi.uv * m.texTiling).rgb;
         }
     }
 
-    return color;
+    const color3 savedT = param.throughput;
+    param.throughput *= albedo;
+
+    color3f color = renderer.tracePath(ray, (void*)&param)
+                  + renderer.traceLight(interInfo.hit, param.vi.normal);
+
+    param.throughput = savedT;
+
+    return color * albedo;
 }
 
 color3 EmissionShader::shade(BSDFParam& param) {
@@ -92,7 +97,12 @@ color3 GlossyShader::shade(BSDFParam& param) {
         r = (r + randomRayInHemisphere(normal) * m.roughness).normalize();
     }
 
+    const color3 savedT = param.throughput;
+    param.throughput *= m.color;
+
     const color3f color = renderer.tracePath(ThicknessRay(interInfo.hit, r), (void*)&param);
+
+    param.throughput = savedT;
 
     return color * m.color;
 }
@@ -121,7 +131,12 @@ color3 RefractionShader::shade(BSDFParam& param) {
         dir = (dir + randomRayInHemisphere(normal) * m.roughness).normalize();
     }
 
+    const color3 savedT = param.throughput;
+    param.throughput *= m.color;
+
     const color3f color = renderer.tracePath(ThicknessRay(interInfo.hit, dir), (void*)&param);
+
+    param.throughput = savedT;
 
     return color * m.color;
 }
@@ -141,7 +156,12 @@ color3 GlassShader::shade(BSDFParam& param) {
         r = (r + randomRayInHemisphere(normal) * m.roughness).normalize();
     }
 
+    const color3 savedT = param.throughput;
+    param.throughput *= m.color;
+
     const color3f color = renderer.tracePath(ThicknessRay(interInfo.hit, r), (void*)&param);
+
+    param.throughput = savedT;
 
     return color * m.color;
 }
@@ -153,7 +173,14 @@ color3 TransparencyShader::shade(BSDFParam& param) {
     const SceneObject& obj = interInfo.triangle->object;
     const Material& m = obj.material;
 
-    return (renderer.tracePath(ThicknessRay(interInfo.hit, param.inray.dir), (void*)&param)) * m.transparency;
+    const color3 savedT = param.throughput;
+    param.throughput *= m.transparency;
+
+    const color3 color = renderer.tracePath(ThicknessRay(interInfo.hit, param.inray.dir), (void*)&param);
+
+    param.throughput = savedT;
+
+    return color * m.transparency;
 }
 
 color3 AnisotropicShader::shade(BSDFParam& param) {
@@ -168,18 +195,23 @@ color3 AnisotropicShader::shade(BSDFParam& param) {
     const vec3 dir = randomRayInHemisphere(normal);
     const Ray ray = ThicknessRay(interInfo.hit, dir);
 
-    color3 color = renderer.tracePath(ray, (void*)&param)
-                 + renderer.traceLight(interInfo.hit, param.vi.normal);
-
+    color3 albedo(1.0f, 1.0f, 1.0f);
     if (renderer.settings.enableColorSampling) {
-        color *= m.color;
-
+        albedo = m.color;
         if (m.texture != NULL) {
-            color *= m.texture->sample(param.vi.uv * m.texTiling).rgb;
+            albedo *= m.texture->sample(param.vi.uv * m.texTiling).rgb;
         }
     }
 
-    return color;
+    const color3 savedT = param.throughput;
+    param.throughput *= albedo;
+
+    color3 color = renderer.tracePath(ray, (void*)&param)
+                 + renderer.traceLight(interInfo.hit, param.vi.normal);
+
+    param.throughput = savedT;
+
+    return color * albedo;
 }
 
 color3 MixShader::shade(BSDFParam& param) {
@@ -191,19 +223,27 @@ color3 MixShader::shade(BSDFParam& param) {
     color3 color;
 
     const float diffuse = 1.0f - m.glossy - m.refraction;
+    const color3 savedT = param.throughput;
 
+    // Each child branch's recursive tracePath needs the MixShader-level weight
+    // baked into the throughput so Russian Roulette sees the true contribution.
+    // Restore between siblings so branches don't interfere.
     if (diffuse > 0.00001f) {
+        param.throughput = savedT * diffuse;
         color += diffuseShader.shade(param) * diffuse;
     }
 
     if (m.glossy > 0.00001f) {
+        param.throughput = savedT * m.glossy;
         color += glossyShader.shade(param) * m.glossy;
     }
 
     if (m.refraction > 0.00001f) {
+        param.throughput = savedT * m.refraction;
         color += refractionShader.shade(param) * m.refraction;
     }
 
+    param.throughput = savedT;
     return color;
 }
 
