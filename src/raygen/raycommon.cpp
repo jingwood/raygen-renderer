@@ -8,12 +8,83 @@
 
 #include "raycommon.h"
 #include <cmath>
+#include <cstdint>
 
 namespace raygen {
 
+namespace {
+
+// Low-discrepancy sampling state. Thread-local so worker threads don't
+// interfere, and per-pixel-sample so each pixel's samples walk the Halton
+// sequence from a different offset (prevents diagonal aliasing patterns).
+
+constexpr int LDS_MAX_DIM = 16;  // primes below cover the common path uses;
+                                  // beyond this Halton degrades and we fall
+                                  // back to the PRNG.
+constexpr int LDS_PRIMES[LDS_MAX_DIM] = {
+    2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53
+};
+
+thread_local int g_ldsSampleIdx = 0;
+thread_local uint32_t g_ldsPixelScramble = 0;
+thread_local int g_ldsDim = 0;
+
+// PCG-style integer hash for the per-pixel scramble seed. Cheap, decent
+// mixing; good enough to decorrelate neighbouring pixels without producing
+// visible patterns.
+inline uint32_t hashPixel(int x, int y, uint32_t salt) {
+    uint32_t v = (uint32_t)x * 73856093u ^ (uint32_t)y * 19349663u ^ salt * 83492791u;
+    v ^= v >> 16; v *= 0x7feb352du;
+    v ^= v >> 15; v *= 0x846ca68bu;
+    v ^= v >> 16;
+    return v;
+}
+
+// Scrambled radical inverse in base `base`. The XOR-scramble with a
+// per-dim seed is a cheap approximation of Owen scrambling; it removes
+// visible structure in the high Halton dimensions without changing
+// the estimator's expectation.
+inline float scrambledRadicalInverse(uint32_t i, int base, uint32_t scramble) {
+    const float invBase = 1.0f / (float)base;
+    float invBaseN = 1.0f;
+    uint64_t rev = 0;
+    while (i > 0) {
+        uint64_t next = i / base;
+        uint64_t digit = i - next * base;
+        rev = rev * base + (digit ^ (scramble % base));
+        scramble /= base;
+        invBaseN *= invBase;
+        i = (uint32_t)next;
+    }
+    float v = (float)rev * invBaseN;
+    return v < 1.0f ? v : 0.9999999f;
+}
+
+} // namespace
+
+void ldsBeginPixelSample(int x, int y, int sampleIdx) {
+    g_ldsSampleIdx = sampleIdx;
+    g_ldsPixelScramble = hashPixel(x, y, 0);
+    g_ldsDim = 0;
+}
+
+float ldsNext1D() {
+    if (g_ldsDim >= LDS_MAX_DIM) return randomValue();
+    const int base = LDS_PRIMES[g_ldsDim];
+    const uint32_t scramble = hashPixel(g_ldsSampleIdx, g_ldsDim, g_ldsPixelScramble);
+    const float v = scrambledRadicalInverse((uint32_t)g_ldsSampleIdx + 1, base, scramble);
+    g_ldsDim++;
+    return v;
+}
+
+void ldsNext2D(float& u, float& v) {
+    u = ldsNext1D();
+    v = ldsNext1D();
+}
+
 vec3 cosineWeightedDirection(const vec3& normal) {
-    float r1 = randomValue();
-    float r2 = randomValue();
+    float r1, r2;
+    ldsNext2D(r1, r2);
 
     float theta = acos(sqrt(1.0f - r1));
     float phi = 2.0f * M_PI * r2;
@@ -32,6 +103,13 @@ vec3 cosineWeightedDirection(const vec3& normal) {
     vec3 bitangent = cross(normal, tangent);
 
     return normalize(tangent * x + bitangent * y + normal * z);
+}
+
+vec3 ldsPointInTriangle(const Triangle& tri) {
+    float u, v;
+    ldsNext2D(u, v);
+    if (u + v > 1.0f) { u = 1.0f - u; v = 1.0f - v; }
+    return tri.v1 + (tri.v2 - tri.v1) * u + (tri.v3 - tri.v1) * v;
 }
 
 float triangleArea(const vec3& v1, const vec3& v2, const vec3& v3) {

@@ -38,6 +38,15 @@ inline vec3 reflect(const vec3& d, const vec3& normal) {
 //}
 
 vec3 cosineWeightedDirection(const vec3& normal);
+vec3 ldsPointInTriangle(const Triangle& tri);
+
+// Low-discrepancy sampler: thread-local state; each consumer pulls the next
+// Halton dimension and advances. Call ldsBeginPixelSample at the top of each
+// pixel-sample loop so the first few dims get stratified across samples; at
+// high dims we fall back to the PRNG, which is fine for tail bounces.
+void ldsBeginPixelSample(int x, int y, int sampleIdx);
+float ldsNext1D();
+void ldsNext2D(float& u, float& v);
 
 inline Ray ThicknessRay(const vec3& origin, const vec3& dir) {
 	return Ray(origin + dir.normalize() * SURFACE_THICKNESS, dir);

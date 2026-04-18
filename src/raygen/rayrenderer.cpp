@@ -495,23 +495,41 @@ color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const
     const int totalSamples = this->settings.samples;
 
     for (int i = 0; i < totalSamples; i++) {
+        // Reset the Halton walk for this (pixel, sample). The early dims (0,1
+        // for sub-pixel jitter, 2,3 for DOF) are the best-stratified slots, and
+        // the remaining dims propagate down into the path trace for BSDF /
+        // light sampling.
+        ldsBeginPixelSample(x, y, i);
+
         if (ctx.depthOfField >= 0.001f && ctx.aperture > 0.0f) {
             // Focal point at depth `depthOfField` along the primary ray direction.
             const vec3 focalPoint(dx * ctx.depthOfField, dy * ctx.depthOfField, -ctx.depthOfField);
 
-            // Sample a point on the aperture disk (uniform).
-            const float r = sqrtf(randomValue());
-            const float theta = randomValue() * 2.0f * M_PI;
+            // Sub-pixel jitter on dims 0,1 so pixel coverage is stratified.
+            float jx, jy;
+            ldsNext2D(jx, jy);
+            const float pxDx = dx + (jx - 0.5f) * ctx.viewScaleX;
+            const float pxDy = dy - (jy - 0.5f) * ctx.viewScaleY;
+            const vec3 focalPointJ(pxDx * ctx.depthOfField, pxDy * ctx.depthOfField, -ctx.depthOfField);
+
+            // Aperture disk sample on dims 2,3 (concentric mapping keeps the
+            // stratification from the input square intact).
+            float du, dv;
+            ldsNext2D(du, dv);
+            const float r = sqrtf(du);
+            const float theta = dv * 2.0f * M_PI;
             const float offsetX = r * cosf(theta) * ctx.aperture;
             const float offsetY = r * sinf(theta) * ctx.aperture;
 
             ray.origin = vec3(offsetX, offsetY, 0.0f);
-            ray.dir = (focalPoint - ray.origin).normalize();
+            ray.dir = (focalPointJ - ray.origin).normalize();
         } else {
             // Sub-pixel jitter for stochastic anti-aliasing; ray direction pivots at origin.
+            float jx, jy;
+            ldsNext2D(jx, jy);
             ray.origin = vec3::zero;
-            ray.dir = vec3(dx + randomValue() * ctx.viewScaleX,
-                           dy - randomValue() * ctx.viewScaleY,
+            ray.dir = vec3(dx + (jx - 0.5f) * ctx.viewScaleX,
+                           dy - (jy - 0.5f) * ctx.viewScaleY,
                            -1.0f).normalize();
         }
 
@@ -651,7 +669,7 @@ color3 RayRenderer::traceAreaLight(const LightSource& lightSource, const vec3& h
     // a point uniformly within it gives point-pdf 1/(N * triArea). Converted to
     // solid angle (multiplied by r²/cos_light), the estimator carries a factor
     // of (N * triArea * cos_light / r²).
-    const vec3 p = randomPointInTriangle(triangle.tri);
+    const vec3 p = ldsPointInTriangle(triangle.tri);
     const vec3 lightRay = p - hit;
     const vec3 lightDir = normalize(lightRay);
 
