@@ -12,6 +12,13 @@
 
 namespace raygen {
 
+inline float fresnelSchlick(float cosTheta, float refractiveIndex) {
+    float r0 = (1.0f - refractiveIndex) / (1.0f + refractiveIndex);
+    r0 = r0 * r0;
+    const float m = 1.0f - cosTheta;
+    return r0 + (1.0f - r0) * (m * m) * (m * m) * m;
+}
+
 inline vec3 refract(const vec3& d, const vec3& normal, float r = 1.45f) {
     const vec3 nl = dot(d, normal) < 0 ? normal : -normal;
     const bool into = dot(nl, normal) > 0;
@@ -93,15 +100,24 @@ color3 RefractionShader::shade(BSDFParam& param) {
     const SceneObject& obj = interInfo.triangle->object;
     const Material& m = obj.material;
 
-    vec3 normal = param.vi.normal;
+    const vec3& normal = param.vi.normal;
+    const vec3& inDir = param.inray.dir;
 
-    vec3 r = refract(param.inray.dir, normal, m.refractionRatio);
+    // Stochastic Fresnel: pick reflection or refraction per sample based on the
+    // Schlick factor, so on average the blend is energy-conserving without needing
+    // two recursive tracePath calls (one branch = stack-safe).
+    const float cosTheta = clamp(-dot(inDir, normal), 0.0f, 1.0f);
+    const float fresnel = fresnelSchlick(cosTheta, m.refractionRatio);
+
+    vec3 dir = (randomValue() < fresnel)
+        ? reflect(inDir, normal)
+        : refract(inDir, normal, m.refractionRatio);
 
     if (m.roughness > 0.0f) {
-        r = (r + randomRayInHemisphere(normal) * m.roughness).normalize();
+        dir = (dir + randomRayInHemisphere(normal) * m.roughness).normalize();
     }
 
-    const color3f color = renderer.tracePath(ThicknessRay(interInfo.hit, r), (void*)&param);
+    const color3f color = renderer.tracePath(ThicknessRay(interInfo.hit, dir), (void*)&param);
 
     return color * m.color;
 }

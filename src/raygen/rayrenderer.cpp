@@ -629,40 +629,49 @@ color3 RayRenderer::traceAreaLight(const LightSource& lightSource, const vec3& h
     const auto& triangleList = this->meshTriangles.at(mesh);
     if (triangleList.size() <= 0) return colors::transparent;
 
-    const auto& triangle = *triangleList[rand() % triangleList.size()];
+    const size_t triCount = triangleList.size();
+    const auto& triangle = *triangleList[rand() % triCount];
 
+    // Uniform area sampling: picking a triangle with probability 1/N and then
+    // a point uniformly within it gives point-pdf 1/(N * triArea). Converted to
+    // solid angle (multiplied by r²/cos_light), the estimator carries a factor
+    // of (N * triArea * cos_light / r²).
     const vec3 p = randomPointInTriangle(triangle.tri);
     const vec3 lightRay = p - hit;
     const vec3 lightDir = normalize(lightRay);
 
     const float dotObjectToLight = dot(lightDir, objectNormal);
+    if (dotObjectToLight <= 0.0f) return color3::zero;
 
+    VertexInterpolation lightHit;
+    calcVertexInterpolation(triangle, p, &lightHit);
+
+    const float dotLightToRay = dot(-lightDir, lightHit.normal);
+    if (dotLightToRay <= 0.0f) return color3::zero;
+
+    Ray ray = ThicknessRay(hit, lightRay);
     constexpr float maxt = 0.99999f;
 
-    if (dotObjectToLight > 0) {
-        VertexInterpolation lightHit;
-        calcVertexInterpolation(triangle, p, &lightHit);
-
-        Ray ray = ThicknessRay(hit, lightRay);
-
-        const bool blocked = !this->kdtree.iterate(ray, [&ray](const RenderMeshTriangle* rt) {
-            float t;
-            vec3 hit;
-            if (rt->intersectsRay(ray, maxt, t, hit)) {
-                return false;
-            }
-            return true;
-        });
-
-        if (!blocked) {
-            const auto& lightMat = lightSource.object->material;
-            const float dist = powf(lightRay.length(), -2.0f);
-
-            return lightMat.color * (lightMat.emission * dist * dotObjectToLight * fabs(dot(-lightDir, lightHit.normal)));
+    const bool blocked = !this->kdtree.iterate(ray, [&ray](const RenderMeshTriangle* rt) {
+        float t;
+        vec3 hit;
+        if (rt->intersectsRay(ray, maxt, t, hit)) {
+            return false;
         }
-    }
+        return true;
+    });
 
-    return color3::zero;
+    if (blocked) return color3::zero;
+
+    const Material& lightMat = lightSource.object->material;
+    const float sampledArea = (float)triCount * triangle.area;
+    const float r2 = lightRay.length2();
+
+    // Full direct-light term including the Lambert BRDF's 1/π; the shader
+    // multiplies by surface albedo. Equivalent to:
+    //   L_direct = (albedo/π) * Li * cos_obj * cos_light * area / r²
+    return lightMat.color * lightMat.emission
+        * (dotObjectToLight * dotLightToRay * sampledArea / ((float)M_PI * r2));
 }
 
 color3 RayRenderer::tracePointLight(const LightSource& lightSource, const vec3& hit, const vec3& objectNormal) const {

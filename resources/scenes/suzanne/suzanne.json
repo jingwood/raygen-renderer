@@ -16,7 +16,7 @@
 			"angle": [180, 0, 0],
 			"scale": [7, 1, 7], 
 			"mesh": { "type": "plane" },
-			"mat": { "emission": 50 }
+			"mat": { "emission": 1.0 }
 		},
 
 		"floor": {
