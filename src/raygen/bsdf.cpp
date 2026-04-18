@@ -41,7 +41,11 @@ color3 DiffuseShader::shade(BSDFParam& param) {
     const SceneObject& obj = interInfo.triangle->object;
     const Material& m = obj.material;
 
-    const vec3 dir = randomRayInHemisphere(param.vi.normal);
+    // Cosine-weighted hemisphere sampling: p(ω) = cos(θ)/π. For a Lambertian
+    // BRDF albedo/π the MC estimator simplifies to albedo * L(ω), i.e. just
+    // multiply the incoming radiance by surface color — no extra cos/π factors
+    // needed in the shader (the 1/π is already in traceLight's direct term).
+    const vec3 dir = cosineWeightedDirection(param.vi.normal);
     const Ray ray = ThicknessRay(interInfo.hit, dir);
 
     color3f color = renderer.tracePath(ray, (void*)&param)
