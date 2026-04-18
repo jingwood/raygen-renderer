@@ -101,19 +101,23 @@ void RayRenderer::initRenderThreadContext(RenderThreadContext* ctx) {
     ctx->halfRenderSize = sizef(ctx->renderSize.width * 0.5f, ctx->renderSize.height * 0.5f);
     
     ctx->aspectRate = ctx->renderSize.width / ctx->renderSize.height;
-    const float length = fabsf(camera->viewFar - camera->viewNear);
-    const float fovRad = DEGREE_TO_RADIAN(camera->fieldOfView);
-    const float viewportHeight = 2.0f * length * tanf(fovRad * 0.5f);
-    const float viewportWidth = viewportHeight * ctx->aspectRate;
-    
-    ctx->viewportSize = sizef(viewportWidth, viewportHeight);
-    
-    ctx->viewScaleX = ctx->viewportSize.width / ctx->renderSize.width;
-    ctx->viewScaleY = ctx->viewportSize.height / ctx->renderSize.height;
-    
+
+    // Pinhole camera: fieldOfView is vertical FoV in degrees.
+    // Clamp to < 180° since tan(90°) is undefined; use 179° as a safe upper bound.
+    const float fovDeg = fminf(fmaxf(camera->fieldOfView, 1.0f), 179.0f);
+    const float tanHalfFov = tanf(DEGREE_TO_RADIAN(fovDeg) * 0.5f);
+
+    // dx/dy are angular offsets (tangent-space): at depth z, world offset = (dx*z, dy*z).
+    ctx->viewScaleY = (2.0f * tanHalfFov) / ctx->renderSize.height;
+    ctx->viewScaleX = ctx->viewScaleY * ctx->aspectRate;
+
+    // Legacy fields kept for any consumer that still reads them; not used by renderPixel.
+    ctx->viewportSize = sizef(ctx->viewScaleX * ctx->renderSize.width,
+                              ctx->viewScaleY * ctx->renderSize.height);
+
     ctx->depthOfField = camera->depthOfField;
-    ctx->depthOfFieldScale = (camera->depthOfField / length);
-    ctx->aperture = 1.0f / camera->aperture;
+    ctx->depthOfFieldScale = 1.0f;
+    ctx->aperture = (camera->aperture > 0.0f) ? 1.0f / camera->aperture : 0.0f;
     ctx->halfAperture = ctx->aperture * 0.5f;
     ctx->exposure = camera->exposure;
 }
@@ -453,8 +457,6 @@ void RayRenderer::renderThread(const RenderThreadContext& ctx, const int threadI
 }
 
 color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const int x, const int y) {
-    
-    vec3 F(0, 0, -ctx.depthOfField);
 
     // Guided Denoise Meta Data - Start
     ViewRaySurfaceInfo traceRayInfo;
@@ -476,31 +478,32 @@ color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const
     // Guided Denoise Meta Data - End
 
 
-    const float dx = ((float)x - ctx.halfRenderSize.width) * ctx.viewScaleX;
-    const float dy = -((float)y - ctx.halfRenderSize.height) * ctx.viewScaleY;
+    // Angular offsets (tangent-space). Ray through pixel is normalize(vec3(dx, dy, -1)).
+    const float dx = ((float)x + 0.5f - ctx.halfRenderSize.width) * ctx.viewScaleX;
+    const float dy = -((float)y + 0.5f - ctx.halfRenderSize.height) * ctx.viewScaleY;
 
     color4f sampleColor;
     const int totalSamples = this->settings.samples;
 
     for (int i = 0; i < totalSamples; i++) {
-        if (ctx.depthOfField >= 0.001f && ctx.aperture > 0) {
-            F.x = dx * ctx.depthOfFieldScale;
-            F.y = dy * ctx.depthOfFieldScale;
+        if (ctx.depthOfField >= 0.001f && ctx.aperture > 0.0f) {
+            // Focal point at depth `depthOfField` along the primary ray direction.
+            const vec3 focalPoint(dx * ctx.depthOfField, dy * ctx.depthOfField, -ctx.depthOfField);
 
-            // ランダム円形分布（正規化済み）
-            float r = sqrtf(randomValue());
-            float theta = randomValue() * 2.0f * M_PI;
+            // Sample a point on the aperture disk (uniform).
+            const float r = sqrtf(randomValue());
+            const float theta = randomValue() * 2.0f * M_PI;
+            const float offsetX = r * cosf(theta) * ctx.aperture;
+            const float offsetY = r * sinf(theta) * ctx.aperture;
 
-            float offsetX = r * cosf(theta) * ctx.aperture;
-            float offsetY = r * sinf(theta) * ctx.aperture;
-
-            ray.origin.x = offsetX;
-            ray.origin.y = offsetY;
-
-            ray.dir = (F - ray.origin).normalize();
+            ray.origin = vec3(offsetX, offsetY, 0.0f);
+            ray.dir = (focalPoint - ray.origin).normalize();
         } else {
-            ray.origin = vec3(randomValue() * 0.0001f, randomValue() * 0.0001f, 0);
-            ray.dir = vec3(dx, dy, -50).normalize();
+            // Sub-pixel jitter for stochastic anti-aliasing; ray direction pivots at origin.
+            ray.origin = vec3::zero;
+            ray.dir = vec3(dx + randomValue() * ctx.viewScaleX,
+                           dy - randomValue() * ctx.viewScaleY,
+                           -1.0f).normalize();
         }
 
         sampleColor += this->traceEyeRay(ray);
