@@ -209,6 +209,12 @@ public:
 	color3 tracePath(const Ray& ray, void* shaderParam) const;
 	color3 traceLight(const vec3& hit, const vec3& objectNormal) const;
 	color3 lambertTraceLights(const vec3& hit, const vec3& objectNormal) const;
+
+	// Effective area of the light strategy's pdf at a given emitter triangle:
+	// returns triCount * tri.area, matching the "pick triangle uniformly,
+	// then pick a uniform point" sampling used by traceAreaLight. Used by
+	// the BSDF-sampled emission hit to reconstruct pdf_light for MIS.
+	float areaLightSampledArea(const RenderMeshTriangle& tri) const;
     std::vector<LightSource> getAllLights() { return this->pointLightSources; }
     
     float calcAO(const vec3& vertex, const vec3& normal, const float traceDistance = RAY_MAX_DISTANCE) const;

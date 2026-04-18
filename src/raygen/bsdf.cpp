@@ -57,12 +57,21 @@ color3 DiffuseShader::shade(BSDFParam& param) {
     }
 
     const color3 savedT = param.throughput;
+    const bool savedMIS = param.misDiffuse;
+    const vec3 savedMISNormal = param.misNormal;
     param.throughput *= albedo;
+    // Advertise to the next hit that we sampled a cos-weighted diffuse lobe,
+    // so it can MIS-weight any emission it finds against the shadow-ray
+    // strategy used by traceLight.
+    param.misDiffuse = true;
+    param.misNormal = param.vi.normal;
 
     color3f color = renderer.tracePath(ray, (void*)&param)
                   + renderer.traceLight(interInfo.hit, param.vi.normal);
 
     param.throughput = savedT;
+    param.misDiffuse = savedMIS;
+    param.misNormal = savedMISNormal;
 
     return color * albedo;
 }

@@ -28,6 +28,13 @@ public:
     // own BSDF attenuation). Consumed by Russian Roulette in the shader
     // provider to decide whether to keep extending the path.
     color3 throughput = color3(1.0f, 1.0f, 1.0f);
+    // MIS context for direct lighting: when the caller sampled the outgoing
+    // direction from a cosine-weighted diffuse lobe, record that here so the
+    // emission check at the next hit can apply the BSDF-strategy power-
+    // heuristic weight. misNormal is the caller's shading normal (needed to
+    // reconstruct pdf_bsdf = cos(θ_obj)/π for the hit direction).
+    bool misDiffuse = false;
+    vec3 misNormal;
     void* sourceShader = NULL;
     bool enableLightSample = false;
 

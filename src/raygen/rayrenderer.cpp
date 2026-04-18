@@ -626,6 +626,12 @@ float lightPDF(const vec3& hitPoint, const vec3& lightPoint, const vec3& lightNo
     return distanceSquared / (cosThetaLight * lightArea);
 }
 
+float RayRenderer::areaLightSampledArea(const RenderMeshTriangle& tri) const {
+    auto it = this->meshTriangles.find(&tri.mesh);
+    if (it == this->meshTriangles.end()) return tri.area;
+    return (float)it->second.size() * tri.area;
+}
+
 color3 RayRenderer::traceAreaLight(const LightSource& lightSource, const vec3& hit, const vec3& objectNormal) const {
     const SceneObject* obj = lightSource.object;
     if (obj == NULL) return color3::zero;
@@ -676,11 +682,23 @@ color3 RayRenderer::traceAreaLight(const LightSource& lightSource, const vec3& h
     const float sampledArea = (float)triCount * triangle.area;
     const float r2 = lightRay.length2();
 
+    // MIS power heuristic (β=2) between this shadow-ray (light) strategy and
+    // the cos-weighted BSDF strategy that could have sampled the same
+    // direction. pdf_light is in solid-angle measure: r²/(cos_light · area).
+    // pdf_bsdf assumes the caller is Lambertian (cos_obj/π). On diffuse
+    // paths the two strategies now sum to ~1 instead of double-counting.
+    const float pdfLight = r2 / (dotLightToRay * sampledArea);
+    const float pdfBsdf = dotObjectToLight / (float)M_PI;
+    const float pdfLight2 = pdfLight * pdfLight;
+    const float pdfBsdf2 = pdfBsdf * pdfBsdf;
+    const float wLight = pdfLight2 / (pdfLight2 + pdfBsdf2);
+
     // Full direct-light term including the Lambert BRDF's 1/π; the shader
     // multiplies by surface albedo. Equivalent to:
     //   L_direct = (albedo/π) * Li * cos_obj * cos_light * area / r²
     return lightMat.color * lightMat.emission
-        * (dotObjectToLight * dotLightToRay * sampledArea / ((float)M_PI * r2));
+        * (dotObjectToLight * dotLightToRay * sampledArea / ((float)M_PI * r2))
+        * wLight;
 }
 
 color3 RayRenderer::tracePointLight(const LightSource& lightSource, const vec3& hit, const vec3& objectNormal) const {
@@ -1088,7 +1106,30 @@ color3 RayBSDFShaderProvider::shade(const RayTriangleIntersectionInfo& interInfo
     BSDFParam param(*this->renderer, interInfo, inray, vi);
 
     if (m.emission > 0.0f) {
-        return m.color * m.emission;
+        const color3 emission = m.color * m.emission;
+
+        // MIS partner for traceAreaLight: if the caller sampled this direction
+        // from a cos-weighted diffuse lobe, weight the emission we found with
+        // the BSDF-strategy power-heuristic weight. Otherwise (eye ray, or a
+        // non-MIS caller like GlossyShader), return the full emission.
+        if (shaderParam != NULL) {
+            const BSDFParam* sp = (const BSDFParam*)shaderParam;
+            if (sp->misDiffuse) {
+                const float cosObj = dot(sp->misNormal, inray.dir);
+                const float cosLight = -dot(inray.dir, vi.normal);
+                if (cosObj <= 0.0f || cosLight <= 0.0f) return color3::zero;
+
+                const float r2 = (interInfo.hit - inray.origin).length2();
+                const float sampledArea = this->renderer->areaLightSampledArea(*interInfo.triangle);
+                const float pdfLight = r2 / (cosLight * sampledArea);
+                const float pdfBsdf = cosObj / (float)M_PI;
+                const float pdfLight2 = pdfLight * pdfLight;
+                const float pdfBsdf2 = pdfBsdf * pdfBsdf;
+                const float wBsdf = pdfBsdf2 / (pdfBsdf2 + pdfLight2);
+                return emission * wBsdf;
+            }
+        }
+        return emission;
     }
 
     if (dot(inray.dir, vi.normal) > 0.0f) {
