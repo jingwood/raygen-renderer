@@ -9,7 +9,7 @@ BIN=raygen
 DEV_BIN=libraygen.a
 
 # Change this to the folder (cpp-common-class, libucm)
-INC+=-I../../inc/cpp-common-class/src -I../../../cpp-graphics-module/src
+INC+=-I../../../cpp-common-class/src -I../../../cpp-graphics-math/src
 
 VPATH=../../src/raygen
 
