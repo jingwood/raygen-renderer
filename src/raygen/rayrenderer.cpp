@@ -29,7 +29,9 @@
 #define TRACE_PATH_TRIES 1
 // Safety cap on recursion. Russian Roulette handles typical path termination
 // (see RayBSDFShaderProvider::shade), so this only bounds worst-case depth.
-#define MAX_TRACE_DEPTH 16
+// Glass / refractive meshes can chain 10+ internal Fresnel bounces on
+// concave geometry, so the cap needs headroom above the diffuse norm.
+#define MAX_TRACE_DEPTH 32
 // Start Russian Roulette after this many bounces so early, high-throughput
 // bounces are always traced — only the tail of the path is stochastic.
 #define MIN_RR_DEPTH 3

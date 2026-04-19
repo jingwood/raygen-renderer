@@ -6,11 +6,11 @@
 	},
 
 	"mainCamera": {
-		"location": [0, 2.2, 6.0],
+		"location": [0, 2.2, 5.0],
 		"angle": [-14, 0, 0],
-		"fieldOfView": 180,
+		"fieldOfView": 70,
 		"depthOfField": 6.2,
-		"aperture": 3.5
+		"aperture": 5.6
 	},
 
 	"world": {
@@ -18,7 +18,7 @@
 		
 		"topLight": {
 			"location": [0, 4, 0],
-			"scale": [5, 1, 5],
+			"scale": [10, 1, 10],
 			"mesh": { "type": "plane" },
 			"mat": { "emission": 200 }
 		},
