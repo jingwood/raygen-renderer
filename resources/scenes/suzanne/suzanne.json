@@ -2,10 +2,10 @@
 	"mainCamera": {
 		"location": [0, 1, 5.0],
 		"angle": [0, 0, 0],
-		"fieldOfView": 70,
-		 "focusOn": "suzanne",
-		 "depthOfField": 4,
-		 "aperture": 5.6
+		"fieldOfView": 60,
+		//  "focusOn": "suzanne",
+		//  "depthOfField": 4,
+		//  "aperture": 5.6
 	},
 
 	"world": {
@@ -16,7 +16,7 @@
 			"angle": [180, 0, 0],
 			"scale": [7, 1, 7], 
 			"mesh": { "type": "plane" },
-			"mat": { "emission": 1.0 }
+			"mat": { "emission": 30.0 }
 		},
 
 		"floor": {
@@ -32,7 +32,7 @@
 			"location": [0, -0.5, 0],
 			"angle": [-30, 0, 0],
 			"mesh": "Suzanne.mesh",
-      "mat": { "color": [0.8, 0.8, 0.8], "glossy": 0.7, "refraction": 1.0, "roughness": 0.0 }
+      		"mat": { "color": [1.0, 1.0, 1.0], "glossy": 0.0, "transparency": 0.0, "refraction": 1.0, "refractionRatio": 1.5, "roughness": 0.0 }
 		}
 	}
 	

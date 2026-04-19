@@ -128,8 +128,11 @@ color3 RefractionShader::shade(BSDFParam& param) {
 
     // Stochastic Fresnel: pick reflection or refraction per sample based on the
     // Schlick factor, so on average the blend is energy-conserving without needing
-    // two recursive tracePath calls (one branch = stack-safe).
-    const float cosTheta = clamp(-dot(inDir, normal), 0.0f, 1.0f);
+    // two recursive tracePath calls (one branch = stack-safe). Use |cos θ| so
+    // internal hits (ray travelling with the outward normal) get the same
+    // incidence angle as the mirrored external hit — otherwise fresnel collapses
+    // to 1.0 inside the medium and every ray is trapped by total reflection.
+    const float cosTheta = fabsf(dot(inDir, normal));
     const float fresnel = fresnelSchlick(cosTheta, m.refractionRatio);
 
     vec3 dir = (randomValue() < fresnel)
