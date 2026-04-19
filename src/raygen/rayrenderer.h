@@ -14,15 +14,12 @@
 
 #include "raycommon.h"
 #include "bsdf.h"
+#include "bvh.h"
 #include "renderer.h"
 #include "cubetex.h"
 #include "ucm/stopwatch.h"
 #include "ugm/image.h"
 #include "ugm/spacetree.h"
-
-#if USE_KDTREE
-#include "ugm/kdtree.h"
-#endif /* USE_SPACETREE */
 
 #define DEFAULT_RENDER_WIDTH 800
 #define DEFAULT_RENDER_HEIGHT 600
@@ -60,10 +57,6 @@ class RayShaderProvider;
 
 typedef SpaceTreeNode<const RenderMeshTriangle*> RaySpaceTreeNode;
 typedef SpaceTree<const RenderMeshTriangle*> RaySpaceTree;
-
-#ifndef USE_SPACETREE
-typedef KDNode<const RenderMeshTriangle*> RaySpaceKDTree;
-#endif
 
 typedef std::vector<const RenderMeshTriangle*> RayRenderTriangleList;
 typedef void (*MeshBakedCallback(const SceneObject& obj, const Image& img))();
@@ -167,9 +160,7 @@ private:
 
 protected:
 	RaySpaceTree tree;
-#ifndef USE_SPACETREE
-	RaySpaceKDTree kdtree;
-#endif
+	TriangleBVH bvh;
 	
 	std::vector<const RenderMeshTriangle*> triangleList;
 	Image4f renderingImage;

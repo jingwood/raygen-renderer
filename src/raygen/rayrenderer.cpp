@@ -20,7 +20,6 @@
 #include "polygons.h"
 
 #define CUT_OFF_BACK_TRACE
-#define USE_KDTREE
 
 #define AO_SAMPLES 50
 #define AO_MAX_DISTANCE 10
@@ -164,10 +163,7 @@ void RayRenderer::transformScene() {
         }
     }
     
-#ifdef USE_KDTREE
-    this->kdtree.reset();
-    this->kdtree.build(this->triangleList.data(), this->triangleList.size());
-#endif /* USE_KDTREE */
+    this->bvh.build(this->triangleList);
 
     //    int count = 0;
     //    for (const auto& m : this->meshTriangles) {
@@ -595,13 +591,7 @@ color3 RayRenderer::tracePath(const Ray& ray, void* shaderParam) const {
 }
 
 void RayRenderer::findNearestTriangle(const Ray& ray, RayTriangleIntersectionInfo& info) const {
-    this->kdtree.iterate(ray, [&ray, &info](const RenderMeshTriangle* rt) {
-        if (rt->intersectsRay(ray, info)) {
-            // reserved
-        }
-
-        return false;
-    });
+    this->bvh.intersectClosest(ray, info);
 }
 
 vec3 cosineWeightedPointInTriangle(const Triangle& tri, const vec3& normal) {
@@ -685,13 +675,14 @@ color3 RayRenderer::traceAreaLight(const LightSource& lightSource, const vec3& h
     Ray ray = ThicknessRay(hit, lightRay);
     constexpr float maxt = 0.99999f;
 
-    const bool blocked = !this->kdtree.iterate(ray, [&ray](const RenderMeshTriangle* rt) {
-        float t;
-        vec3 hit;
-        if (rt->intersectsRay(ray, maxt, t, hit)) {
-            return false;
-        }
-        return true;
+    // Any opaque non-emissive triangle between shading point and the sampled
+    // light point occludes the contribution. `maxt < 1` clips before the
+    // exact sampled point, but area lights are typically multi-triangle, so
+    // other triangles of the same light can still sit at t<1 — skip anything
+    // emissive so a light never self-shadows.
+    const bool blocked = this->bvh.intersectAny(ray, maxt, [](const RenderMeshTriangle* rt) {
+        const auto& mat = rt->object.material;
+        return mat.transparency < 0.01f && mat.emission <= 0.0f;
     });
 
     if (blocked) return color3::zero;
@@ -725,20 +716,15 @@ color3 RayRenderer::tracePointLight(const LightSource& lightSource, const vec3& 
     Ray ray = ThicknessRay(hit, lightray);
     constexpr float maxt = 0.99999f;
 
-    const float block = this->kdtree.iterate(ray, [&ray](const RenderMeshTriangle* rt) {
-        float t;
-        vec3 hit_unused;
-        if (rt->intersectsRay(ray, maxt, t, hit_unused)) {
-            if ((rt->object.material.transparency < 0.01f || rt->object.material.refraction > 0.1f))
-                return true;
-        }
-
-        return false;
+    const bool blocked = this->bvh.intersectAny(ray, maxt, [](const RenderMeshTriangle* rt) {
+        const auto& mat = rt->object.material;
+        if (mat.emission > 0.0f) return false;
+        return mat.transparency < 0.01f || mat.refraction > 0.1f;
     });
-    
+
     const SceneObject* light = lightSource.object;
 
-    if (!block) {
+    if (!blocked) {
         const vec3 lightrayNormal = lightray.normalize();
 
         float dotToObject = dot(lightrayNormal, objectNormal);
@@ -910,19 +896,8 @@ float RayRenderer::calcAO(const vec3& vertex, const vec3& normal, const float tr
         Ray ray = ThicknessRay(vertex, dir);
 
         
-        const RenderMeshTriangle* foundTri = NULL;
-        
-        bool occluded = this->kdtree.iterate(ray, [&ray, &traceDistance, &foundTri](const RenderMeshTriangle* rt) {
-            float t;
-            vec3 hit;
-            
-            if (rt->intersectsRay(ray, traceDistance, t, hit)) {
-                if (rt->object.material.transparency < 0.01f) {
-                    foundTri = rt;
-                    return true; // 遮蔽あり
-                }
-            }
-            return false; // 遮蔽なし
+        const bool occluded = this->bvh.intersectAny(ray, traceDistance, [](const RenderMeshTriangle* rt) {
+            return rt->object.material.transparency < 0.01f;
         });
 
         if (!occluded) {
@@ -953,19 +928,12 @@ float RayRenderer::calcVertexAO(const Mesh& mesh, const int triangleIndex, const
         const vec3& dir = randomRayInHemisphere(n);
         
         Ray ray(v, dir);
-        
-        const float block = this->kdtree.iterate(ray, [&ray, &traceDistance](const RenderMeshTriangle* rt) {
-            
-            float t;
-            vec3 hit;
-            if (rt->intersectsRay(ray, traceDistance, t, hit)) {
-                return false;
-            }
-            
+
+        const bool blocked = this->bvh.intersectAny(ray, traceDistance, [](const RenderMeshTriangle*) {
             return true;
-        }) ? 0.0f : 1.0f;
-        
-        if (block < 1.0f) {
+        });
+
+        if (!blocked) {
             s++;
         }
     }
