@@ -40,19 +40,19 @@ inline uint32_t hashPixel(int x, int y, uint32_t salt) {
     return v;
 }
 
-// Scrambled radical inverse in base `base`. The XOR-scramble with a
-// per-dim seed is a cheap approximation of Owen scrambling; it removes
-// visible structure in the high Halton dimensions without changing
-// the estimator's expectation.
-inline float scrambledRadicalInverse(uint32_t i, int base, uint32_t scramble) {
+// Plain radical inverse in base `base`. Decorrelation across pixels is
+// handled separately via a Cranley-Patterson rotation in ldsNext1D — an
+// XOR scramble on the digits only works for base 2 (each digit ∈ {0,1}),
+// and for base ≥ 3 it produces out-of-range digits that collapse to a
+// handful of distinct output values and bias towards the top end.
+inline float radicalInverse(uint32_t i, int base) {
     const float invBase = 1.0f / (float)base;
     float invBaseN = 1.0f;
     uint64_t rev = 0;
     while (i > 0) {
         uint64_t next = i / base;
         uint64_t digit = i - next * base;
-        rev = rev * base + (digit ^ (scramble % base));
-        scramble /= base;
+        rev = rev * base + digit;
         invBaseN *= invBase;
         i = (uint32_t)next;
     }
@@ -71,10 +71,19 @@ void ldsBeginPixelSample(int x, int y, int sampleIdx) {
 float ldsNext1D() {
     if (g_ldsDim >= LDS_MAX_DIM) return randomValue();
     const int base = LDS_PRIMES[g_ldsDim];
-    const uint32_t scramble = hashPixel(g_ldsSampleIdx, g_ldsDim, g_ldsPixelScramble);
-    const float v = scrambledRadicalInverse((uint32_t)g_ldsSampleIdx + 1, base, scramble);
+    const float v = radicalInverse((uint32_t)g_ldsSampleIdx + 1, base);
+    // Cranley-Patterson rotation: a uniform [0,1) offset per (pixel, dim),
+    // held constant across samples so within-pixel Halton stratification is
+    // preserved while between-pixel values are fully decorrelated. The old
+    // XOR-scramble collapsed the per-sample output to just `base` distinct
+    // values shared across all pixels, which painted scene geometry into
+    // indirect-lighting / shadow-ray directions.
+    const uint32_t hash = hashPixel(g_ldsDim, 0, g_ldsPixelScramble);
+    const float offset = (hash >> 8) * (1.0f / (float)(1u << 24));
+    float w = v + offset;
+    if (w >= 1.0f) w -= 1.0f;
     g_ldsDim++;
-    return v;
+    return w;
 }
 
 void ldsNext2D(float& u, float& v) {
