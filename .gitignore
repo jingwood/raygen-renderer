@@ -50,3 +50,4 @@ Release
 *.vcxproj.user
 **/xcuserdata
 
+.DS_Store
