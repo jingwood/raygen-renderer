@@ -26,6 +26,11 @@ public:
 	// True once the file was decoded as HDR (Radiance .hdr) — caller uses this
 	// to skip sRGB decode and to know the pixel values may exceed 1.0.
 	bool isHDR = false;
+	// LDR textures (JPG / PNG / …) are authored in sRGB space; we decode them
+	// to linear at sample() time so the BSDF math stays linear and a "0.5 grey"
+	// in the file actually reflects ~21% of incoming light. HDR textures are
+	// already linear and bypass the decode.
+	bool sRGB = true;
 
 	bool loadFromFile(const string& imagePath);
 

@@ -122,6 +122,7 @@ bool Texture::loadFromFile(const string& imagePath) {
     if (pathEndsWithHDR(imagePath)) {
         if (loadRadianceHDR(this->image, imagePath)) {
             this->isHDR = true;
+            this->sRGB = false;
             return true;
         }
         printf("load hdr failed: %s\n", imagePath.getBuffer());
@@ -139,15 +140,28 @@ bool Texture::loadFromFile(const string& imagePath) {
 	return false;
 }
 
+namespace {
+// Exact sRGB → linear companding curve. The linear segment near zero avoids
+// the singularity of a pure power curve; the upper segment is a 2.4-gamma
+// with a tiny offset. Shader math is all linear, so every LDR texture sample
+// needs this on its way in.
+inline float srgbToLinear(float c) {
+    if (c <= 0.04045f) return c * (1.0f / 12.92f);
+    return powf((c + 0.055f) * (1.0f / 1.055f), 2.4f);
+}
+}
+
 color4f Texture::sample(const vec2 &uv) const {
 	const int x = modulo((int)(uv.u * this->image.width()), this->image.width());
 	const int y = modulo((int)(uv.v * this->image.height()), this->image.height());
-	
-//	if (uv.u < 0 || uv.v < 0) {
-//		printf("%f %f - %d %d - %d %d\n", uv.u, uv.v, x, y, this->image.width(), this->image.height());
-//	}
-	
-	return this->image.getPixel(x, y);
+
+	color4f px = this->image.getPixel(x, y);
+	if (this->sRGB) {
+		px.r = srgbToLinear(px.r);
+		px.g = srgbToLinear(px.g);
+		px.b = srgbToLinear(px.b);
+	}
+	return px;
 }
 
 Texture* Texture::createFromFile(const string& path) {
