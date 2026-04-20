@@ -99,6 +99,54 @@ color3 EmissionShader::shade(BSDFParam& param) {
         * fmax(dot(lightray, -param.vi.normal), 0.0f);
 }
 
+namespace {
+// Build a tangent frame from the shading normal. The tangent direction is
+// arbitrary for isotropic BRDFs; for the anisotropic case the user-supplied
+// `anisoRotation` rotates this in-plane.
+inline void buildTangentFrame(const vec3& n, vec3& t, vec3& b) {
+    const vec3 up = (fabsf(n.y) > 0.99f) ? vec3(1.0f, 0.0f, 0.0f) : vec3(0.0f, 1.0f, 0.0f);
+    t = cross(up, n).normalize();
+    b = cross(n, t);
+}
+
+// Sample a microfacet normal from the GGX Distribution of Visible Normals,
+// given the view direction in the local shading frame (z = shading normal).
+// Heitz 2018 — "Sampling the GGX Distribution of Visible Normals". Returns
+// a unit half-vector h whose z ≥ 0 (upper hemisphere).
+inline vec3 sampleGGXVNDF(const vec3& Ve, float ax, float ay, float u1, float u2) {
+    // Stretch view into the iso hemisphere.
+    vec3 Vh = vec3(ax * Ve.x, ay * Ve.y, Ve.z).normalize();
+
+    // Orthonormal basis (Frisvad-style when Vh.z ≈ 1).
+    const float lensq = Vh.x * Vh.x + Vh.y * Vh.y;
+    vec3 T1 = (lensq > 0.0f) ? vec3(-Vh.y, Vh.x, 0.0f) * (1.0f / sqrtf(lensq))
+                              : vec3(1.0f, 0.0f, 0.0f);
+    vec3 T2 = cross(Vh, T1);
+
+    // Uniform sample on a disk; reshape to favour the view hemisphere.
+    const float r = sqrtf(u1);
+    const float phi = 2.0f * (float)M_PI * u2;
+    const float t1 = r * cosf(phi);
+    float t2 = r * sinf(phi);
+    const float s = 0.5f * (1.0f + Vh.z);
+    t2 = (1.0f - s) * sqrtf(fmaxf(0.0f, 1.0f - t1 * t1)) + s * t2;
+
+    const vec3 Nh = T1 * t1 + T2 * t2 + Vh * sqrtf(fmaxf(0.0f, 1.0f - t1 * t1 - t2 * t2));
+
+    // Un-stretch back to the anisotropic hemisphere.
+    return vec3(ax * Nh.x, ay * Nh.y, fmaxf(0.0f, Nh.z)).normalize();
+}
+
+// Smith G1 for anisotropic GGX in the local shading frame. w.z > 0 assumed.
+inline float smithG1(const vec3& w, float ax, float ay) {
+    if (w.z <= 0.0f) return 0.0f;
+    const float ax2 = (ax * w.x) * (ax * w.x);
+    const float ay2 = (ay * w.y) * (ay * w.y);
+    const float lambda = 0.5f * (sqrtf(1.0f + (ax2 + ay2) / (w.z * w.z)) - 1.0f);
+    return 1.0f / (1.0f + lambda);
+}
+}
+
 color3 GlossyShader::shade(BSDFParam& param) {
     const RayRenderer& renderer = param.renderer;
     const auto& interInfo = param.interInfo;
@@ -107,30 +155,85 @@ color3 GlossyShader::shade(BSDFParam& param) {
     const Material& m = obj.material;
 
     const vec3& normal = param.vi.normal;
+    const vec3& inDir = param.inray.dir;
 
-    vec3 r = reflect(param.inray.dir, normal);
-
-    if (m.roughness > 0.0f) {
-        r = (r + randomRayInHemisphere(normal) * m.roughness).normalize();
-    }
-
-    // Tint the glossy reflection with the albedo (colour × texture). Without
-    // this, a textured glossy surface (e.g. checker floor with glossy > 0)
-    // returns an untextured white reflection from MixShader's glossy branch
-    // that washes out the pattern in the diffuse branch.
+    // Albedo (colour × texture) drives both the diffuse lobe (when not
+    // metallic) and, for metals, the Fresnel F0.
     color3 albedo = m.color;
     if (renderer.settings.enableColorSampling && m.texture != NULL) {
         albedo *= m.texture->sample(param.vi.uv * m.texTiling).rgb;
     }
 
+    // Smooth material fast path: treat ~0 roughness as a delta mirror so we
+    // don't divide by a vanishing D in the microfacet estimator.
+    if (m.roughness < 1e-3f) {
+        const vec3 r = reflect(inDir, normal);
+        const float cosI = fmaxf(0.0f, -dot(inDir, normal));
+        const color3 F0 = (m.metallic >= 1.0f) ? albedo
+                        : (albedo * m.metallic + color3(0.04f, 0.04f, 0.04f) * (1.0f - m.metallic));
+        const float m1 = 1.0f - cosI;
+        const float m5 = m1 * m1 * m1 * m1 * m1;
+        const color3 F = F0 + (color3(1.0f, 1.0f, 1.0f) - F0) * m5;
+
+        const color3 savedT = param.throughput;
+        param.throughput *= F;
+        const color3 incoming = renderer.tracePath(ThicknessRay(interInfo.hit, r), (void*)&param);
+        param.throughput = savedT;
+        return incoming * F;
+    }
+
+    // Build a tangent frame for anisotropy. `t` rotates in the tangent plane
+    // by anisoRotation so the user can orient the brush direction.
+    vec3 t, b;
+    buildTangentFrame(normal, t, b);
+    if (fabsf(m.anisoRotation) > 0.0f) {
+        const float a = m.anisoRotation * (float)(M_PI / 180.0);
+        const float cosA = cosf(a), sinA = sinf(a);
+        const vec3 t2 = t * cosA + b * sinA;
+        const vec3 b2 = b * cosA - t * sinA;
+        t = t2; b = b2;
+    }
+
+    // Anisotropic αx / αy split. clamp anisotropy to (-0.99, 0.99) so neither
+    // axis collapses to zero width. Sign convention: aniso > 0 elongates the
+    // highlight along the tangent direction, < 0 along bitangent — that means
+    // a tighter distribution along tangent, so αx shrinks as aniso grows.
+    const float aniso = fmaxf(-0.99f, fminf(0.99f, m.anisotropy));
+    const float r2 = m.roughness * m.roughness;
+    const float ax = fmaxf(1e-3f, r2 * (1.0f - aniso));
+    const float ay = fmaxf(1e-3f, r2 * (1.0f + aniso));
+
+    // Transform the view direction into the local frame (z = normal).
+    const vec3 V = -inDir;  // toward camera from hit
+    const vec3 Vlocal(dot(V, t), dot(V, b), dot(V, normal));
+    if (Vlocal.z <= 0.0f) return color3::zero;  // back-face
+
+    // Visible-normal sample → half vector, then reflect.
+    const vec3 H_local = sampleGGXVNDF(Vlocal, ax, ay, randomValue(), randomValue());
+    vec3 L_local = H_local * (2.0f * dot(Vlocal, H_local)) - Vlocal;
+    if (L_local.z <= 0.0f) return color3::zero;  // below surface
+
+    const vec3 L = t * L_local.x + b * L_local.y + normal * L_local.z;
+
+    // Fresnel Schlick, with F0 colour-locked to albedo for metals.
+    const float VdotH = fmaxf(0.0f, dot(Vlocal, H_local));
+    const color3 F0 = (m.metallic >= 1.0f) ? albedo
+                    : (albedo * m.metallic + color3(0.04f, 0.04f, 0.04f) * (1.0f - m.metallic));
+    const float m1 = 1.0f - VdotH;
+    const float m5 = m1 * m1 * m1 * m1 * m1;
+    const color3 F = F0 + (color3(1.0f, 1.0f, 1.0f) - F0) * m5;
+
+    // VNDF sampling estimator: weight = F · G1(outgoing). The V-side G1 is
+    // cancelled by the VNDF pdf.
+    const float G1o = smithG1(L_local, ax, ay);
+    const color3 weight = F * G1o;
+
     const color3 savedT = param.throughput;
-    param.throughput *= albedo;
-
-    const color3f color = renderer.tracePath(ThicknessRay(interInfo.hit, r), (void*)&param);
-
+    param.throughput *= weight;
+    const color3 incoming = renderer.tracePath(ThicknessRay(interInfo.hit, L), (void*)&param);
     param.throughput = savedT;
 
-    return color * albedo;
+    return incoming * weight;
 }
 
 color3 RefractionShader::shade(BSDFParam& param) {

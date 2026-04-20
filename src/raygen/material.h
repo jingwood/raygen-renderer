@@ -38,6 +38,16 @@ public:
 	// scaled by (1 ± chromaDispersion).
 	float chromaDispersion = 0.0f;
 
+	// Metal/dielectric blend for the specular lobe. 0 → dielectric (F0 = 4%
+	// neutral), 1 → metal (F0 = albedo colour; no diffuse component on top).
+	// Anisotropy stretches the microfacet highlight along the tangent
+	// direction: 0 = isotropic, +1 = strongly elongated along tangent,
+	// -1 = elongated along bitangent. anisoRotation rotates the tangent
+	// frame around the shading normal.
+	float metallic = 0.0f;
+	float anisotropy = 0.0f;
+	float anisoRotation = 0.0f;  // degrees
+
 	float emission = 0.0f;
 	float spotRange = 0.0f;
 	

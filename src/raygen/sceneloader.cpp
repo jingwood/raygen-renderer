@@ -126,6 +126,9 @@ void SceneJsonLoader::readMaterial(Material& mat, const JSObject& jsmat, SceneRe
 	jsmat.tryGetNumberProperty("refraction", &mat.refraction);
 	jsmat.tryGetNumberProperty("refractionRatio", &mat.refractionRatio);
 	jsmat.tryGetNumberProperty("chromaDispersion", &mat.chromaDispersion);
+	jsmat.tryGetNumberProperty("metallic", &mat.metallic);
+	jsmat.tryGetNumberProperty("anisotropy", &mat.anisotropy);
+	jsmat.tryGetNumberProperty("anisoRotation", &mat.anisoRotation);
 	jsmat.tryGetNumberProperty("spotRange", &mat.spotRange);
 	jsmat.tryGetNumberProperty("normalMipmap", &mat.normalMipmap);
 
