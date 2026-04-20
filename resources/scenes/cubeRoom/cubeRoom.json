@@ -10,7 +10,7 @@
 		"angle": [180, 0, 0],
 		"scale": [1.5, 1, 1.5],
 		"mesh": { "type": "plane" },
-		"mat": { "color": "#fffff0", "emission": 30 }
+		"mat": { "color": "#fffff0", "emission": 20 }
 	},
 	"ceiling": {
 		"location": [ 0, 3, 0 ],
