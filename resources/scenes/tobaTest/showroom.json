@@ -1,15 +1,23 @@
+// Interior: showroom.toba has a full set of room + carpet + tables (high,
+// low, wood, glass), TV board, sofa cushions, vase, cups, fruit, lamps.
+// Lit by the built-in lamps plus an outdoor HDR sky to feed the windows.
+
 {
 	"mainCamera": {
-		"location": [0, 2.0, 8.0],
-		"angle": [-8, 0, 0],
-		"fieldOfView": 55,
-		"exposure": 2.5
+		"location": [3.2, 1.5, 2.4],
+		"angle": [-3, 48, 0],
+		"fieldOfView": 48,
+		"focusOn": "table_low_wood",
+		"depthOfField": 3.8,
+		"aperture": 8.0,
+		"apertureBlades": 6,
+		"exposure": 1.4
 	},
 
 	"envmap": {
 		"texture": "../../textures/sky_sun.hdr",
-		"intensity": 2.5,
-		"rotation": 45
+		"intensity": 1.5,
+		"rotation": 40
 	},
 
 	"world": {
