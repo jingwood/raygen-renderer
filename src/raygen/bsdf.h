@@ -37,6 +37,12 @@ public:
     vec3 misNormal;
     void* sourceShader = NULL;
     bool enableLightSample = false;
+    // When the eye ray has committed to a single wavelength band for
+    // chromatic dispersion, this records which channel (0/1/2 = R/G/B) the
+    // whole path is tracing. -1 means the path hasn't hit a dispersive
+    // material yet — the next RefractionShader hit will pick the channel
+    // and propagate it downstream so every interface refracts consistently.
+    int chromaChannel = -1;
 
 	BSDFParam(RayRenderer& renderer, const RayTriangleIntersectionInfo& interInfo,
               const Ray& inray, const VertexInterpolation& vi,

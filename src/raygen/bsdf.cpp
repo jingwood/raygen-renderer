@@ -142,11 +142,40 @@ color3 RefractionShader::shade(BSDFParam& param) {
     // incidence angle as the mirrored external hit — otherwise fresnel collapses
     // to 1.0 inside the medium and every ray is trapped by total reflection.
     const float cosTheta = fabsf(dot(inDir, normal));
-    const float fresnel = fresnelSchlick(cosTheta, m.refractionRatio);
+
+    // Wavelength-dependent IOR (chromatic aberration). A path commits to a
+    // single wavelength band at its first dispersive hit and every later
+    // refractive interface on the path reuses that channel — otherwise the
+    // per-interface channel masks multiply to zero and the glass goes black.
+    // At the first CA hit we pick a channel uniformly, apply the matching
+    // IOR offset, trace, and mask the return to that channel × 3 so the MC
+    // estimator integrates over the three bands. Deeper CA hits just use
+    // the stored channel's IOR and return full RGB (the outer mask clips).
+    float ior = m.refractionRatio;
+    color3 chanMask(1.0f, 1.0f, 1.0f);
+    bool firstCAHit = false;
+    if (m.chromaDispersion > 0.0f) {
+        if (param.chromaChannel < 0) {
+            param.chromaChannel = (int)fminf(2.0f, floorf(randomValue() * 3.0f));
+            firstCAHit = true;
+        }
+        const int chan = param.chromaChannel;
+        const float s = m.chromaDispersion;
+        if (chan == 0) ior = m.refractionRatio * (1.0f - s);
+        else if (chan == 2) ior = m.refractionRatio * (1.0f + s);
+        // chan == 1 → base IOR
+        if (firstCAHit) {
+            if (chan == 0) chanMask = color3(3.0f, 0.0f, 0.0f);
+            else if (chan == 1) chanMask = color3(0.0f, 3.0f, 0.0f);
+            else chanMask = color3(0.0f, 0.0f, 3.0f);
+        }
+    }
+
+    const float fresnel = fresnelSchlick(cosTheta, ior);
 
     vec3 dir = (randomValue() < fresnel)
         ? reflect(inDir, normal)
-        : refract(inDir, normal, m.refractionRatio);
+        : refract(inDir, normal, ior);
 
     if (m.roughness > 0.0f) {
         dir = (dir + randomRayInHemisphere(normal) * m.roughness).normalize();
@@ -159,7 +188,7 @@ color3 RefractionShader::shade(BSDFParam& param) {
 
     param.throughput = savedT;
 
-    return color * m.color;
+    return color * m.color * chanMask;
 }
 
 color3 GlassShader::shade(BSDFParam& param) {

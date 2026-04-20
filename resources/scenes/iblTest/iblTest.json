@@ -46,7 +46,7 @@
 			"location": [0, 0.2, 0],
 			"scale": [0.7, 0.7, 0.7],
 			"mesh": { "type": "sphere" },
-			"mat": { "color": [1.0, 1.0, 1.0], "refraction": 1.0, "refractionRatio": 1.5, "roughness": 0.0 }
+			"mat": { "color": [1.0, 1.0, 1.0], "refraction": 1.0, "refractionRatio": 1.5, "chromaDispersion": 0.03, "roughness": 0.0 }
 		},
 
 		"glossy_ball": {

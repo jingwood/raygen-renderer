@@ -1221,6 +1221,10 @@ color3 RayBSDFShaderProvider::shade(const RayTriangleIntersectionInfo& interInfo
 
         param.passes = sp->passes + 1;
         param.throughput = sp->throughput;
+        // Propagate the chromatic-dispersion channel so every refractive
+        // interface on this path uses the same wavelength — otherwise the
+        // per-interface channel masks zero each other out.
+        param.chromaChannel = sp->chromaChannel;
 
         // Russian Roulette: kill low-contribution paths probabilistically and
         // rescale survivors by 1/q to keep the estimator unbiased. The max

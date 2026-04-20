@@ -32,7 +32,12 @@ public:
 	float transparency = 0.0f;
 	float refraction = 0.0f;
 	float refractionRatio = 1.45f;
-	
+	// Wavelength-dependent IOR offset. 0 = no dispersion, ~0.02 = subtle
+	// glass rainbow edge, ~0.05 = prism/crystal. Applied stochastically in
+	// RefractionShader: one of R/G/B is picked per sample and its IOR is
+	// scaled by (1 ± chromaDispersion).
+	float chromaDispersion = 0.0f;
+
 	float emission = 0.0f;
 	float spotRange = 0.0f;
 	

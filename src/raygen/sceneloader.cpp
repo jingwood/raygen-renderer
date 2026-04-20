@@ -125,6 +125,7 @@ void SceneJsonLoader::readMaterial(Material& mat, const JSObject& jsmat, SceneRe
 	jsmat.tryGetNumberProperty("transparency", &mat.transparency);
 	jsmat.tryGetNumberProperty("refraction", &mat.refraction);
 	jsmat.tryGetNumberProperty("refractionRatio", &mat.refractionRatio);
+	jsmat.tryGetNumberProperty("chromaDispersion", &mat.chromaDispersion);
 	jsmat.tryGetNumberProperty("spotRange", &mat.spotRange);
 	jsmat.tryGetNumberProperty("normalMipmap", &mat.normalMipmap);
 
