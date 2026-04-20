@@ -1,0 +1,60 @@
+// Indoor scene for chair_adv_01.toba (chair with metal frame + fabric seat).
+// Small studio: floor + back wall + side wall, one soft key light through a
+// window-plane, plus ambient IBL. Tuned for the chair being ~1m tall sitting
+// on the floor.
+
+{
+	"mainCamera": {
+		"location": [0.9, 0.45, 1.4],
+		"angle": [-12, 20, 0],
+		"fieldOfView": 38,
+		"focusOn": "chair",
+		"depthOfField": 1.5,
+		"aperture": 3.5,
+		"apertureBlades": 6,
+		"exposure": 1.2
+	},
+
+	"envmap": {
+		"texture": "../../textures/sky_sun.hdr",
+		"intensity": 1.0,
+		"rotation": 20
+	},
+
+	"world": {
+		"keyLight": {
+			"location": [-2.5, 2.8, 1.5],
+			"angle": [60, 30, 0],
+			"scale": [1.8, 1, 2.2],
+			"mesh": { "type": "plane" },
+			"mat": { "emission": 6.0, "color": [1.0, 0.95, 0.88] }
+		},
+
+		"floor": {
+			"location": [0, 0, 0],
+			"scale": [10, 1, 10],
+			"mesh": { "type": "plane" },
+			"mat": { "color": [0.85, 0.82, 0.78], "roughness": 0.5 }
+		},
+
+		"backWall": {
+			"location": [0, 1.5, -2.5],
+			"angle": [90, 0, 0],
+			"scale": [10, 1, 4],
+			"mesh": { "type": "plane" },
+			"mat": { "color": [0.92, 0.9, 0.86] }
+		},
+
+		"leftWall": {
+			"location": [-3.0, 1.5, 0],
+			"angle": [0, 0, -90],
+			"scale": [6, 1, 10],
+			"mesh": { "type": "plane" },
+			"mat": { "color": [0.92, 0.9, 0.86] }
+		},
+
+		"chair": {
+			"_bundle": "/Users/jing/Projects/unvell/yotei3d/examples/public/models/chair_adv_01.toba"
+		}
+	}
+}
