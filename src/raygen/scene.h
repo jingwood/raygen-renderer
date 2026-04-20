@@ -196,6 +196,18 @@ public:
 	std::vector<float> envmapConditionalX;   // length H*(W+1)
 	float envmapTotalWeight = 0.0f;
 
+	// Cubemap CDF for importance sampling when envCubemapFaces are set.
+	// envCubeMarginalFace: 7 entries — CDF over faces by total face weight.
+	// envCubeMarginalY: 6 × (H+1) — per-face CDF over rows.
+	// envCubeConditionalX: 6 × H × (W+1) — per-face per-row CDF over pixels.
+	// Weights are pixel_luminance × solid-angle Jacobian so the resulting
+	// pdf is in solid-angle units and matches envmap sampling's convention.
+	int envCubeFaceSize = 0;
+	std::vector<float> envCubeMarginalFace;
+	std::vector<float> envCubeMarginalY;
+	std::vector<float> envCubeConditionalX;
+	float envCubeTotalWeight = 0.0f;
+
 	void buildEnvmapCDF();
 
   void addObject(SceneObject& object);

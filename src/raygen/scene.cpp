@@ -314,6 +314,83 @@ void Scene::buildEnvmapCDF() {
     this->envmapW = 0;
     this->envmapH = 0;
 
+    this->envCubeMarginalFace.clear();
+    this->envCubeMarginalY.clear();
+    this->envCubeConditionalX.clear();
+    this->envCubeTotalWeight = 0.0f;
+    this->envCubeFaceSize = 0;
+
+    // Cubemap path: when all six faces are attached, build a luminance CDF
+    // per face weighted by each texel's solid angle on the unit sphere. This
+    // matches the equirect CDF's convention (pdf in solid-angle units) so the
+    // MIS weights interoperate.
+    bool hasCube = true;
+    for (int i = 0; i < 6; i++) if (this->envCubemapFaces[i] == NULL) { hasCube = false; break; }
+    if (hasCube) {
+        const int W = (int)this->envCubemapFaces[0]->getImage().width();
+        const int H = (int)this->envCubemapFaces[0]->getImage().height();
+        if (W > 0 && H > 0) {
+            this->envCubeFaceSize = W;  // assumes square faces, consistent across all 6
+            this->envCubeMarginalFace.assign(7, 0.0f);
+            this->envCubeMarginalY.assign((size_t)6 * (H + 1), 0.0f);
+            this->envCubeConditionalX.assign((size_t)6 * H * (W + 1), 0.0f);
+
+            float faceWeights[6] = { 0, 0, 0, 0, 0, 0 };
+
+            for (int f = 0; f < 6; f++) {
+                const auto& img = this->envCubemapFaces[f]->getImage();
+                std::vector<float> rowWeight(H, 0.0f);
+                for (int y = 0; y < H; y++) {
+                    this->envCubeConditionalX[((size_t)f * H + y) * (W + 1)] = 0.0f;
+                    float rowSum = 0.0f;
+                    const float t = 1.0f - (y + 0.5f) * (2.0f / (float)H);  // face-local, [-1, 1]
+                    for (int x = 0; x < W; x++) {
+                        const float s = (x + 0.5f) * (2.0f / (float)W) - 1.0f;
+                        // Per-texel solid angle on the unit sphere ∝ 1/(s² + t² + 1)^(3/2).
+                        const float denom = s * s + t * t + 1.0f;
+                        const float jac = 1.0f / (denom * sqrtf(denom));
+                        const color4f c = img.getPixel(x, y);
+                        const float lum = fmaxf(0.0f, 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b);
+                        const float w = lum * jac;
+                        rowSum += w;
+                        this->envCubeConditionalX[((size_t)f * H + y) * (W + 1) + (x + 1)] = rowSum;
+                    }
+                    if (rowSum > 0.0f) {
+                        const float inv = 1.0f / rowSum;
+                        for (int x = 1; x <= W; x++) {
+                            this->envCubeConditionalX[((size_t)f * H + y) * (W + 1) + x] *= inv;
+                        }
+                    }
+                    rowWeight[y] = rowSum;
+                }
+                this->envCubeMarginalY[(size_t)f * (H + 1)] = 0.0f;
+                for (int y = 0; y < H; y++) {
+                    this->envCubeMarginalY[(size_t)f * (H + 1) + y + 1] =
+                        this->envCubeMarginalY[(size_t)f * (H + 1) + y] + rowWeight[y];
+                }
+                const float faceTotal = this->envCubeMarginalY[(size_t)f * (H + 1) + H];
+                faceWeights[f] = faceTotal;
+                if (faceTotal > 0.0f) {
+                    const float inv = 1.0f / faceTotal;
+                    for (int y = 0; y <= H; y++) this->envCubeMarginalY[(size_t)f * (H + 1) + y] *= inv;
+                }
+            }
+
+            float total = 0.0f;
+            for (int f = 0; f < 6; f++) total += faceWeights[f];
+            this->envCubeTotalWeight = total;
+            if (total > 0.0f) {
+                const float inv = 1.0f / total;
+                float acc = 0.0f;
+                this->envCubeMarginalFace[0] = 0.0f;
+                for (int f = 0; f < 6; f++) {
+                    acc += faceWeights[f];
+                    this->envCubeMarginalFace[f + 1] = acc * inv;
+                }
+            }
+        }
+    }
+
     if (this->envmap == NULL) return;
     const auto& img = this->envmap->getImage();
     const int W = (int)img.width();

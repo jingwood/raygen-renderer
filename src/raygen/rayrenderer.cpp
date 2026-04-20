@@ -659,10 +659,77 @@ inline int searchCDF(const float* cdf, int n, float u) {
 }
 }
 
+namespace {
+// Invert the (face, s, t) → direction mapping used by sampleEnvironment.
+// s = 2u - 1, t = 1 - 2v. Direction is un-normalised so caller can normalise.
+inline ugm::vec3 cubeFaceDir(int face, float s, float t) {
+    switch (face) {
+        case 0: return ugm::vec3(+1.0f,   -t,   -s);
+        case 1: return ugm::vec3(-1.0f,   -t,    s);
+        case 2: return ugm::vec3(   s, +1.0f,    t);
+        case 3: return ugm::vec3(   s, -1.0f,   -t);
+        case 4: return ugm::vec3(   s,   -t, +1.0f);
+        default: return ugm::vec3(  -s,   -t, -1.0f);
+    }
+}
+}
+
 void RayRenderer::sampleEnvmapDirection(float u0, float u1, vec3& outDir, float& outPdf) const {
     outDir = vec3(0.0f, 1.0f, 0.0f);
     outPdf = 0.0f;
     if (this->scene == NULL) return;
+
+    // Cubemap path: sample (face, y, x) from the three-level CDF.
+    if (this->scene->envCubeFaceSize > 0 && this->scene->envCubeTotalWeight > 0.0f) {
+        const int W = this->scene->envCubeFaceSize;
+        const int H = W;
+
+        const int face = searchCDF(this->scene->envCubeMarginalFace.data(), 6, u0);
+        const float faceLo = this->scene->envCubeMarginalFace[face];
+        const float faceSpan = this->scene->envCubeMarginalFace[face + 1] - faceLo;
+        const float u0r = (faceSpan > 0.0f) ? (u0 - faceLo) / faceSpan : 0.5f;
+
+        const float* marY = &this->scene->envCubeMarginalY[(size_t)face * (H + 1)];
+        const int y = searchCDF(marY, H, u0r);
+        const float yLo = marY[y];
+        const float ySpan = marY[y + 1] - yLo;
+        const float yFrac = (ySpan > 0.0f) ? (u0r - yLo) / ySpan : 0.5f;
+
+        const float* condX = &this->scene->envCubeConditionalX[((size_t)face * H + y) * (W + 1)];
+        const int x = searchCDF(condX, W, u1);
+        const float xLo = condX[x];
+        const float xSpan = condX[x + 1] - xLo;
+        const float xFrac = (xSpan > 0.0f) ? (u1 - xLo) / xSpan : 0.5f;
+
+        const float u = (x + xFrac) / (float)W;
+        const float v = (y + yFrac) / (float)H;
+        const float s = 2.0f * u - 1.0f;
+        const float t = 1.0f - 2.0f * v;
+
+        vec3 dirLocal = cubeFaceDir(face, s, t);
+
+        // Undo envmap rotation so the returned direction is world-space.
+        const float yaw = this->scene->envmapRotation * (float)(M_PI / 180.0);
+        const float cosY = cosf(yaw), sinY = sinf(yaw);
+        const float wx =  dirLocal.x * cosY + dirLocal.z * sinY;
+        const float wz = -dirLocal.x * sinY + dirLocal.z * cosY;
+        outDir = vec3(wx, dirLocal.y, wz).normalize();
+
+        // PDF in solid-angle: p(ω) = lum(texel)·jac / totalWeight, where jac
+        // = 1/(s² + t² + 1)^(3/2) is the per-texel solid-angle Jacobian and
+        // the CDF was built on (lum × jac) weights.
+        const color4f texel = this->scene->envCubemapFaces[face]->getImage().getPixel(x, y);
+        const float lum = fmaxf(0.0f, 0.2126f * texel.r + 0.7152f * texel.g + 0.0722f * texel.b);
+        const float denom = s * s + t * t + 1.0f;
+        const float jac = 1.0f / (denom * sqrtf(denom));
+        // Convert from "pdf per (u,v) face area" to solid-angle pdf: multiply
+        // by Jacobian of (u,v → ω). Area of one texel in (s,t) space = 4/(W·H),
+        // so pdf_uv_area = lum·jac / totalWeight, and pdf_ω = pdf_uv_area /
+        // (jac · 4/(W·H)) = lum · W·H / (4 · totalWeight).
+        outPdf = lum * (float)(W * H) / (4.0f * this->scene->envCubeTotalWeight);
+        return;
+    }
+
     const int W = this->scene->envmapW;
     const int H = this->scene->envmapH;
     if (W <= 0 || H <= 0 || this->scene->envmapTotalWeight <= 0.0f) return;
@@ -713,8 +780,10 @@ void RayRenderer::sampleEnvmapDirection(float u0, float u1, vec3& outDir, float&
 }
 
 color3 RayRenderer::traceEnvmapLight(const vec3& hit, const vec3& normal, float bsdfPdf) const {
-    if (this->scene == NULL || this->scene->envmap == NULL
-        || this->scene->envmapTotalWeight <= 0.0f) return color3::zero;
+    if (this->scene == NULL) return color3::zero;
+    const bool hasEquirect = this->scene->envmap != NULL && this->scene->envmapTotalWeight > 0.0f;
+    const bool hasCube = this->scene->envCubeFaceSize > 0 && this->scene->envCubeTotalWeight > 0.0f;
+    if (!hasEquirect && !hasCube) return color3::zero;
 
     vec3 envDir;
     float envPdf = 0.0f;
@@ -749,16 +818,44 @@ color3 RayRenderer::traceEnvmapLight(const vec3& hit, const vec3& normal, float 
 
 float RayRenderer::envmapDirectionPdf(const vec3& dir) const {
     if (this->scene == NULL) return 0.0f;
-    const int W = this->scene->envmapW;
-    const int H = this->scene->envmapH;
-    if (W <= 0 || H <= 0 || this->scene->envmapTotalWeight <= 0.0f) return 0.0f;
 
     const vec3 d = dir.normalize();
-    // Apply forward rotation to match sampleEnvironment's UV lookup.
     const float yaw = this->scene->envmapRotation * (float)(M_PI / 180.0);
     const float cosY = cosf(yaw), sinY = sinf(yaw);
     const float rx = d.x * cosY - d.z * sinY;
     const float rz = d.x * sinY + d.z * cosY;
+
+    if (this->scene->envCubeFaceSize > 0 && this->scene->envCubeTotalWeight > 0.0f) {
+        // Mirror sampleEnvironment's face selection and project to (s, t).
+        const float ax = fabsf(rx), ay = fabsf(d.y), az = fabsf(rz);
+        int face; float s, t, ma;
+        if (ax >= ay && ax >= az) {
+            ma = ax;
+            if (rx > 0) { face = 0; s = -rz; t = -d.y; }
+            else        { face = 1; s =  rz; t = -d.y; }
+        } else if (ay >= ax && ay >= az) {
+            ma = ay;
+            if (d.y > 0) { face = 2; s = rx; t = rz; }
+            else         { face = 3; s = rx; t = -rz; }
+        } else {
+            ma = az;
+            if (rz > 0) { face = 4; s = rx; t = -d.y; }
+            else        { face = 5; s = -rx; t = -d.y; }
+        }
+        if (ma <= 0.0f) return 0.0f;
+        const float u = 0.5f * (s / ma + 1.0f);
+        const float v = 0.5f * (1.0f - t / ma);
+        const int W = this->scene->envCubeFaceSize;
+        int x = (int)(u * W); if (x < 0) x = 0; if (x >= W) x = W - 1;
+        int y = (int)(v * W); if (y < 0) y = 0; if (y >= W) y = W - 1;
+        const color4f texel = this->scene->envCubemapFaces[face]->getImage().getPixel(x, y);
+        const float lum = fmaxf(0.0f, 0.2126f * texel.r + 0.7152f * texel.g + 0.0722f * texel.b);
+        return lum * (float)(W * W) / (4.0f * this->scene->envCubeTotalWeight);
+    }
+
+    const int W = this->scene->envmapW;
+    const int H = this->scene->envmapH;
+    if (W <= 0 || H <= 0 || this->scene->envmapTotalWeight <= 0.0f) return 0.0f;
 
     const float u = 0.5f + atan2f(rz, rx) * (float)(0.5 / M_PI);
     const float v = 0.5f - asinf(clamp(d.y, -1.0f, 1.0f)) * (float)(1.0 / M_PI);
