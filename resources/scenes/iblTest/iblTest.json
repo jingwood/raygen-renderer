@@ -18,8 +18,8 @@
 	},
 
 	"envmap": {
-		"texture": "../../textures/sky_test.jpg",
-		"intensity": 1.8,
+		"texture": "../../textures/sky_sun.hdr",
+		"intensity": 1.0,
 		"rotation": 0
 	},
 

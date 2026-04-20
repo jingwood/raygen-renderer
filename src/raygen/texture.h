@@ -19,17 +19,21 @@ class Texture
 {
 private:
 	Image image;
-	
+
 public:
 	Texture();
-	
+
+	// True once the file was decoded as HDR (Radiance .hdr) — caller uses this
+	// to skip sRGB decode and to know the pixel values may exceed 1.0.
+	bool isHDR = false;
+
 	bool loadFromFile(const string& imagePath);
-	
+
 	const inline Image& getImage() const { return this->image; }
 	inline Image& getImage() { return this->image; }
-	
+
 	color4f sample(const vec2& uv) const;
-	
+
 	static Texture* createFromFile(const string& path);
 };
 
