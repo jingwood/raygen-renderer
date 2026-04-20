@@ -1,0 +1,18 @@
+{
+	"mainCamera": {
+		"location": [0, 2.0, 8.0],
+		"angle": [-8, 0, 0],
+		"fieldOfView": 55,
+		"exposure": 2.5
+	},
+
+	"envmap": {
+		"texture": "../../textures/sky_sun.hdr",
+		"intensity": 2.5,
+		"rotation": 45
+	},
+
+	"world": {
+		"_bundle": "/Users/jing/Projects/unvell/yotei3d/examples/public/models/showroom.toba"
+	}
+}

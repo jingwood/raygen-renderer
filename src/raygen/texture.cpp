@@ -152,10 +152,46 @@ inline float srgbToLinear(float c) {
 }
 
 color4f Texture::sample(const vec2 &uv) const {
-	const int x = modulo((int)(uv.u * this->image.width()), this->image.width());
-	const int y = modulo((int)(uv.v * this->image.height()), this->image.height());
+	const int W = (int)this->image.width();
+	const int H = (int)this->image.height();
+	if (W <= 0 || H <= 0) return color4f(0.0f, 0.0f, 0.0f, 0.0f);
 
-	color4f px = this->image.getPixel(x, y);
+	// Guard against NaN/huge UVs (e.g. meshes that arrive without texture
+	// coordinates, or a material with a runaway texTiling). Float→int is UB
+	// on NaN and saturates unpredictably past INT_MAX, and we can't let a
+	// bogus index slip past the bounds check in Image::getPixel.
+	if (!(uv.u == uv.u) || !(uv.v == uv.v)) return color4f(0.0f, 0.0f, 0.0f, 0.0f);
+
+	// Fold UV into [0, 1) first, so the multiply by W/H stays in range.
+	float fu = uv.u - floorf(uv.u);
+	float fv = uv.v - floorf(uv.v);
+	if (fu < 0.0f || fu >= 1.0f) fu = 0.0f;
+	if (fv < 0.0f || fv >= 1.0f) fv = 0.0f;
+
+	int x = (int)(fu * W);
+	int y = (int)(fv * H);
+	if (x >= W) x = W - 1;
+	if (y >= H) y = H - 1;
+	if (x < 0) x = 0;
+	if (y < 0) y = 0;
+
+	color4f px;
+
+	// ugm::_color4<byte> is 16 bytes (its union contains a vec4<float>),
+	// so Image::getPixel's RGBA-8bit branch computes `buffer + index*16`
+	// for a buffer that was actually allocated with 4-byte pixels.
+	// Out-of-bounds read → crash. Read bytes manually for that case.
+	const int comps = (int)this->image.getColorComponents();
+	const int pxB   = (int)this->image.getPixelByteLength();
+	if (comps == 4 && pxB == 4) {
+		const byte* buf = this->image.getBuffer();
+		const size_t idx = ((size_t)y * (size_t)W + (size_t)x) * 4;
+		const float inv = 1.0f / 255.0f;
+		px = color4f(buf[idx] * inv, buf[idx + 1] * inv,
+		             buf[idx + 2] * inv, buf[idx + 3] * inv);
+	} else {
+		px = this->image.getPixel(x, y);
+	}
 	if (this->sRGB) {
 		px.r = srgbToLinear(px.r);
 		px.g = srgbToLinear(px.g);

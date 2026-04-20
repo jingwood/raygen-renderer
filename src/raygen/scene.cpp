@@ -533,9 +533,18 @@ Texture* SceneResourcePool::getTexture(const string& path, Archive* bundle) {
             
             if (targetBundle != NULL) {
                 uint uid = (uint)std::stoul(uidstr, nullptr, 16);
-                
+
                 loadImage(tex->getImage(), *targetBundle, uid);
             }
+        }
+
+        // A bundle without the referenced image (or a failed decode) leaves
+        // the Texture with a 0×0 Image. Sampling that produces a modulo-0
+        // division and an out-of-bounds getPixel; drop the texture so the
+        // material falls back to its flat colour instead.
+        if (tex != NULL && (tex->getImage().width() == 0 || tex->getImage().height() == 0)) {
+            delete tex;
+            tex = NULL;
         }
     } else {
         
