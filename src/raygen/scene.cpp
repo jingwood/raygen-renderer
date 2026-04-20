@@ -303,8 +303,66 @@ Scene::~Scene() {
     for (SceneObject* obj : this->objects) {
         delete obj;
     }
-    
+
     this->objects.clear();
+}
+
+void Scene::buildEnvmapCDF() {
+    this->envmapMarginalY.clear();
+    this->envmapConditionalX.clear();
+    this->envmapTotalWeight = 0.0f;
+    this->envmapW = 0;
+    this->envmapH = 0;
+
+    if (this->envmap == NULL) return;
+    const auto& img = this->envmap->getImage();
+    const int W = (int)img.width();
+    const int H = (int)img.height();
+    if (W <= 0 || H <= 0) return;
+
+    this->envmapW = W;
+    this->envmapH = H;
+
+    // Row-major per-pixel weights, each weighted by sin(theta) so equal-area
+    // samples come from a sphere, not from the image (pixels near the poles
+    // of an equirectangular map are highly foreshortened).
+    std::vector<float> rowWeight(H, 0.0f);
+    this->envmapConditionalX.resize((size_t)H * (W + 1));
+
+    for (int y = 0; y < H; y++) {
+        const float v = (y + 0.5f) / (float)H;
+        const float sinTheta = sinf((float)M_PI * v);
+        float rowSum = 0.0f;
+        this->envmapConditionalX[(size_t)y * (W + 1)] = 0.0f;
+        for (int x = 0; x < W; x++) {
+            const color4f c = img.getPixel(x, y);
+            const float lum = fmaxf(0.0f, 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b);
+            rowSum += lum * sinTheta;
+            this->envmapConditionalX[(size_t)y * (W + 1) + (x + 1)] = rowSum;
+        }
+        rowWeight[y] = rowSum;
+    }
+
+    // Normalize conditional CDFs per row. Rows with zero total pick x=0 by
+    // fallthrough; their pdf is zero and NEE just skips them.
+    for (int y = 0; y < H; y++) {
+        const float total = rowWeight[y];
+        if (total > 0.0f) {
+            const float inv = 1.0f / total;
+            for (int x = 1; x <= W; x++) this->envmapConditionalX[(size_t)y * (W + 1) + x] *= inv;
+        }
+    }
+
+    // Marginal CDF over rows.
+    this->envmapMarginalY.resize(H + 1);
+    this->envmapMarginalY[0] = 0.0f;
+    for (int y = 0; y < H; y++) this->envmapMarginalY[y + 1] = this->envmapMarginalY[y] + rowWeight[y];
+
+    this->envmapTotalWeight = this->envmapMarginalY[H];
+    if (this->envmapTotalWeight > 0.0f) {
+        const float inv = 1.0f / this->envmapTotalWeight;
+        for (int y = 0; y <= H; y++) this->envmapMarginalY[y] *= inv;
+    }
 }
 
 SceneObject* Scene::findObjectByName(const string& name) {

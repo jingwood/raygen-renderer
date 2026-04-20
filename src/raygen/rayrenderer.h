@@ -201,6 +201,19 @@ public:
 	
 	color3 tracePath(const Ray& ray, void* shaderParam) const;
 	color3 sampleEnvironment(const vec3& dir) const;
+	// Importance-sample the envmap by luminance. u0/u1 are uniform in [0,1);
+	// returns the sampled world-space direction in outDir and the solid-angle
+	// PDF in outPdf. PDF is 0 when the envmap has no weight (no light to
+	// sample) — callers must skip the NEE path then.
+	void sampleEnvmapDirection(float u0, float u1, vec3& outDir, float& outPdf) const;
+	// Solid-angle PDF that the envmap importance sampler would have assigned
+	// to this world-space direction. Used on the BSDF side of the MIS pair.
+	float envmapDirectionPdf(const vec3& dir) const;
+	// Direct envmap contribution at a diffuse hit via luminance IS + shadow
+	// ray + MIS against a cos-weighted BSDF strategy of pdf `bsdfPdf`.
+	// Returns L(ω) · cos(θ) / π / pdf_env · w_env, excluding surface albedo
+	// (caller multiplies). bsdfPdf=0 skips MIS (weight 1).
+	color3 traceEnvmapLight(const vec3& hit, const vec3& normal, float bsdfPdf) const;
 	color3 traceLight(const vec3& hit, const vec3& objectNormal) const;
 	color3 lambertTraceLights(const vec3& hit, const vec3& objectNormal) const;
 

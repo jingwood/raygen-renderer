@@ -59,19 +59,27 @@ color3 DiffuseShader::shade(BSDFParam& param) {
     const color3 savedT = param.throughput;
     const bool savedMIS = param.misDiffuse;
     const vec3 savedMISNormal = param.misNormal;
+    const float savedEnvBsdfPdf = param.misEnvBsdfPdf;
     param.throughput *= albedo;
     // Advertise to the next hit that we sampled a cos-weighted diffuse lobe,
     // so it can MIS-weight any emission it finds against the shadow-ray
     // strategy used by traceLight.
     param.misDiffuse = true;
     param.misNormal = param.vi.normal;
+    // pdf of the cos-weighted sampled direction = cosθ/π. Pass it down so
+    // tracePath can MIS-weight envmap hits against the luminance-IS strategy
+    // used by traceEnvmapLight.
+    const float cosSampled = fmaxf(0.0f, dot(dir, param.vi.normal));
+    param.misEnvBsdfPdf = cosSampled * (float)(1.0 / M_PI);
 
     color3f color = renderer.tracePath(ray, (void*)&param)
-                  + renderer.traceLight(interInfo.hit, param.vi.normal);
+                  + renderer.traceLight(interInfo.hit, param.vi.normal)
+                  + renderer.traceEnvmapLight(interInfo.hit, param.vi.normal, param.misEnvBsdfPdf);
 
     param.throughput = savedT;
     param.misDiffuse = savedMIS;
     param.misNormal = savedMISNormal;
+    param.misEnvBsdfPdf = savedEnvBsdfPdf;
 
     return color * albedo;
 }

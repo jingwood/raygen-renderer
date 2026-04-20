@@ -37,6 +37,14 @@ public:
     vec3 misNormal;
     void* sourceShader = NULL;
     bool enableLightSample = false;
+    // When the current indirect ray was sampled from a cosine-weighted
+    // diffuse lobe with envmap MIS in play, record the BSDF pdf of the
+    // sampled direction here. If that ray escapes to the envmap, the
+    // path-tracer weights the envmap radiance with
+    //   pdf_bsdf² / (pdf_bsdf² + pdf_env²)
+    // so direct envmap NEE at the diffuse hit does not double-count.
+    // Zero disables MIS (no envmap NEE pair — full envmap contribution).
+    float misEnvBsdfPdf = 0.0f;
     // When the eye ray has committed to a single wavelength band for
     // chromatic dispersion, this records which channel (0/1/2 = R/G/B) the
     // whole path is tracing. -1 means the path hasn't hit a dispersive

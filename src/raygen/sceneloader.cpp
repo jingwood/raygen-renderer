@@ -547,6 +547,7 @@ void SceneJsonLoader::load(const string& jsonPath, Scene& scene) {
 			scene.envmap = this->pendingEnvmap;
 			scene.envmapIntensity = this->pendingEnvmapIntensity;
 			scene.envmapRotation = this->pendingEnvmapRotation;
+			scene.buildEnvmapCDF();
 		}
 
 		rootObj->objects.clear();

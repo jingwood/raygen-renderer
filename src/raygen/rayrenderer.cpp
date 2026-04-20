@@ -615,6 +615,134 @@ color3 RayRenderer::sampleEnvironment(const vec3& dir) const {
     return sample * this->scene->envmapIntensity;
 }
 
+namespace {
+// Binary search in an ascending CDF whose last element is 1.0. Returns the
+// largest index i with cdf[i] <= u, clamped to [0, n-1]. `n` is the number
+// of intervals (cdf has n+1 entries).
+inline int searchCDF(const float* cdf, int n, float u) {
+    int lo = 0, hi = n;
+    while (lo < hi) {
+        const int mid = (lo + hi) >> 1;
+        if (cdf[mid + 1] <= u) lo = mid + 1; else hi = mid;
+    }
+    return lo < n ? lo : n - 1;
+}
+}
+
+void RayRenderer::sampleEnvmapDirection(float u0, float u1, vec3& outDir, float& outPdf) const {
+    outDir = vec3(0.0f, 1.0f, 0.0f);
+    outPdf = 0.0f;
+    if (this->scene == NULL) return;
+    const int W = this->scene->envmapW;
+    const int H = this->scene->envmapH;
+    if (W <= 0 || H <= 0 || this->scene->envmapTotalWeight <= 0.0f) return;
+
+    // 2D inversion: first the row from the marginal, then a pixel within
+    // that row from its conditional CDF.
+    const int y = searchCDF(this->scene->envmapMarginalY.data(), H, u0);
+    const float* row = &this->scene->envmapConditionalX[(size_t)y * (W + 1)];
+    const int x = searchCDF(row, W, u1);
+
+    // Jitter inside the chosen pixel so samples aren't all on pixel centres.
+    const float yPrev = this->scene->envmapMarginalY[y];
+    const float ySpan = this->scene->envmapMarginalY[y + 1] - yPrev;
+    const float xPrev = row[x];
+    const float xSpan = row[x + 1] - xPrev;
+    const float yFrac = (ySpan > 0.0f) ? (u0 - yPrev) / ySpan : 0.5f;
+    const float xFrac = (xSpan > 0.0f) ? (u1 - xPrev) / xSpan : 0.5f;
+
+    const float u = (x + xFrac) / (float)W;
+    const float v = (y + yFrac) / (float)H;
+
+    // (u, v) → direction. Mirror sampleEnvironment's mapping and un-rotate
+    // so the direction is in world space.
+    const float phi = (u - 0.5f) * 2.0f * (float)M_PI;
+    const float theta = (0.5f - v) * (float)M_PI;
+    const float cosT = cosf(theta), sinT = sinf(theta);
+    float dx = cosT * cosf(phi);
+    const float dy = sinf(theta);
+    float dz = cosT * sinf(phi);
+
+    // sampleEnvironment does: rx = x*cosY - z*sinY, rz = x*sinY + z*cosY.
+    // To undo that, rotate (dx, dz) by -yaw.
+    const float yaw = this->scene->envmapRotation * (float)(M_PI / 180.0);
+    const float cosY = cosf(yaw), sinY = sinf(yaw);
+    const float wx = dx * cosY + dz * sinY;
+    const float wz = -dx * sinY + dz * cosY;
+    outDir = vec3(wx, dy, wz).normalize();
+
+    // PDF conversion: from (u,v) uniform space to solid angle on the sphere.
+    // p_img(u,v) = pixel_weight / total_weight.
+    // p_dir(ω) = p_img * (W*H) / (2π² sin(θ))  [standard eqrect jacobian]
+    const color4f texel = this->scene->envmap->getImage().getPixel(x, y);
+    const float lum = fmaxf(0.0f, 0.2126f * texel.r + 0.7152f * texel.g + 0.0722f * texel.b);
+    const float sinTheta = sinf((float)M_PI * v);
+    if (sinTheta <= 0.0f) { outPdf = 0.0f; return; }
+    const float pdfUV = (lum * sinTheta) / this->scene->envmapTotalWeight;
+    outPdf = pdfUV * (float)(W * H) / (2.0f * (float)(M_PI * M_PI) * sinTheta);
+}
+
+color3 RayRenderer::traceEnvmapLight(const vec3& hit, const vec3& normal, float bsdfPdf) const {
+    if (this->scene == NULL || this->scene->envmap == NULL
+        || this->scene->envmapTotalWeight <= 0.0f) return color3::zero;
+
+    vec3 envDir;
+    float envPdf = 0.0f;
+    this->sampleEnvmapDirection(randomValue(), randomValue(), envDir, envPdf);
+    if (envPdf <= 0.0f) return color3::zero;
+
+    const float cosObj = dot(envDir, normal);
+    if (cosObj <= 0.0f) return color3::zero;
+
+    const Ray shadowRay = ThicknessRay(hit, envDir);
+    const bool blocked = this->bvh.intersectAny(shadowRay, 1e30f, [](const RenderMeshTriangle* rt) {
+        const auto& mat = rt->object.material;
+        if (mat.emission > 0.0f) return false;
+        return mat.transparency < 0.01f || mat.refraction > 0.1f;
+    });
+    if (blocked) return color3::zero;
+
+    // Power heuristic MIS weight. bsdfPdf is the cosine-weighted strategy's
+    // pdf for this direction = cos/π. When the caller didn't advertise MIS
+    // (bsdfPdf = 0) use a weight of 1 — standalone NEE, no pair.
+    float w = 1.0f;
+    if (bsdfPdf > 0.0f) {
+        const float e2 = envPdf * envPdf;
+        const float b2 = bsdfPdf * bsdfPdf;
+        w = e2 / (e2 + b2);
+    }
+
+    const color3 Li = this->sampleEnvironment(envDir);
+    // Lambertian BRDF = 1/π; cosθ from shading; divide by pdf_env; apply MIS.
+    return Li * (cosObj * w / ((float)M_PI * envPdf));
+}
+
+float RayRenderer::envmapDirectionPdf(const vec3& dir) const {
+    if (this->scene == NULL) return 0.0f;
+    const int W = this->scene->envmapW;
+    const int H = this->scene->envmapH;
+    if (W <= 0 || H <= 0 || this->scene->envmapTotalWeight <= 0.0f) return 0.0f;
+
+    const vec3 d = dir.normalize();
+    // Apply forward rotation to match sampleEnvironment's UV lookup.
+    const float yaw = this->scene->envmapRotation * (float)(M_PI / 180.0);
+    const float cosY = cosf(yaw), sinY = sinf(yaw);
+    const float rx = d.x * cosY - d.z * sinY;
+    const float rz = d.x * sinY + d.z * cosY;
+
+    const float u = 0.5f + atan2f(rz, rx) * (float)(0.5 / M_PI);
+    const float v = 0.5f - asinf(clamp(d.y, -1.0f, 1.0f)) * (float)(1.0 / M_PI);
+    int x = (int)(u * W); if (x < 0) x = 0; if (x >= W) x = W - 1;
+    int y = (int)(v * H); if (y < 0) y = 0; if (y >= H) y = H - 1;
+
+    const color4f texel = this->scene->envmap->getImage().getPixel(x, y);
+    const float lum = fmaxf(0.0f, 0.2126f * texel.r + 0.7152f * texel.g + 0.0722f * texel.b);
+    const float sinTheta = sinf((float)M_PI * v);
+    if (sinTheta <= 0.0f) return 0.0f;
+    const float pdfUV = (lum * sinTheta) / this->scene->envmapTotalWeight;
+    return pdfUV * (float)(W * H) / (2.0f * (float)(M_PI * M_PI) * sinTheta);
+}
+
 void RayRenderer::traceEyeRaySurfaceInfo(const Ray& ray, ViewRaySurfaceInfo* surfaceInfo) const {
 
     RayTriangleIntersectionInfo& interInfo = surfaceInfo->interInfo;
@@ -648,9 +776,23 @@ color3 RayRenderer::tracePath(const Ray& ray, void* shaderParam) const {
     }
 
     // Ray escaped the scene — treat the environment map as distant radiance
-    // from every direction. Falls back to zero when no envmap is set, so the
-    // estimator behaves the same as before for envmap-less scenes.
-    return this->sampleEnvironment(ray.dir);
+    // from every direction. Falls back to zero when no envmap is set.
+    color3 env = this->sampleEnvironment(ray.dir);
+
+    // If the caller advertised envmap MIS (i.e. sampled this direction with
+    // a cos-weighted diffuse lobe), apply the power-heuristic weight so
+    // direct NEE via traceEnvmapLight does not double-count.
+    if (shaderParam != NULL) {
+        const BSDFParam* sp = (const BSDFParam*)shaderParam;
+        if (sp->misEnvBsdfPdf > 0.0f) {
+            const float envPdf = this->envmapDirectionPdf(ray.dir);
+            const float b2 = sp->misEnvBsdfPdf * sp->misEnvBsdfPdf;
+            const float e2 = envPdf * envPdf;
+            const float w = (b2 + e2 > 0.0f) ? b2 / (b2 + e2) : 1.0f;
+            env = env * w;
+        }
+    }
+    return env;
 }
 
 void RayRenderer::findNearestTriangle(const Ray& ray, RayTriangleIntersectionInfo& info) const {
@@ -1225,6 +1367,11 @@ color3 RayBSDFShaderProvider::shade(const RayTriangleIntersectionInfo& interInfo
         // interface on this path uses the same wavelength — otherwise the
         // per-interface channel masks zero each other out.
         param.chromaChannel = sp->chromaChannel;
+        // Carry the envmap-MIS BSDF pdf forward too. It is relevant only at
+        // the immediate next hit (where tracePath would consume it); after
+        // any further bounce through a BSDF, the direction is re-sampled and
+        // this pdf no longer applies. Shaders that resample should clear it.
+        param.misEnvBsdfPdf = sp->misEnvBsdfPdf;
 
         // Russian Roulette: kill low-contribution paths probabilistically and
         // rescale survivors by 1/q to keep the estimator unbiased. The max

@@ -182,6 +182,17 @@ public:
 	// Rotation of the environment map around the Y axis, in degrees.
 	float envmapRotation = 0.0f;
 
+	// Luminance CDF for importance sampling the envmap. Built once when the
+	// envmap is attached to the scene; consumed by DiffuseShader's NEE.
+	// `envmapMarginalY[v]` is the CDF over rows by row luminance×sin(theta);
+	// `envmapConditionalX[v*W + u]` is the per-row CDF over pixels.
+	int envmapW = 0, envmapH = 0;
+	std::vector<float> envmapMarginalY;      // length H+1
+	std::vector<float> envmapConditionalX;   // length H*(W+1)
+	float envmapTotalWeight = 0.0f;
+
+	void buildEnvmapCDF();
+
   void addObject(SceneObject& object);
 	void removeObject(SceneObject& object);
 	void clearObjects();
