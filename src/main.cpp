@@ -206,9 +206,6 @@ int main(int argc, const char * argv[]) {
 				else READ_ARG_INT("-c", rs.threads)
 				else READ_ARG_INT("--threads", rs.threads)
 				else READ_ARG_INT("--cores", rs.threads)
-				else READ_ARG_INT("-ds", rs.dofSamples)
-				else READ_ARG_INT("-dofs", rs.dofSamples)
-				else READ_ARG_INT("--dof-samples", rs.dofSamples)
 				else READ_ARG_BOL("-enaa", rs.enableAntialias)
 				else READ_ARG_BOL("--enable-antialias", rs.enableAntialias)
 				else READ_ARG_BOL("-encs", rs.enableColorSampling)
@@ -294,7 +291,6 @@ int main(int argc, const char * argv[]) {
 	printf("  cores          : %d\n", rs.threads);
 	printf("  shader system  : %s\n", getShaderSystemText(rs.shaderProvider));
 	printf("  samples        : %d\n", rs.samples);
-	printf("  dof-samples    : %d\n", rs.dofSamples);
 	printf("  antialias      : %s\n", rs.enableAntialias ? "yes" : "no");
 	printf("  color sampling : %s\n", rs.enableColorSampling ? "yes" : "no");
 	printf("  post process   : %s\n", rs.enableRenderingPostProcess ? "yes" : "no");

@@ -27,25 +27,19 @@
 #if defined(_WIN32) || defined(__APPLE__)
 
 #if defined(DEBUG) || defined(_DEBUG) /* DEBUG */
-#define ANTIALIAS_KERNEL_SIZE 1
 #define PIXEL_BLOCK 1
 #define TRACE_PATH_SAMPLES 2
-#define DOF_SAMPLES 128
 #define RENDER_THREADS 7
 #else /* RELEASE */
-#define ANTIALIAS_KERNEL_SIZE 3
 #define PIXEL_BLOCK 1
 #define TRACE_PATH_SAMPLES 20
-#define DOF_SAMPLES 16
 #define RENDER_THREADS 7
 #endif /* END OF DEBUG */
 
 #else /* DEBUG */
-#define ANTIALIAS_KERNEL_SIZE 3
 #define PIXEL_BLOCK 1
 #define TRACE_PATH_SAMPLES 100
 #define RENDER_THREADS 1
-#define DOF_SAMPLES 0
 
 #endif /* DEBUG */
 
@@ -84,9 +78,7 @@ struct RendererSettings {
 	int resolutionWidth = DEFAULT_RENDER_WIDTH, resolutionHeight = DEFAULT_RENDER_HEIGHT;
 	int threads = RENDER_THREADS;
 	int samples = TRACE_PATH_SAMPLES;
-	int dofSamples = DOF_SAMPLES;
 	byte shaderProvider = 5;
-	byte antialiasKernelSize = ANTIALIAS_KERNEL_SIZE;
 
 	bool enableAntialias = true;
 	bool enablePointLightAntialias = true;
@@ -126,9 +118,6 @@ class RayRenderer : public Renderer {
 private:
 	int totalSampled = 0;
 	vec3 cameraWorldPos;
-
-	float* antialiasKernel = NULL;
-//	int antialiasKernelSize = 3;
 
 	std::vector<const RayTransformedMesh*> transformedMeshes;
 	std::vector<LightSource> areaLightSources;

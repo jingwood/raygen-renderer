@@ -79,13 +79,6 @@ RayRenderer::RayRenderer(const RendererSettings* settings) {
     
     /* initialize random seed */
     srand((unsigned int)time(NULL));
-    
-    if (this->settings.enableAntialias) {
-        this->antialiasKernel = new float[this->settings.antialiasKernelSize * this->settings.antialiasKernelSize];
-        gaussianDistributionGenKernel(this->antialiasKernel, this->settings.antialiasKernelSize, 5.0f);
-    } else {
-        this->antialiasKernel = NULL;
-    }
 }
 
 RayRenderer::~RayRenderer() {
@@ -95,11 +88,6 @@ RayRenderer::~RayRenderer() {
     }
     
     this->clearTransformedScene();
-    
-    if (this->antialiasKernel != NULL) {
-        delete this->antialiasKernel;
-        this->antialiasKernel = NULL;
-    }
 }
 
 void RayRenderer::initRenderThreadContext(RenderThreadContext* ctx) {
@@ -493,6 +481,7 @@ color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const
 
     color4f sampleColor;
     const int totalSamples = this->settings.samples;
+    const bool aaEnabled = this->settings.enableAntialias;
 
     for (int i = 0; i < totalSamples; i++) {
         // Reset the Halton walk for this (pixel, sample). The early dims (0,1
@@ -502,14 +491,16 @@ color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const
         ldsBeginPixelSample(x, y, i);
 
         if (ctx.depthOfField >= 0.001f && ctx.aperture > 0.0f) {
-            // Focal point at depth `depthOfField` along the primary ray direction.
-            const vec3 focalPoint(dx * ctx.depthOfField, dy * ctx.depthOfField, -ctx.depthOfField);
-
-            // Sub-pixel jitter on dims 0,1 so pixel coverage is stratified.
+            // Sub-pixel jitter on dims 0,1 when AA is on; pin to pixel centre
+            // otherwise. When AA is off we still consume the 2D sample so the
+            // Halton dims line up with the AA-on case and DOF/path sampling
+            // sees the same downstream stratification.
             float jx, jy;
             ldsNext2D(jx, jy);
-            const float pxDx = dx + (jx - 0.5f) * ctx.viewScaleX;
-            const float pxDy = dy - (jy - 0.5f) * ctx.viewScaleY;
+            const float jxOffset = aaEnabled ? (jx - 0.5f) : 0.0f;
+            const float jyOffset = aaEnabled ? (jy - 0.5f) : 0.0f;
+            const float pxDx = dx + jxOffset * ctx.viewScaleX;
+            const float pxDy = dy - jyOffset * ctx.viewScaleY;
             const vec3 focalPointJ(pxDx * ctx.depthOfField, pxDy * ctx.depthOfField, -ctx.depthOfField);
 
             // Aperture sample on dims 2,3. Blades=0 → full disk (circular
@@ -545,12 +536,17 @@ color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const
             ray.origin = vec3(offsetX, offsetY, 0.0f);
             ray.dir = (focalPointJ - ray.origin).normalize();
         } else {
-            // Sub-pixel jitter for stochastic anti-aliasing; ray direction pivots at origin.
+            // Sub-pixel jitter for stochastic anti-aliasing; ray direction
+            // pivots at origin. When AA is off we still consume the 2D LDS
+            // sample (see note above) but ignore it, so the ray goes through
+            // the deterministic pixel centre and edges will alias.
             float jx, jy;
             ldsNext2D(jx, jy);
+            const float jxOffset = aaEnabled ? (jx - 0.5f) : 0.0f;
+            const float jyOffset = aaEnabled ? (jy - 0.5f) : 0.0f;
             ray.origin = vec3::zero;
-            ray.dir = vec3(dx + (jx - 0.5f) * ctx.viewScaleX,
-                           dy - (jy - 0.5f) * ctx.viewScaleY,
+            ray.dir = vec3(dx + jxOffset * ctx.viewScaleX,
+                           dy - jyOffset * ctx.viewScaleY,
                            -1.0f).normalize();
         }
 
