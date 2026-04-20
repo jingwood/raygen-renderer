@@ -42,6 +42,7 @@ private:
 	// Scene-level environment map (IBL) discovered during JSON traversal.
 	// Applied to the loaded Scene at the end of load().
 	Texture* pendingEnvmap = NULL;
+	Texture* pendingEnvCubemap[6] = { NULL, NULL, NULL, NULL, NULL, NULL };
 	float pendingEnvmapIntensity = 1.0f;
 	float pendingEnvmapRotation = 0.0f;
 	

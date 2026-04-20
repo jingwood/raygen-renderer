@@ -182,6 +182,11 @@ public:
 	// Rotation of the environment map around the Y axis, in degrees.
 	float envmapRotation = 0.0f;
 
+	// Optional 6-face cubemap that overrides the equirectangular envmap when
+	// present (indices: +X, -X, +Y, -Y, +Z, -Z — the standard OpenGL
+	// ordering). Pool owns each Texture; Scene just borrows the pointers.
+	Texture* envCubemapFaces[6] = { NULL, NULL, NULL, NULL, NULL, NULL };
+
 	// Luminance CDF for importance sampling the envmap. Built once when the
 	// envmap is attached to the scene; consumed by DiffuseShader's NEE.
 	// `envmapMarginalY[v]` is the CDF over rows by row luminance×sin(theta);

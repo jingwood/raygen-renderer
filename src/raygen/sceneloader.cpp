@@ -461,6 +461,28 @@ void SceneJsonLoader::readSceneObject(SceneObject& obj, const JSObject& jsobj, A
 						this->pendingEnvmap = this->resPool->getTexture(filepath, bundle);
 					}
 				}
+
+				// Cubemap form: 6 faces named px/nx/py/ny/pz/nz.<ext> in a
+				// directory. Loads them as separate sRGB textures. Cubemap
+				// takes precedence over an equirect `texture` on the same
+				// envmap block if both are set.
+				const string* cubeDir = val.object->getStringProperty("cubemap");
+				if (cubeDir != NULL && cubeDir->length() > 0 && this->resPool != NULL) {
+					string dir;
+					this->transformPath(*cubeDir, dir);
+					if (dir.length() > 0 && dir[dir.length() - 1] != '/' && dir[dir.length() - 1] != '\\') {
+						dir.append("/");
+					}
+					const string* ext = val.object->getStringProperty("ext");
+					const char* extStr = (ext != NULL && ext->length() > 0) ? ext->getBuffer() : "jpg";
+					const char* names[6] = { "px", "nx", "py", "ny", "pz", "nz" };
+					for (int i = 0; i < 6; i++) {
+						string facePath = dir;
+						facePath.appendFormat("%s.%s", names[i], extStr);
+						this->pendingEnvCubemap[i] = this->resPool->getTexture(facePath, bundle);
+					}
+				}
+
 				val.object->tryGetNumberProperty("intensity", &this->pendingEnvmapIntensity);
 				val.object->tryGetNumberProperty("rotation", &this->pendingEnvmapRotation);
 			}
@@ -553,10 +575,11 @@ void SceneJsonLoader::load(const string& jsonPath, Scene& scene) {
 
 		if (this->pendingEnvmap != NULL) {
 			scene.envmap = this->pendingEnvmap;
-			scene.envmapIntensity = this->pendingEnvmapIntensity;
-			scene.envmapRotation = this->pendingEnvmapRotation;
 			scene.buildEnvmapCDF();
 		}
+		scene.envmapIntensity = this->pendingEnvmapIntensity;
+		scene.envmapRotation = this->pendingEnvmapRotation;
+		for (int i = 0; i < 6; i++) scene.envCubemapFaces[i] = this->pendingEnvCubemap[i];
 
 		rootObj->objects.clear();
 		delete rootObj;

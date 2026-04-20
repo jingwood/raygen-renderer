@@ -15,8 +15,9 @@
 	},
 
 	"envmap": {
-		"texture": "../../textures/sky_sun.hdr",
-		"intensity": 1.5,
+		"cubemap": "/Users/jing/Projects/unvell/yotei3d/examples/public/textures/cubemap/city-night",
+		"ext": "jpg",
+		"intensity": 2.5,
 		"rotation": 40
 	},
 

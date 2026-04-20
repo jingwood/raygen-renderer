@@ -598,19 +598,48 @@ color4 RayRenderer::traceEyeRay(const Ray& ray) const {
 }
 
 color3 RayRenderer::sampleEnvironment(const vec3& dir) const {
-    if (this->scene == NULL || this->scene->envmap == NULL) return color3::zero;
+    if (this->scene == NULL) return color3::zero;
 
     const vec3 d = dir.normalize();
     const float yaw = this->scene->envmapRotation * (float)(M_PI / 180.0);
     const float cosY = cosf(yaw), sinY = sinf(yaw);
-    // Rotate the sample direction around Y before looking it up so the map
-    // can be oriented without touching the texture.
+    // Rotate the sample direction around Y before looking up.
     const float rx = d.x * cosY - d.z * sinY;
     const float rz = d.x * sinY + d.z * cosY;
+    const float ry = d.y;
+
+    // Cubemap takes precedence when all six faces are present.
+    Texture* const* faces = this->scene->envCubemapFaces;
+    if (faces[0] != NULL && faces[1] != NULL && faces[2] != NULL
+        && faces[3] != NULL && faces[4] != NULL && faces[5] != NULL) {
+        // OpenGL cubemap convention. Select the face by the dominant axis
+        // and project the other two into [0, 1] texture coordinates. Signs
+        // below match the typical px/nx/py/ny/pz/nz prefix asset layout.
+        const float ax = fabsf(rx), ay = fabsf(ry), az = fabsf(rz);
+        int face; float sc, tc, ma;
+        if (ax >= ay && ax >= az) {
+            ma = ax;
+            if (rx > 0) { face = 0; sc = -rz; tc = -ry; }  // +X
+            else        { face = 1; sc =  rz; tc = -ry; }  // -X
+        } else if (ay >= ax && ay >= az) {
+            ma = ay;
+            if (ry > 0) { face = 2; sc =  rx; tc =  rz; }  // +Y
+            else        { face = 3; sc =  rx; tc = -rz; }  // -Y
+        } else {
+            ma = az;
+            if (rz > 0) { face = 4; sc =  rx; tc = -ry; }  // +Z
+            else        { face = 5; sc = -rx; tc = -ry; }  // -Z
+        }
+        const float u = 0.5f * (sc / ma + 1.0f);
+        const float v = 0.5f * (1.0f - tc / ma);  // flip v so image +V = world up
+        return faces[face]->sample(vec2(u, v)).rgb * this->scene->envmapIntensity;
+    }
+
+    if (this->scene->envmap == NULL) return color3::zero;
 
     // Equirectangular (lat-long) mapping: u from azimuth, v from elevation.
     const float u = 0.5f + atan2f(rz, rx) * (float)(0.5 / M_PI);
-    const float v = 0.5f - asinf(clamp(d.y, -1.0f, 1.0f)) * (float)(1.0 / M_PI);
+    const float v = 0.5f - asinf(clamp(ry, -1.0f, 1.0f)) * (float)(1.0 / M_PI);
 
     const color3 sample = this->scene->envmap->sample(vec2(u, v)).rgb;
     return sample * this->scene->envmapIntensity;
