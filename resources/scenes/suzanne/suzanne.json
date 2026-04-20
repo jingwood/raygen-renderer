@@ -4,8 +4,9 @@
 		"angle": [0, 0, 0],
 		"fieldOfView": 60,
 		// "focusOn": "suzanne",
-		"depthOfField": 4,
-		"aperture": 8,
+		// "depthOfField": 4,
+		// "aperture": 8,
+		// "worldColor": [0.0, 0.0, 0.0],
 	},
 
 	"world": {
@@ -16,23 +17,30 @@
 			"angle": [180, 0, 0],
 			"scale": [10, 1, 10], 
 			"mesh": { "type": "plane" },
-			"mat": { "emission": 50.0 }
+			"mat": { "emission": 2.0 }
+		},
+		"backLight": {
+			"location": [0, 0, -5],
+			"angle": [90, 0, 0],
+			"scale": [10, 1, 10], 
+			"mesh": { "type": "plane" },
+			"mat": { "emission": 1.0 }
 		},
 
-		"frontLight": {
-			"location": [0, 3, 3],
-			"angle": [45, 0, 0],
-			"scale": [5, 1, 5], 
-			"mesh": { "type": "plane" },
-			"mat": { "emission": 100.0 }
-		},
+		// "frontLight": {
+		// 	"location": [0, 3, 3],
+		// 	"angle": [45, 0, 0],
+		// 	"scale": [5, 1, 5], 
+		// 	"mesh": { "type": "plane" },
+		// 	"mat": { "emission": 10.0 }
+		// },
 
 		"floor": {
 			"location": [0, -1, 0],
 			"scale": [8, 1, 8],
 			"mesh": { "type": "plane" },
 			"mat": {
-				"tex": "../../textures/wood.jpg", "color": [0.8, 0.8, 0.8], "texTiling": [1, 1]
+				"tex": "../../textures/wood.jpg", "color": [0.4, 0.4, 0.4], "texTiling": [1, 1]
 			}
 		},
 		
@@ -40,7 +48,7 @@
 			"location": [0, -0.5, 0],
 			"angle": [-30, 0, 0],
 			"mesh": "Suzanne.mesh",
-      		"mat": { "color": [0.35, 0.98, 1.0], "glossy": 0.0, "transparency": 0.0, "refraction": 1.0, "refractionRatio": 1.5, "roughness": 0.01 }
+      		"mat": { "color": [0.35, 0.98, 1.0], "glossy": 0.0, "transparency": 0.0, "refraction": 1.0, "refractionRatio": 1.5, "roughness": 0.0 }
 		}
 	}
 	

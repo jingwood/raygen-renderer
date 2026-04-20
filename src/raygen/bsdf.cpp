@@ -106,14 +106,23 @@ color3 GlossyShader::shade(BSDFParam& param) {
         r = (r + randomRayInHemisphere(normal) * m.roughness).normalize();
     }
 
+    // Tint the glossy reflection with the albedo (colour × texture). Without
+    // this, a textured glossy surface (e.g. checker floor with glossy > 0)
+    // returns an untextured white reflection from MixShader's glossy branch
+    // that washes out the pattern in the diffuse branch.
+    color3 albedo = m.color;
+    if (renderer.settings.enableColorSampling && m.texture != NULL) {
+        albedo *= m.texture->sample(param.vi.uv * m.texTiling).rgb;
+    }
+
     const color3 savedT = param.throughput;
-    param.throughput *= m.color;
+    param.throughput *= albedo;
 
     const color3f color = renderer.tracePath(ThicknessRay(interInfo.hit, r), (void*)&param);
 
     param.throughput = savedT;
 
-    return color * m.color;
+    return color * albedo;
 }
 
 color3 RefractionShader::shade(BSDFParam& param) {

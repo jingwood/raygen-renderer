@@ -535,7 +535,20 @@ color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const
     }
 
     const color3f radiance = sampleColor * ctx.exposure / (float)totalSamples;
-    return clamp(radiance, 0.0f, 1.0f);
+    // Reinhard tone map so highlights > 1.0 compress instead of clipping to
+    // white (the hard clamp was flattening wood grain / checker patterns
+    // into a solid 1.0 under bright lights). Per-channel x/(x+1) keeps darks
+    // linear and asymptotes at 1.0. Then approximate sRGB gamma (1/2.2) so
+    // linear mid-grey renders as expected on a display-referred JPG viewer —
+    // without this, output looks crushed and dark regardless of radiance.
+    const color3f mapped(radiance.r / (radiance.r + 1.0f),
+                         radiance.g / (radiance.g + 1.0f),
+                         radiance.b / (radiance.b + 1.0f));
+    const float invGamma = 1.0f / 2.2f;
+    const color3f encoded(powf(fmaxf(mapped.r, 0.0f), invGamma),
+                          powf(fmaxf(mapped.g, 0.0f), invGamma),
+                          powf(fmaxf(mapped.b, 0.0f), invGamma));
+    return clamp(encoded, 0.0f, 1.0f);
 }
 
 color4 RayRenderer::traceEyeRay(const Ray& ray) const {
