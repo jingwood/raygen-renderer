@@ -283,12 +283,10 @@ void SceneJsonLoader::readSceneObject(SceneObject& obj, const JSObject& jsobj, A
 	
 	this->loadingStack.push_back(LoadingStack());
 
-	JSObject* matObj = jsobj.getObjectProperty("_materials");
-	
-	if (matObj != NULL) {
-		this->readMaterialDefines(*matObj, bundle);
-	}
-	
+	// Bundle `_materials` are read first so authored scene materials
+	// following the `_bundle` reference can override them by name. Without
+	// this order, a chair TOBA's `metal` material always wins even if the
+	// scene JSON supplies a tuned override at the same scope.
 	string* jsBundleURI = jsobj.getStringProperty("_bundle");
 	if (jsBundleURI != NULL && !jsBundleURI->isEmpty()) {
 		string bundleFilepath;
@@ -319,6 +317,13 @@ void SceneJsonLoader::readSceneObject(SceneObject& obj, const JSObject& jsobj, A
 		}
 		
 		delete bundleJSChildRoot;
+	}
+
+	// Scene-level `_materials` read here (after `_bundle`) so user overrides
+	// win over bundle defaults on name collision.
+	JSObject* matObj = jsobj.getObjectProperty("_materials");
+	if (matObj != NULL) {
+		this->readMaterialDefines(*matObj, bundle);
 	}
 
 	Camera* camera;

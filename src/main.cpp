@@ -108,9 +108,21 @@ void dumpObject(const Scene& scene, const SceneObject& obj, string& str) {
 										 camera->aperture);
 	}
 
+	const raygen::Material& m = obj.material;
+	if (!obj.getMeshes().empty() || m.emission > 0 || m.glossy > 0 || m.refraction > 0) {
+		str.appendFormat("    material   : name=%s color=(%.3f,%.3f,%.3f)\n"
+		                 "                 glossy=%.3f rough=%.3f metallic=%.3f aniso=%.3f\n"
+		                 "                 refr=%.3f transp=%.3f emis=%.3f tex=%s\n",
+		                 m.name.length() > 0 ? m.name.c_str() : "<none>",
+		                 m.color.r, m.color.g, m.color.b,
+		                 m.glossy, m.roughness, m.metallic, m.anisotropy,
+		                 m.refraction, m.transparency, m.emission,
+		                 m.texture != NULL ? "yes" : "no");
+	}
+
 	str.appendFormat("    meshes:\n");
 	str.append(meshStr);
-	
+
 	dumpObjects(scene, obj.getObjects(), str);
 }
 
