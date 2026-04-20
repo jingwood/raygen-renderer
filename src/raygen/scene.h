@@ -175,6 +175,13 @@ public:
 //	SceneResourcePool resPool;
 	Camera* mainCamera = NULL;
 
+	// Equirectangular environment map (IBL). When present, rays that escape
+	// the scene geometry sample this texture instead of the flat backColor.
+	Texture* envmap = NULL;
+	float envmapIntensity = 1.0f;
+	// Rotation of the environment map around the Y axis, in degrees.
+	float envmapRotation = 0.0f;
+
   void addObject(SceneObject& object);
 	void removeObject(SceneObject& object);
 	void clearObjects();

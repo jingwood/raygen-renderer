@@ -589,7 +589,30 @@ color4 RayRenderer::traceEyeRay(const Ray& ray) const {
         }
     }
 
+    const color3 env = this->sampleEnvironment(ray.dir);
+    if (env != color3::zero) {
+        return color4(env, 1.0f);
+    }
     return this->settings.backColor;
+}
+
+color3 RayRenderer::sampleEnvironment(const vec3& dir) const {
+    if (this->scene == NULL || this->scene->envmap == NULL) return color3::zero;
+
+    const vec3 d = dir.normalize();
+    const float yaw = this->scene->envmapRotation * (float)(M_PI / 180.0);
+    const float cosY = cosf(yaw), sinY = sinf(yaw);
+    // Rotate the sample direction around Y before looking it up so the map
+    // can be oriented without touching the texture.
+    const float rx = d.x * cosY - d.z * sinY;
+    const float rz = d.x * sinY + d.z * cosY;
+
+    // Equirectangular (lat-long) mapping: u from azimuth, v from elevation.
+    const float u = 0.5f + atan2f(rz, rx) * (float)(0.5 / M_PI);
+    const float v = 0.5f - asinf(clamp(d.y, -1.0f, 1.0f)) * (float)(1.0 / M_PI);
+
+    const color3 sample = this->scene->envmap->sample(vec2(u, v)).rgb;
+    return sample * this->scene->envmapIntensity;
 }
 
 void RayRenderer::traceEyeRaySurfaceInfo(const Ray& ray, ViewRaySurfaceInfo* surfaceInfo) const {
@@ -624,8 +647,10 @@ color3 RayRenderer::tracePath(const Ray& ray, void* shaderParam) const {
         return this->shaderProvider->shade(info, ray, vi, shaderParam);
     }
 
-    // the ray out of scene
-    return color3::zero;
+    // Ray escaped the scene — treat the environment map as distant radiance
+    // from every direction. Falls back to zero when no envmap is set, so the
+    // estimator behaves the same as before for envmap-less scenes.
+    return this->sampleEnvironment(ray.dir);
 }
 
 void RayRenderer::findNearestTriangle(const Ray& ray, RayTriangleIntersectionInfo& info) const {

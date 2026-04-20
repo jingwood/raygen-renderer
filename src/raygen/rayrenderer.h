@@ -200,6 +200,7 @@ public:
     void render();
 	
 	color3 tracePath(const Ray& ray, void* shaderParam) const;
+	color3 sampleEnvironment(const vec3& dir) const;
 	color3 traceLight(const vec3& hit, const vec3& objectNormal) const;
 	color3 lambertTraceLights(const vec3& hit, const vec3& objectNormal) const;
 

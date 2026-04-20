@@ -432,10 +432,34 @@ void SceneJsonLoader::readSceneObject(SceneObject& obj, const JSObject& jsobj, A
 		else if (key == "_generateLightmap") {
 			obj._generateLightmap = true;
 		}
+		else if (key == "envmap") {
+			// Accept either a bare path string or an object with {texture,
+			// intensity, rotation}. The loaded texture is attached to the
+			// Scene in load() — stashing it on the loader keeps readSceneObject
+			// focused on SceneObject-shaped data.
+			if (val.type == JSType::JSType_String && val.str != NULL) {
+				string filepath;
+				this->transformPath(*val.str, filepath);
+				if (this->resPool != NULL) {
+					this->pendingEnvmap = this->resPool->getTexture(filepath, bundle);
+				}
+			} else if (val.type == JSType::JSType_Object && val.object != NULL) {
+				const string* texPath = val.object->getStringProperty("texture");
+				if (texPath != NULL && texPath->length() > 0) {
+					string filepath;
+					this->transformPath(*texPath, filepath);
+					if (this->resPool != NULL) {
+						this->pendingEnvmap = this->resPool->getTexture(filepath, bundle);
+					}
+				}
+				val.object->tryGetNumberProperty("intensity", &this->pendingEnvmapIntensity);
+				val.object->tryGetNumberProperty("rotation", &this->pendingEnvmapRotation);
+			}
+		}
 		else if (key == "mainCamera") {
 			Camera* child = new Camera();
 			this->readSceneObject(*child, *val.object, bundle);
-			
+
 			child->setName(key);
 			obj.addObject(*child);
 		}
@@ -518,11 +542,17 @@ void SceneJsonLoader::load(const string& jsonPath, Scene& scene) {
 			scene.mainCamera = mainCamera;
 		}
 
+		if (this->pendingEnvmap != NULL) {
+			scene.envmap = this->pendingEnvmap;
+			scene.envmapIntensity = this->pendingEnvmapIntensity;
+			scene.envmapRotation = this->pendingEnvmapRotation;
+		}
+
 		rootObj->objects.clear();
 		delete rootObj;
 		rootObj = NULL;
 	}
-	
+
 }
 
 

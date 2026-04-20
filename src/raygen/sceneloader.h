@@ -38,6 +38,12 @@ private:
 		std::map<string, Material*> materials;
 	};
 	std::vector<LoadingStack> loadingStack;
+
+	// Scene-level environment map (IBL) discovered during JSON traversal.
+	// Applied to the loaded Scene at the end of load().
+	Texture* pendingEnvmap = NULL;
+	float pendingEnvmapIntensity = 1.0f;
+	float pendingEnvmapRotation = 0.0f;
 	
 	Material* findMaterialByName(const string& name) {
 		for (long int i = this->loadingStack.size() - 1; i >= 0; i--) {
