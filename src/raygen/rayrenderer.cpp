@@ -106,8 +106,13 @@ void RayRenderer::initRenderThreadContext(RenderThreadContext* ctx) {
     const float tanHalfFov = tanf(DEGREE_TO_RADIAN(fovDeg) * 0.5f);
 
     // dx/dy are angular offsets (tangent-space): at depth z, world offset = (dx*z, dy*z).
+    // Pixels are square in screen space, so the per-pixel angular step is the
+    // same in both axes — the overall horizontal FoV still widens with W/H
+    // because the row simply has more pixels. Multiplying viewScaleX by the
+    // aspect ratio on top of that (what the old code did) doubled up the
+    // correction and stretched the image vertically by the aspect ratio.
     ctx->viewScaleY = (2.0f * tanHalfFov) / ctx->renderSize.height;
-    ctx->viewScaleX = ctx->viewScaleY * ctx->aspectRate;
+    ctx->viewScaleX = ctx->viewScaleY;
 
     // Legacy fields kept for any consumer that still reads them; not used by renderPixel.
     ctx->viewportSize = sizef(ctx->viewScaleX * ctx->renderSize.width,
