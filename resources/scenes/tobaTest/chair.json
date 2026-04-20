@@ -10,14 +10,14 @@
 		"fieldOfView": 38,
 		"focusOn": "chair",
 		"depthOfField": 1.5,
-		"aperture": 3.5,
-		"apertureBlades": 6,
-		"exposure": 1.2
+		"aperture": 22.0,
+		"apertureBlades": 7,
+		"exposure": 1.0
 	},
 
 	"envmap": {
 		"texture": "../../textures/sky_sun.hdr",
-		"intensity": 1.0,
+		"intensity": 0.6,
 		"rotation": 20
 	},
 
@@ -27,7 +27,7 @@
 			"angle": [60, 30, 0],
 			"scale": [1.8, 1, 2.2],
 			"mesh": { "type": "plane" },
-			"mat": { "emission": 6.0, "color": [1.0, 0.95, 0.88] }
+			"mat": { "emission": 10.0, "color": [1.0, 0.95, 0.88] }
 		},
 
 		"floor": {
@@ -54,7 +54,8 @@
 		},
 
 		"chair": {
-			"_bundle": "/Users/jing/Projects/unvell/yotei3d/examples/public/models/chair_adv_01.toba"
+			"_bundle": "/Users/jing/Projects/unvell/yotei3d/examples/public/models/chair_adv_01.toba",
+			"angle": [0, -120, 0],
 		}
 	}
 }
