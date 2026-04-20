@@ -129,6 +129,8 @@ void RayRenderer::initRenderThreadContext(RenderThreadContext* ctx) {
     ctx->depthOfFieldScale = 1.0f;
     ctx->aperture = (camera->aperture > 0.0f) ? 1.0f / camera->aperture : 0.0f;
     ctx->halfAperture = ctx->aperture * 0.5f;
+    ctx->apertureBlades = camera->apertureBlades;
+    ctx->apertureRotation = camera->apertureRotation * (float)(M_PI / 180.0);
     ctx->exposure = camera->exposure;
 }
 
@@ -510,14 +512,35 @@ color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const
             const float pxDy = dy - (jy - 0.5f) * ctx.viewScaleY;
             const vec3 focalPointJ(pxDx * ctx.depthOfField, pxDy * ctx.depthOfField, -ctx.depthOfField);
 
-            // Aperture disk sample on dims 2,3 (concentric mapping keeps the
-            // stratification from the input square intact).
+            // Aperture sample on dims 2,3. Blades=0 → full disk (circular
+            // bokeh). Blades ≥ 3 → uniformly sample a regular n-gon inscribed
+            // in the aperture radius so out-of-focus highlights take the
+            // familiar hex/octagon iris shape of real lenses. Sampling is
+            // done wedge-by-wedge: pick a triangle from the centre, then a
+            // uniform point inside it (square → triangle fold).
             float du, dv;
             ldsNext2D(du, dv);
-            const float r = sqrtf(du);
-            const float theta = dv * 2.0f * M_PI;
-            const float offsetX = r * cosf(theta) * ctx.aperture;
-            const float offsetY = r * sinf(theta) * ctx.aperture;
+            float offsetX, offsetY;
+            if (ctx.apertureBlades >= 3) {
+                const int N = ctx.apertureBlades;
+                const float u0 = du * (float)N;
+                const int wedge = fminf((float)(N - 1), floorf(u0));
+                float s = u0 - (float)wedge;
+                float t = dv;
+                if (s + t > 1.0f) { s = 1.0f - s; t = 1.0f - t; }
+                const float step = 2.0f * (float)M_PI / (float)N;
+                const float a0 = ctx.apertureRotation + step * (float)wedge;
+                const float a1 = a0 + step;
+                const float px = cosf(a0) * s + cosf(a1) * t;
+                const float py = sinf(a0) * s + sinf(a1) * t;
+                offsetX = px * ctx.aperture;
+                offsetY = py * ctx.aperture;
+            } else {
+                const float r = sqrtf(du);
+                const float theta = dv * 2.0f * (float)M_PI;
+                offsetX = r * cosf(theta) * ctx.aperture;
+                offsetY = r * sinf(theta) * ctx.aperture;
+            }
 
             ray.origin = vec3(offsetX, offsetY, 0.0f);
             ray.dir = (focalPointJ - ray.origin).normalize();

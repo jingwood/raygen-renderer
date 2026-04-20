@@ -109,15 +109,17 @@ struct RenderThreadContext {
 	float depthOfFieldScale;
 	float aperture;
 	float halfAperture;
+	int apertureBlades = 0;
+	float apertureRotation = 0.0f;  // radians
     float exposure = 1.0;
 };
 
 struct ViewRaySurfaceInfo {
-    bool hitted;
+    bool hitted = false;
 //    color4 color;
     RayTriangleIntersectionInfo interInfo;
     VertexInterpolation hi;
-    const Material* mat;
+    const Material* mat = NULL;
 };
 
 class RayRenderer : public Renderer {

@@ -116,6 +116,12 @@ public:
 	float depthOfField = 0.0f;
 	float aperture = 1.8f;
     float exposure = 1.0f;
+	// Iris geometry. 0 (default) samples the full disk for a circular bokeh.
+	// Values ≥ 3 sample a regular polygon inscribed in the aperture disk, giving
+	// the characteristic n-sided out-of-focus highlights of a real iris.
+	int apertureBlades = 0;
+	// Rotation of the aperture polygon in degrees (around the lens axis).
+	float apertureRotation = 0.0f;
 	string focusOnObjectName;
 
 	Camera() : SceneObject() {
