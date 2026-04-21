@@ -18,6 +18,7 @@
 #include "renderer.h"
 #include "cubetex.h"
 #include "ucm/stopwatch.h"
+#include "ucm/string.h"
 #include "ugm/image.h"
 #include "ugm/spacetree.h"
 
@@ -97,6 +98,11 @@ struct RendererSettings {
 	float bloomThreshold = 0.7f;   // post-gamma luma at which bloom starts
 	float bloomStrength = 0.35f;   // lighter-blend strength when compositing
 	float bloomSizeAspect = 0.15f; // glow buffer size relative to main (downsample)
+
+	// Non-empty path prefix enables dumping each post-process stage to
+	// <prefix>-bloom-01-threshold.jpg etc. Main writes the scene base-name
+	// here when --dump-bloom is passed.
+	ucm::string postprocessDumpPath;
 
 	color3 worldColor = color3(1.0f, 0.95f, 0.9f) * 0.1f;
 	color4 backColor = color4(1.0f, 0.95f, 0.9f, 0.0f) * 0.2f;

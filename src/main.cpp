@@ -174,6 +174,7 @@ int main(int argc, const char * argv[]) {
 
 	string cmd;
 	bool enableDumpScene = false;
+	bool enableDumpBloom = false;
 	
 	for (int i = 1; i < argc; i++) {
 		const char* arg = argv[i];
@@ -198,6 +199,8 @@ int main(int argc, const char * argv[]) {
 				}
 			} else if (IF_ARG("--dump")) {
 				enableDumpScene = true;
+			} else if (IF_ARG("--dump-bloom")) {
+				enableDumpBloom = true;
 			} else if (IF_ARG("-ver") || IF_ARG("--ver") || IF_ARG("--version")) {
 				printVerInfo();
 				return 0;
@@ -221,7 +224,8 @@ int main(int argc, const char * argv[]) {
 							 "  -blst | --bloom-strength             bloom composite strength (default: 0.35)\n"
 							 "  -d | --shader                        specify shader type\n"
 							 "  --focus-obj                          make camera look at specified object\n"
-							 "  --dump                               dump scene define\n");
+							 "  --dump                               dump scene define\n"
+							 "  --dump-bloom                         write intermediate bloom stages as <output>-bloom-*.jpg\n");
 				printf("\nMore information please see the README.md on the github project page.\n");
 				
 				return 0;
@@ -301,6 +305,16 @@ int main(int argc, const char * argv[]) {
 			outputImageFile.appendFormat("%s.jpg", file.getBaseName().c_str());
 		} else {
 			outputImageFile.appendFormat("%s%s%s.jpg", file.getPath().c_str(), PATH_SPLITTER_STR, file.getBaseName().c_str());
+		}
+	}
+
+	if (enableDumpBloom) {
+		File outFile(outputImageFile);
+		const string& outPath = outFile.getPath();
+		if (outPath.isEmpty()) {
+			rs.postprocessDumpPath = outFile.getBaseName();
+		} else {
+			rs.postprocessDumpPath.appendFormat("%s%s%s", outPath.c_str(), PATH_SPLITTER_STR, outFile.getBaseName().c_str());
 		}
 	}
 		

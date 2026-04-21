@@ -15,6 +15,7 @@
 
 #include "ugm/functions.h"
 #include "ugm/imgfilter.h"
+#include "ugm/imgcodec.h"
 #include "ucm/ansi.h"
 #include "lambert.h"
 #include "polygons.h"
@@ -411,14 +412,30 @@ void RayRenderer::render() {
         // with dim neighbours and drops it under the cutoff, killing bloom.
         Image glowimg(this->renderingImage.getPixelDataFormat(), 32);
         Image::copy(this->renderingImage, glowimg);
+
+        const bool dump = !this->settings.postprocessDumpPath.isEmpty();
+        auto dumpStage = [&](const char* tag, const Image& img) {
+            if (!dump) return;
+            ucm::string p = this->settings.postprocessDumpPath;
+            p.appendFormat("-bloom-%s.jpg", tag);
+            saveImage(img, p);
+        };
+
+        dumpStage("00-input", this->renderingImage);
         img::thresholdSoft(glowimg, this->settings.bloomThreshold, 3);
+        dumpStage("01-threshold", glowimg);
         img::gamma(glowimg, PP_GLOW_GAMMA);
+        dumpStage("02-gamma", glowimg);
         glowimg.resize((int)((float)this->renderingImage.width() * this->settings.bloomSizeAspect),
             (int)((float)this->renderingImage.height() * this->settings.bloomSizeAspect));
+        dumpStage("03-downsample", glowimg);
         int kernelSize = calculateGaussianKernelSize(glowimg.width(), glowimg.height());
         img::gaussBlur(glowimg, kernelSize);
+        dumpStage("04-blur", glowimg);
         glowimg.resize(this->renderingImage.getSize());
+        dumpStage("05-upsample", glowimg);
         img::calc(this->renderingImage, glowimg, img::CalcMethods::Lighter, this->settings.bloomStrength);
+        dumpStage("06-composite", this->renderingImage);
     }
 }
 
