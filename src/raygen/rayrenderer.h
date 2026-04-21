@@ -85,7 +85,14 @@ struct RendererSettings {
 	bool enableColorSampling = true;
 	bool enableRenderingPostProcess = false;
 	bool enableBakingPostProcess = true;
+	bool enableDenoise = false;
 	bool cullBackFace = false;
+
+	int denoiseLevels = 5;
+	float denoiseSigmaColor = 0.4f;
+	float denoiseSigmaNormal = 128.0f;
+	float denoiseSigmaDepth = 0.1f;
+	float denoiseIntensity = 1.0f;  // 0 = pass-through, 1 = full À-Trous
 
 	color3 worldColor = color3(1.0f, 0.95f, 0.9f) * 0.1f;
 	color4 backColor = color4(1.0f, 0.95f, 0.9f, 0.0f) * 0.2f;
@@ -163,11 +170,22 @@ protected:
 	
 	std::map<const Mesh*, RayRenderTriangleList> meshTriangles;
     
-    // ガイド付きデノイズ用バッファ
+    // ガイド付きデノイズ用バッファ（一次ヒット AOV）
     Image3f normalBuffer;
     Image3f albedoBuffer;
     Image3f depthBuffer;
-    Image3f denoiseImage(const Image3f& noisy, const Image3f& normal, const Image3f& depth, const Image3f& albedo);
+
+    // Edge-avoiding À-Trous wavelet denoiser. Multi-pass with step sizes
+    // 1, 2, 4, ... per level; guided by normal/depth AOVs.
+    void denoiseImage(const Image3f& noisy, const Image3f& normal,
+                      const Image3f& depth, const Image3f& albedo,
+                      Image3f& output);
+    void atrousPass(const Image3f& srcColor, Image3f& dstColor,
+                    const Image3f& normal, const Image3f& depth,
+                    int stepSize, int yStart, int yEnd) const;
+    // Reinhard + ≈1/2.2 gamma applied in-place. Used as the post-denoise
+    // step when linear-HDR denoising is active.
+    void applyTonemapGamma(Image& img) const;
     
 public:
 	RendererSettings settings;

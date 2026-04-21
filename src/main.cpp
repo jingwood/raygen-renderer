@@ -31,6 +31,13 @@ using namespace raygen;
 		} \
 	}
 
+#define READ_ARG_FLT(PARAM, VAR)		 if (IF_ARG(PARAM)) { \
+		NEXT_ARG; \
+		if (sscanf(arg, "%f", &tmp_float) == 1) { \
+			VAR = tmp_float; \
+		} \
+	}
+
 #define READ_ARG_STR(PARAM, VAR)		if (IF_ARG(PARAM)) { \
 		NEXT_ARG; \
 		VAR = arg; \
@@ -163,6 +170,7 @@ int main(int argc, const char * argv[]) {
 	string scenefile, outputImageFile, focusObjectName;
 	int inputIndex = 0;
 	int tmp_value = 0;
+	float tmp_float = 0.0f;
 
 	string cmd;
 	bool enableDumpScene = false;
@@ -207,6 +215,8 @@ int main(int argc, const char * argv[]) {
 							 "  -enaa | --enable-antialias           enable antialias (default: on)\n"
 							 "  -encs | --enable-color-sampling      enable read colors from texture (default: on)\n"
 							 "  -enpp | --enable-postprocess         eanble post-processes such as grow and blur\n"
+							 "  -endn | --enable-denoise             enable À-Trous wavelet denoiser (default: off)\n"
+							 "  -dni  | --denoise-intensity          blend 0..1 between noisy and denoised (default: 1.0)\n"
 							 "  -d | --shader                        specify shader type\n"
 							 "  --focus-obj                          make camera look at specified object\n"
 							 "  --dump                               dump scene define\n");
@@ -224,6 +234,10 @@ int main(int argc, const char * argv[]) {
 				else READ_ARG_BOL("--enable-color-sampling", rs.enableColorSampling)
 				else READ_ARG_BOL("-enpp", rs.enableRenderingPostProcess)
 				else READ_ARG_BOL("--enable-postprocess", rs.enableRenderingPostProcess)
+				else READ_ARG_BOL("-endn", rs.enableDenoise)
+				else READ_ARG_BOL("--enable-denoise", rs.enableDenoise)
+				else READ_ARG_FLT("-dni", rs.denoiseIntensity)
+				else READ_ARG_FLT("--denoise-intensity", rs.denoiseIntensity)
 				else READ_ARG_INT("-d", rs.shaderProvider)
 				else READ_ARG_INT("--shader", rs.shaderProvider)
 				else READ_ARG_STR("--focus-obj", focusObjectName)
@@ -306,6 +320,7 @@ int main(int argc, const char * argv[]) {
 	printf("  antialias      : %s\n", rs.enableAntialias ? "yes" : "no");
 	printf("  color sampling : %s\n", rs.enableColorSampling ? "yes" : "no");
 	printf("  post process   : %s\n", rs.enableRenderingPostProcess ? "yes" : "no");
+	printf("  denoise        : %s (intensity %.2f)\n", rs.enableDenoise ? "yes" : "no", rs.denoiseIntensity);
 	printf("  cull backface  : %s\n", rs.cullBackFace ? "yes" : "no");
 	printf("  back color     : #%02x%02x%02x%02x\n",
 				 (int)(rs.backColor.a * 255), (int)(rs.backColor.r * 255),

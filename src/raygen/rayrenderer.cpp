@@ -378,26 +378,34 @@ void RayRenderer::render() {
     this->clearTransformedScene();
     this->transformScene();
     
-    this->normalBuffer.createEmpty(ctx.renderSize.width, ctx.renderSize.height);
-    this->depthBuffer.createEmpty(ctx.renderSize.width, ctx.renderSize.height);
-    this->albedoBuffer.createEmpty(ctx.renderSize.width, ctx.renderSize.height);
-    
+    if (this->settings.enableDenoise) {
+        this->normalBuffer.createEmpty(ctx.renderSize.width, ctx.renderSize.height);
+        this->depthBuffer.createEmpty(ctx.renderSize.width, ctx.renderSize.height);
+        this->albedoBuffer.createEmpty(ctx.renderSize.width, ctx.renderSize.height);
+    }
+
     this->progressRate = 0;
 
     std::vector<std::thread> threads;
-    
+
     for (int i = 0; i < this->settings.threads; i++) {
         threads.push_back(std::thread([this, ctx, i] { this->renderThread(ctx, i); }));
     }
-    
+
     for (std::thread &th : threads) {
         th.join();
     }
-    
-    if (this->settings.enableRenderingPostProcess) {
-        Image3f denoised = this->denoiseImage(this->renderingImage, this->normalBuffer, this->depthBuffer, this->albedoBuffer);
-        Image::copy(denoised, this->renderingImage);
 
+    if (this->settings.enableDenoise) {
+        Image3f denoised;
+        denoised.createEmpty(ctx.renderSize.width, ctx.renderSize.height);
+        this->denoiseImage(this->renderingImage, this->normalBuffer,
+                           this->depthBuffer, this->albedoBuffer, denoised);
+        Image::copy(denoised, this->renderingImage);
+        this->applyTonemapGamma(this->renderingImage);
+    }
+
+    if (this->settings.enableRenderingPostProcess) {
         Image glowimg(this->renderingImage.getPixelDataFormat(), 32);
         Image::copy(this->renderingImage, glowimg);
         glowimg.resize((int)((float)this->renderingImage.width() * PP_GLOW_SIZE_ASPECT),
@@ -460,24 +468,34 @@ void RayRenderer::renderThread(const RenderThreadContext& ctx, const int threadI
 
 color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const int x, const int y) {
 
-    // Guided Denoise Meta Data - Start
-    ViewRaySurfaceInfo traceRayInfo;
-    this->traceEyeRaySurfaceInfo(ray, &traceRayInfo);
-    
-    // 法線バッファ（-1〜1 → 0〜1にマッピングして保存）
-    vec3 normalColor = traceRayInfo.hi.normal * 0.5f + 0.5f;
-    this->normalBuffer.setPixel(x, y, color4(normalColor, 1.0f));
+    // Guided-denoise AOVs (primary hit only). Miss pixels get sentinels so
+    // the denoiser's depth weight naturally isolates background from geometry.
+    if (this->settings.enableDenoise) {
+        ViewRaySurfaceInfo traceRayInfo;
+        this->traceEyeRaySurfaceInfo(ray, &traceRayInfo);
 
-    // アルベド（diffuse color）
-    this->albedoBuffer.setPixel(x, y, traceRayInfo.mat == NULL ? this->settings.backColor :  color4(traceRayInfo.mat->color, 1)); // or texture sampled color
+        if (traceRayInfo.hitted) {
+            // Normal encoded [-1..1] → [0..1]
+            const vec3 normalColor = traceRayInfo.hi.normal * 0.5f + 0.5f;
+            this->normalBuffer.setPixel(x, y, color4(normalColor, 1.0f));
 
-    // 深度（距離をグレースケール化）
-    float distance = (traceRayInfo.interInfo.hit - cameraWorldPos).length();
-    float depth = distance / scene->mainCamera->viewFar;
-    depth = sqrt(depth);
-    depth = 1.0 - clamp(depth, 0.0f, 1.0f);
-    this->depthBuffer.setPixel(x, y, vec3(depth));
-    // Guided Denoise Meta Data - End
+            // Albedo from material base color (texture sample not folded in here;
+            // demodulation is a future improvement and would need linear HDR).
+            this->albedoBuffer.setPixel(x, y, color4(traceRayInfo.mat->color, 1.0f));
+
+            // Depth: near = 1, far = 0 (sqrt-compressed for perceptual spacing)
+            const float distance = (traceRayInfo.interInfo.hit - cameraWorldPos).length();
+            float depth = distance / scene->mainCamera->viewFar;
+            depth = sqrtf(depth);
+            depth = 1.0f - clamp(depth, 0.0f, 1.0f);
+            this->depthBuffer.setPixel(x, y, color4(depth, depth, depth, 1.0f));
+        } else {
+            // Background sentinel: encoded-zero normal, zero depth (= far).
+            this->normalBuffer.setPixel(x, y, color4(0.5f, 0.5f, 0.5f, 0.0f));
+            this->albedoBuffer.setPixel(x, y, this->settings.backColor);
+            this->depthBuffer.setPixel(x, y, color4(0.0f, 0.0f, 0.0f, 0.0f));
+        }
+    }
 
 
     // Angular offsets (tangent-space). Ray through pixel is normalize(vec3(dx, dy, -1)).
@@ -559,6 +577,17 @@ color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const
     }
 
     const color3f radiance = sampleColor * ctx.exposure / (float)totalSamples;
+
+    // When the denoiser is on we defer tonemap+gamma to a post-denoise pass:
+    // filtering in linear radiance avoids the banding that non-linear
+    // compression induces around edges and gradients.
+    if (this->settings.enableDenoise) {
+        return color4f(fmaxf(radiance.r, 0.0f),
+                       fmaxf(radiance.g, 0.0f),
+                       fmaxf(radiance.b, 0.0f),
+                       1.0f);
+    }
+
     // Reinhard tone map so highlights > 1.0 compress instead of clipping to
     // white (the hard clamp was flattening wood grain / checker patterns
     // into a solid 1.0 under bright lights). Per-channel x/(x+1) keeps darks
@@ -1370,50 +1399,228 @@ void RayRenderer::scanBoundingBoxNearestTriangle(const Ray& ray, const RenderMes
 #endif /* USE_SPACE_TREE_IN_BOUNDING_BOX */
 
 
-Image3f RayRenderer::denoiseImage(const Image3f& noisy, const Image3f& normal, const Image3f& depth, const Image3f& albedo) {
-  Image3f denoised;
-  denoised.createEmpty(noisy.width(), noisy.height());
+// Edge-avoiding À-Trous wavelet pass over rows [yStart, yEnd). The step size
+// expands the 5×5 stencil each level (1, 2, 4, ...). Edge-stopping functions
+// use luminance, encoded-normal cosine, and depth to gate the Gaussian kernel.
+void RayRenderer::atrousPass(const Image3f& srcColor, Image3f& dstColor,
+                             const Image3f& normal, const Image3f& depth,
+                             int stepSize, int yStart, int yEnd) const {
+    // B3 spline 5-tap: 1/16, 1/4, 3/8, 1/4, 1/16
+    static const float kernel[5] = { 1.0f/16.0f, 1.0f/4.0f, 3.0f/8.0f, 1.0f/4.0f, 1.0f/16.0f };
 
-  const int radius = 2;
-  const float sigmaColor = 0.6f;
-  const float sigmaNormal = 0.4f;
-  const float sigmaDepth = 0.2f;
+    const int w = (int)srcColor.width();
+    const int h = (int)srcColor.height();
 
-  for (int y = 0; y < noisy.height(); ++y) {
-    for (int x = 0; x < noisy.width(); ++x) {
-      const vec3 centerColor = noisy.getPixel(x, y).rgb;
-      const vec3 centerNormal = normal.getPixel(x, y).rgb * 2.0f - 1.0f;
-      const float centerDepth = depth.getPixel(x, y).r;
+    const float sigmaC = this->settings.denoiseSigmaColor;
+    const float sigmaN = this->settings.denoiseSigmaNormal;
+    const float sigmaD = this->settings.denoiseSigmaDepth;
+    const float invSigmaC2 = 1.0f / (2.0f * sigmaC * sigmaC + 1e-8f);
+    // Depth tolerance grows with step size so far-apart taps at high levels
+    // don't erroneously reject over micro depth gradients.
+    const float depthScale = 1.0f / (sigmaD * (float)stepSize + 1e-8f);
 
-      vec3 sum = vec3(0);
-      float totalWeight = 0.0f;
+    for (int y = yStart; y < yEnd; ++y) {
+        for (int x = 0; x < w; ++x) {
+            const color4f cc = srcColor.getPixel(x, y);
+            const color4f nc = normal.getPixel(x, y);
+            const color4f dc = depth.getPixel(x, y);
+            const vec3 centerColor(cc.r, cc.g, cc.b);
+            const vec3 centerNormal(nc.r * 2.0f - 1.0f, nc.g * 2.0f - 1.0f, nc.b * 2.0f - 1.0f);
+            const float centerDepth = dc.r;
+            const float centerLum = 0.2126f * centerColor.x + 0.7152f * centerColor.y + 0.0722f * centerColor.z;
 
-      for (int dy = -radius; dy <= radius; ++dy) {
-        for (int dx = -radius; dx <= radius; ++dx) {
-          int nx = x + dx, ny = y + dy;
-          if (nx < 0 || ny < 0 || nx >= noisy.width() || ny >= noisy.height()) continue;
+            vec3 sum(0.0f, 0.0f, 0.0f);
+            float wsum = 0.0f;
 
-          const vec3 sampleColor = noisy.getPixel(nx, ny).rgb;
-          const vec3 sampleNormal = normal.getPixel(nx, ny).rgb * 2.0f - 1.0f;
-          const float sampleDepth = depth.getPixel(nx, ny).r;
+            for (int ky = 0; ky < 5; ++ky) {
+                const int ny = y + (ky - 2) * stepSize;
+                if (ny < 0 || ny >= h) continue;
+                for (int kx = 0; kx < 5; ++kx) {
+                    const int nx = x + (kx - 2) * stepSize;
+                    if (nx < 0 || nx >= w) continue;
 
-          float wColor = expf(-(sampleColor - centerColor).length2() / (2 * sigmaColor * sigmaColor));
-          float wNormal = expf(-(sampleNormal - centerNormal).length2() / (2 * sigmaNormal * sigmaNormal));
-          float wDepth = expf(-powf(sampleDepth - centerDepth, 2.0f) / (2 * sigmaDepth * sigmaDepth));
+                    const color4f cs = srcColor.getPixel(nx, ny);
+                    const color4f ns = normal.getPixel(nx, ny);
+                    const color4f ds = depth.getPixel(nx, ny);
+                    const vec3 sampleColor(cs.r, cs.g, cs.b);
+                    const vec3 sampleNormal(ns.r * 2.0f - 1.0f, ns.g * 2.0f - 1.0f, ns.b * 2.0f - 1.0f);
+                    const float sampleDepth = ds.r;
 
-          float weight = wColor * wNormal * wDepth;
+                    const float sampleLum = 0.2126f * sampleColor.x + 0.7152f * sampleColor.y + 0.0722f * sampleColor.z;
+                    const float lumDiff = sampleLum - centerLum;
+                    const float wColor = expf(-(lumDiff * lumDiff) * invSigmaC2);
 
-          sum += sampleColor * weight;
-          totalWeight += weight;
+                    // Normal weight: cosine raised to σ_n; clamp dot to [0,1].
+                    float ndot = sampleNormal.x * centerNormal.x
+                               + sampleNormal.y * centerNormal.y
+                               + sampleNormal.z * centerNormal.z;
+                    if (ndot < 0.0f) ndot = 0.0f;
+                    const float wNormal = powf(ndot, sigmaN);
+
+                    const float depthDiff = fabsf(sampleDepth - centerDepth);
+                    const float wDepth = expf(-depthDiff * depthScale);
+
+                    const float wKernel = kernel[kx] * kernel[ky];
+                    const float weight = wKernel * wColor * wNormal * wDepth;
+
+                    sum.x += sampleColor.x * weight;
+                    sum.y += sampleColor.y * weight;
+                    sum.z += sampleColor.z * weight;
+                    wsum += weight;
+                }
+            }
+
+            const vec3 finalColor = (wsum > 1e-8f) ? (sum / wsum) : centerColor;
+            dstColor.setPixel(x, y, color4(finalColor, cc.a));
         }
-      }
-
-      vec3 finalColor = (totalWeight > 0) ? sum / totalWeight : centerColor;
-      denoised.setPixel(x, y, color4(finalColor, 1.0f));
     }
-  }
+}
 
-  return denoised;
+void RayRenderer::applyTonemapGamma(Image& img) const {
+    const int w = (int)img.width();
+    const int h = (int)img.height();
+    const float invGamma = 1.0f / 2.2f;
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            const color4f c = img.getPixel(x, y);
+            const float r = c.r / (c.r + 1.0f);
+            const float g = c.g / (c.g + 1.0f);
+            const float b = c.b / (c.b + 1.0f);
+            color4f out(powf(fmaxf(r, 0.0f), invGamma),
+                        powf(fmaxf(g, 0.0f), invGamma),
+                        powf(fmaxf(b, 0.0f), invGamma),
+                        c.a);
+            if (out.r > 1.0f) out.r = 1.0f;
+            if (out.g > 1.0f) out.g = 1.0f;
+            if (out.b > 1.0f) out.b = 1.0f;
+            img.setPixel(x, y, out);
+        }
+    }
+}
+
+void RayRenderer::denoiseImage(const Image3f& noisy, const Image3f& normal,
+                               const Image3f& depth, const Image3f& albedo,
+                               Image3f& output) {
+    const int w = (int)noisy.width();
+    const int h = (int)noisy.height();
+    const int levels = std::max(1, this->settings.denoiseLevels);
+    const int numThreads = std::max(1, this->settings.threads);
+
+    Image3f bufA, bufB;
+    bufA.createEmpty(w, h);
+    bufB.createEmpty(w, h);
+
+    // Pre-pass: firefly suppression + albedo demodulation.
+    //
+    // Fireflies — isolated bright pixels from rare high-contribution paths
+    // (e.g. a lucky NEE hit on a dark material) — are preserved by the
+    // edge-stopping kernel because their color differs so much from
+    // neighbors that the weight collapses to zero. At samples=1 this shows
+    // up as persistent bright dots. A soft clamp against the 3×3 local max
+    // luminance pulls them into a reasonable range before filtering without
+    // touching legitimate bright regions (where the max is already close).
+    //
+    // Demodulation then divides the suppressed noisy signal by albedo so
+    // the filter operates on "incoming lighting" — smooth across material
+    // boundaries — and we re-multiply by albedo after the final pass to
+    // restore color detail. The albedo floor prevents division-blowup on
+    // dark channels; the demod cap bounds any residual amplification.
+    // AOV alpha channel flags geometry hits (1) vs sky/miss (0); sky
+    // pixels pass through unchanged.
+    const float albedoFloor = 0.3f;
+    const float demodCap = 3.0f;
+    const float fireflyRatio = 1.5f;
+    const float fireflyEps = 0.01f;
+    auto luminance = [](float r, float g, float b) {
+        return 0.2126f * r + 0.7152f * g + 0.0722f * b;
+    };
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            color4f c = noisy.getPixel(x, y);
+
+            float maxNeighLum = 0.0f;
+            for (int dy = -1; dy <= 1; ++dy) {
+                const int ny = y + dy;
+                if (ny < 0 || ny >= h) continue;
+                for (int dx = -1; dx <= 1; ++dx) {
+                    if (dx == 0 && dy == 0) continue;
+                    const int nx = x + dx;
+                    if (nx < 0 || nx >= w) continue;
+                    const color4f n = noisy.getPixel(nx, ny);
+                    const float nlum = luminance(n.r, n.g, n.b);
+                    if (nlum > maxNeighLum) maxNeighLum = nlum;
+                }
+            }
+            const float centerLum = luminance(c.r, c.g, c.b);
+            const float cap = fireflyRatio * maxNeighLum + fireflyEps;
+            if (centerLum > cap) {
+                const float scale = cap / centerLum;
+                c.r *= scale; c.g *= scale; c.b *= scale;
+            }
+
+            const color4f a = albedo.getPixel(x, y);
+            if (a.a > 0.5f) {
+                const float ar = fmaxf(a.r, albedoFloor);
+                const float ag = fmaxf(a.g, albedoFloor);
+                const float ab = fmaxf(a.b, albedoFloor);
+                bufA.setPixel(x, y, color4f(fminf(c.r / ar, demodCap),
+                                            fminf(c.g / ag, demodCap),
+                                            fminf(c.b / ab, demodCap),
+                                            1.0f));
+            } else {
+                bufA.setPixel(x, y, c);
+            }
+        }
+    }
+
+    Image3f* src = &bufA;
+    Image3f* dst = &bufB;
+
+    for (int level = 0; level < levels; ++level) {
+        const int stepSize = 1 << level;
+
+        std::vector<std::thread> workers;
+        workers.reserve(numThreads);
+        const int rowsPerThread = (h + numThreads - 1) / numThreads;
+        for (int t = 0; t < numThreads; ++t) {
+            const int yStart = t * rowsPerThread;
+            const int yEnd = std::min(h, yStart + rowsPerThread);
+            if (yStart >= yEnd) break;
+            const Image3f* srcConst = src;
+            Image3f* dstPtr = dst;
+            workers.emplace_back([this, srcConst, dstPtr, &normal, &depth, stepSize, yStart, yEnd] {
+                this->atrousPass(*srcConst, *dstPtr, normal, depth, stepSize, yStart, yEnd);
+            });
+        }
+        for (std::thread& th : workers) th.join();
+
+        Image3f* tmp = src; src = dst; dst = tmp;
+    }
+
+    // Remodulate and blend with the original noisy input by `denoiseIntensity`.
+    // intensity = 1 → pure filtered output (full denoise)
+    // intensity = 0 → original noisy (pass-through, effectively disabled)
+    // Blending happens in linear-HDR space, before the post-denoise tonemap.
+    const Image3f& filtered = *src;
+    const float t = clamp(this->settings.denoiseIntensity, 0.0f, 1.0f);
+    const float s = 1.0f - t;
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            const color4f f = filtered.getPixel(x, y);
+            const color4f n = noisy.getPixel(x, y);
+            const color4f a = albedo.getPixel(x, y);
+            color4f remod;
+            if (a.a > 0.5f) {
+                remod = color4f(f.r * a.r, f.g * a.g, f.b * a.b, 1.0f);
+            } else {
+                remod = f;
+            }
+            output.setPixel(x, y, color4f(n.r * s + remod.r * t,
+                                          n.g * s + remod.g * t,
+                                          n.b * s + remod.b * t,
+                                          1.0f));
+        }
+    }
 }
 
 //--------------------------------------
