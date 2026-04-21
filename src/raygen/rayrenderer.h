@@ -94,6 +94,10 @@ struct RendererSettings {
 	float denoiseSigmaDepth = 0.1f;
 	float denoiseIntensity = 1.0f;  // 0 = pass-through, 1 = full À-Trous
 
+	float bloomThreshold = 0.7f;   // post-gamma luma at which bloom starts
+	float bloomStrength = 0.35f;   // lighter-blend strength when compositing
+	float bloomSizeAspect = 0.15f; // glow buffer size relative to main (downsample)
+
 	color3 worldColor = color3(1.0f, 0.95f, 0.9f) * 0.1f;
 	color4 backColor = color4(1.0f, 0.95f, 0.9f, 0.0f) * 0.2f;
 };

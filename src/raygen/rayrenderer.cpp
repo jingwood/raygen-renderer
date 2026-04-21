@@ -408,14 +408,14 @@ void RayRenderer::render() {
     if (this->settings.enableRenderingPostProcess) {
         Image glowimg(this->renderingImage.getPixelDataFormat(), 32);
         Image::copy(this->renderingImage, glowimg);
-        glowimg.resize((int)((float)this->renderingImage.width() * PP_GLOW_SIZE_ASPECT),
-            (int)((float)this->renderingImage.height() * PP_GLOW_SIZE_ASPECT));
-        img::thresholdSoft(glowimg, 0.9f, 3);
+        glowimg.resize((int)((float)this->renderingImage.width() * this->settings.bloomSizeAspect),
+            (int)((float)this->renderingImage.height() * this->settings.bloomSizeAspect));
+        img::thresholdSoft(glowimg, this->settings.bloomThreshold, 3);
         img::gamma(glowimg, PP_GLOW_GAMMA);
         int kernelSize = calculateGaussianKernelSize(glowimg.width(), glowimg.height());
         img::gaussBlur(glowimg, kernelSize);
         glowimg.resize(this->renderingImage.getSize());
-        img::calc(this->renderingImage, glowimg, img::CalcMethods::Lighter, 0.35f);
+        img::calc(this->renderingImage, glowimg, img::CalcMethods::Lighter, this->settings.bloomStrength);
     }
 }
 

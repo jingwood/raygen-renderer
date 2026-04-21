@@ -217,6 +217,8 @@ int main(int argc, const char * argv[]) {
 							 "  -enpp | --enable-postprocess         eanble post-processes such as grow and blur\n"
 							 "  -endn | --enable-denoise             enable À-Trous wavelet denoiser (default: off)\n"
 							 "  -dni  | --denoise-intensity          blend 0..1 between noisy and denoised (default: 1.0)\n"
+							 "  -blth | --bloom-threshold            post-gamma luma at which bloom starts (default: 0.7)\n"
+							 "  -blst | --bloom-strength             bloom composite strength (default: 0.35)\n"
 							 "  -d | --shader                        specify shader type\n"
 							 "  --focus-obj                          make camera look at specified object\n"
 							 "  --dump                               dump scene define\n");
@@ -238,6 +240,10 @@ int main(int argc, const char * argv[]) {
 				else READ_ARG_BOL("--enable-denoise", rs.enableDenoise)
 				else READ_ARG_FLT("-dni", rs.denoiseIntensity)
 				else READ_ARG_FLT("--denoise-intensity", rs.denoiseIntensity)
+				else READ_ARG_FLT("-blth", rs.bloomThreshold)
+				else READ_ARG_FLT("--bloom-threshold", rs.bloomThreshold)
+				else READ_ARG_FLT("-blst", rs.bloomStrength)
+				else READ_ARG_FLT("--bloom-strength", rs.bloomStrength)
 				else READ_ARG_INT("-d", rs.shaderProvider)
 				else READ_ARG_INT("--shader", rs.shaderProvider)
 				else READ_ARG_STR("--focus-obj", focusObjectName)
