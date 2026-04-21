@@ -183,7 +183,6 @@ When adding functionality, prefer these libraries' types over STL/third-party eq
 
 ## Known issues / workarounds
 
-- **`ugm::_color4<byte>` is 16 bytes**, not 4 — its union contains a `vec4` (=`_vec4<float>`). `Image::getPixel`'s RGBA-8bit branch does `(color4b*)buffer + index` which the compiler expands to `buffer + index*16`, running past the actual W·H·4-byte buffer. `Texture::sample` works around this by reading raw bytes via `Image::getBuffer()` when `components == 4 && pixelByteLength == 4`. Fix the union eventually (have it take `_vec4<T>`), but the workaround is stable and keeps RGB LDR / HDR-float paths on the original getPixel path where the stride is right.
 - Stack-size / optimisation sensitivity: rendering paths are deep enough that stale incremental builds can trigger weird crashes at unpredictable depths. `make clean && make` if things go sideways after a header edit.
 
 ## Conventions

@@ -175,23 +175,7 @@ color4f Texture::sample(const vec2 &uv) const {
 	if (x < 0) x = 0;
 	if (y < 0) y = 0;
 
-	color4f px;
-
-	// ugm::_color4<byte> is 16 bytes (its union contains a vec4<float>),
-	// so Image::getPixel's RGBA-8bit branch computes `buffer + index*16`
-	// for a buffer that was actually allocated with 4-byte pixels.
-	// Out-of-bounds read → crash. Read bytes manually for that case.
-	const int comps = (int)this->image.getColorComponents();
-	const int pxB   = (int)this->image.getPixelByteLength();
-	if (comps == 4 && pxB == 4) {
-		const byte* buf = this->image.getBuffer();
-		const size_t idx = ((size_t)y * (size_t)W + (size_t)x) * 4;
-		const float inv = 1.0f / 255.0f;
-		px = color4f(buf[idx] * inv, buf[idx + 1] * inv,
-		             buf[idx + 2] * inv, buf[idx + 3] * inv);
-	} else {
-		px = this->image.getPixel(x, y);
-	}
+	color4f px = this->image.getPixel(x, y);
 	if (this->sRGB) {
 		px.r = srgbToLinear(px.r);
 		px.g = srgbToLinear(px.g);
