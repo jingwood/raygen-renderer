@@ -5,13 +5,13 @@
 
 {
 	"mainCamera": {
-		"location": [0, 1.1, 5.0],
-		"angle": [-4, 0, 0],
+		"location": [0, 0.3, 5.0],
+		"angle": [5, 0, 0],
 		"fieldOfView": 45,
 		"depthOfField": 4.5,
-		"aperture": 2.0,
+		"aperture": 2.8,
 		"apertureBlades": 0,
-		"apertureRotation": 0,
+		"apertureRotation": 10,
 		"exposure": 1.0
 	},
 
@@ -19,11 +19,11 @@
 		"angle": [0, 0, 0],
 
 		"keyLight": {
-			"location": [-1.5, 3.5, 1.5],
+			"location": [-1.5, 4.0, 1.5],
 			"angle": [180, 0, 0],
 			"scale": [1.5, 1, 1.5],
 			"mesh": { "type": "plane" },
-			"mat": { "emission": 10.0 }
+			"mat": { "emission": 15.0 }
 		},
 
 		"floor": {
@@ -38,11 +38,11 @@
 			"location": [0, 0.2, 0.5],
 			"scale": [0.45, 0.45, 0.45],
 			"mesh": { "type": "sphere" },
-			"mat": { "color": [0.95, 0.35, 0.2], "roughness": 0.7 }
+			"mat": { "color": [0.95, 0.35, 0.2], "glossy": 1.0, "metallic": 0.5, "roughness": 0.1 }
 		},
 
 		"backdrop": {
-			"location": [0, 3, -10],
+			"location": [0, 4, -10],
 			"angle": [90, 0, 0],
 			"scale": [40, 1, 10],
 			"mesh": { "type": "plane" },
@@ -53,17 +53,17 @@
 		// footprint so the aperture sampling actually lands on it; scale*2
 		// (since SphereMesh has radius 1 by default) → 0.15 world radius.
 		// Bright emission so the centre saturates into the tone map.
-		"bokeh_01": { "location": [-3.2, 1.8, -3], "scale": [0.15, 0.15, 0.15], "mesh": { "type": "sphere" }, "mat": { "emission": 400, "color": [1.0, 0.75, 0.45] } },
-		"bokeh_02": { "location": [-2.0, 2.5, -4], "scale": [0.15, 0.15, 0.15], "mesh": { "type": "sphere" }, "mat": { "emission": 400, "color": [0.45, 0.75, 1.0] } },
-		"bokeh_03": { "location": [-0.8, 0.9, -5], "scale": [0.15, 0.15, 0.15], "mesh": { "type": "sphere" }, "mat": { "emission": 400, "color": [1.0, 1.0, 0.6] } },
-		"bokeh_04": { "location": [ 1.1, 1.6, -3.5], "scale": [0.15, 0.15, 0.15], "mesh": { "type": "sphere" }, "mat": { "emission": 400, "color": [0.7, 1.0, 0.75] } },
-		"bokeh_05": { "location": [ 2.2, 0.6, -4.5], "scale": [0.15, 0.15, 0.15], "mesh": { "type": "sphere" }, "mat": { "emission": 400, "color": [1.0, 0.55, 0.75] } },
-		"bokeh_06": { "location": [ 3.0, 2.3, -3], "scale": [0.15, 0.15, 0.15], "mesh": { "type": "sphere" }, "mat": { "emission": 400, "color": [0.85, 0.85, 1.0] } },
-		"bokeh_07": { "location": [-3.8, 0.8, -6], "scale": [0.15, 0.15, 0.15], "mesh": { "type": "sphere" }, "mat": { "emission": 400, "color": [1.0, 0.9, 0.55] } },
-		"bokeh_08": { "location": [ 3.8, 1.2, -7], "scale": [0.15, 0.15, 0.15], "mesh": { "type": "sphere" }, "mat": { "emission": 400, "color": [0.55, 0.9, 1.0] } },
-		"bokeh_09": { "location": [-0.3, 3.2, -5], "scale": [0.15, 0.15, 0.15], "mesh": { "type": "sphere" }, "mat": { "emission": 400, "color": [1.0, 1.0, 1.0] } },
-		"bokeh_10": { "location": [ 2.0, 2.9, -7], "scale": [0.15, 0.15, 0.15], "mesh": { "type": "sphere" }, "mat": { "emission": 400, "color": [1.0, 0.7, 0.9] } },
-		"bokeh_11": { "location": [-2.8, 2.7, -6], "scale": [0.15, 0.15, 0.15], "mesh": { "type": "sphere" }, "mat": { "emission": 400, "color": [0.9, 1.0, 0.8] } },
-		"bokeh_12": { "location": [ 0.7, 0.4, -6], "scale": [0.15, 0.15, 0.15], "mesh": { "type": "sphere" }, "mat": { "emission": 400, "color": [1.0, 0.85, 0.6] } }
+		"bokeh_01": { "location": [-3.2, 1.8, -3], "scale": [0.15, 0.15, 0.15], "mesh": { "type": "sphere" },   "mat": { "emission": 300, "color": [1.0, 0.25, 0.15] } },
+		"bokeh_02": { "location": [-2.0, 2.5, -4], "scale": [0.15, 0.15, 0.15], "mesh": { "type": "sphere" },   "mat": { "emission": 300, "color": [0.15, 0.25, 1.0] } },
+		"bokeh_03": { "location": [-0.8, 0.9, -5], "scale": [0.15, 0.15, 0.15], "mesh": { "type": "sphere" },   "mat": { "emission": 300, "color": [1.0, 1.0, 0.2] } },
+		"bokeh_04": { "location": [ 1.1, 1.6, -3.5], "scale": [0.15, 0.15, 0.15], "mesh": { "type": "sphere" }, "mat": { "emission": 300, "color": [0.2, 1.0, 0.35] } },
+		"bokeh_05": { "location": [ 2.2, 0.6, -4.5], "scale": [0.15, 0.15, 0.15], "mesh": { "type": "sphere" }, "mat": { "emission": 300, "color": [1.0, 0.25, 0.35] } },
+		"bokeh_06": { "location": [ 3.0, 2.3, -3], "scale": [0.15, 0.15, 0.15], "mesh": { "type": "sphere" },   "mat": { "emission": 300, "color": [0.25, 0.25, 1.0] } },
+		"bokeh_07": { "location": [-3.8, 0.8, -6], "scale": [0.15, 0.15, 0.15], "mesh": { "type": "sphere" },   "mat": { "emission": 300, "color": [1.0, 0.3, 0.1] } },
+		"bokeh_08": { "location": [ 3.8, 1.2, -7], "scale": [0.15, 0.15, 0.15], "mesh": { "type": "sphere" },   "mat": { "emission": 300, "color": [0.1, 0.2, 1.0] } },
+		"bokeh_09": { "location": [-0.3, 3.2, -5], "scale": [0.15, 0.15, 0.15], "mesh": { "type": "sphere" },   "mat": { "emission": 300, "color": [1.0, 0.0, 1.0] } },
+		"bokeh_10": { "location": [ 2.0, 2.9, -7], "scale": [0.15, 0.15, 0.15], "mesh": { "type": "sphere" },   "mat": { "emission": 300, "color": [1.0, 0.2, 0.3] } },
+		"bokeh_11": { "location": [-2.8, 2.7, -6], "scale": [0.15, 0.15, 0.15], "mesh": { "type": "sphere" },   "mat": { "emission": 300, "color": [0.9, 1.0, 0.2] } },
+		"bokeh_12": { "location": [ 0.7, 0.4, -6], "scale": [0.15, 0.15, 0.15], "mesh": { "type": "sphere" },   "mat": { "emission": 300, "color": [1.0, 0.25, 0.1] } }
 	}
 }

@@ -53,7 +53,7 @@
 			"location": [2.2, 0.2, 0],
 			"scale": [0.7, 0.7, 0.7],
 			"mesh": { "type": "sphere" },
-			"mat": { "color": [0.85, 0.85, 0.9], "glossy": 1.0, "roughness": 0.05 }
+			"mat": { "color": [0.85, 0.85, 0.9], "glossy": 1.0, "metallic": 1.0, "roughness": 0.05 }
 		}
 	}
 }

@@ -4,24 +4,24 @@
 
 {
 	"mainCamera": {
-		"location": [3.2, 1.5, 2.4],
-		"angle": [-3, 48, 0],
-		"fieldOfView": 48,
-		"focusOn": "table_low_wood",
+		"location": [-3.2, 1.5, 2.4],
+		"angle": [-4, -50, 0],
+		"fieldOfView": 50,
+		// "focusOn": "table_low_wood",
 		"depthOfField": 3.8,
-		"aperture": 8.0,
+		"aperture": 0,
 		"apertureBlades": 6,
-		"exposure": 1.4
+		"exposure": 1.0
 	},
 
 	"envmap": {
-		"cubemap": "/Users/jing/Projects/unvell/yotei3d/examples/public/textures/cubemap/city-night",
+		"cubemap": "../../cubemap/city-night",
 		"ext": "jpg",
-		"intensity": 2.5,
+		"intensity": 3,
 		"rotation": 40
 	},
 
 	"world": {
-		"_bundle": "/Users/jing/Projects/unvell/yotei3d/examples/public/models/showroom.toba"
+		"_bundle": "../../models/showroom.toba"
 	}
 }

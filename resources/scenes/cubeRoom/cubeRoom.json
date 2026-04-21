@@ -10,7 +10,7 @@
 		"angle": [180, 0, 0],
 		"scale": [1.5, 1, 1.5],
 		"mesh": { "type": "plane" },
-		"mat": { "color": "#fffff0", "emission": 20 }
+		"mat": { "color": "#fffff0", "emission": 15 }
 	},
 	"ceiling": {
 		"location": [ 0, 3, 0 ],
@@ -24,21 +24,21 @@
 		"angle": [0, 0, 0],
 		"scale": [6, 1, 6],
 		"mesh": { "type": "plane" },
-		"mat": { "color": "#999999", "diffuse": 0.5, "glossy": 0.5, "roughness": 0.2 }
+		"mat": { "color": "#ffffff", "diffuse": 1, "glossy": 0.5, "metallic": 1.0, "roughness": 0.3 }
 	},
 	"left-wall": {
 		"location": [ -3, 0, 0 ],
 		"angle": [0, 0, -90],
 		"scale": [6, 1, 6],
 		"mesh": { "type": "plane" },
-		"mat": { "color": "#ee6666", "diffuse": 0.8, "glossy": 0, "roughness": 0 }
+		"mat": { "color": "#ff5555", "diffuse": 0.8, "glossy": 0, "roughness": 0 }
 	},
 	"right-wall": {
 		"location": [ 3, 0, 0 ],
 		"angle": [ 0, 0, 90],
 		"scale": [6, 1, 6],
 		"mesh": { "type": "plane" },
-		"mat": { "color": "#66ee66", "diffuse": 0.8, "glossy": 0, "roughness": 0 }
+		"mat": { "color": "#55ff55", "diffuse": 0.8, "glossy": 0, "roughness": 0 }
 	},
 	"back-wall": {
 		"location": [ 0, 0, -3 ],
