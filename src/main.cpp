@@ -222,6 +222,7 @@ int main(int argc, const char * argv[]) {
 							 "  -dni  | --denoise-intensity          blend 0..1 between noisy and denoised (default: 1.0)\n"
 							 "  -blth | --bloom-threshold            post-gamma luma at which bloom starts (default: 0.7)\n"
 							 "  -blst | --bloom-strength             bloom composite strength (default: 0.35)\n"
+							 "  -blcv | --bloom-curve                threshold falloff exponent; 1=linear, 3=sharp (default: 1.0)\n"
 							 "  -d | --shader                        specify shader type\n"
 							 "  --focus-obj                          make camera look at specified object\n"
 							 "  --dump                               dump scene define\n"
@@ -248,6 +249,8 @@ int main(int argc, const char * argv[]) {
 				else READ_ARG_FLT("--bloom-threshold", rs.bloomThreshold)
 				else READ_ARG_FLT("-blst", rs.bloomStrength)
 				else READ_ARG_FLT("--bloom-strength", rs.bloomStrength)
+				else READ_ARG_FLT("-blcv", rs.bloomCurve)
+				else READ_ARG_FLT("--bloom-curve", rs.bloomCurve)
 				else READ_ARG_INT("-d", rs.shaderProvider)
 				else READ_ARG_INT("--shader", rs.shaderProvider)
 				else READ_ARG_STR("--focus-obj", focusObjectName)

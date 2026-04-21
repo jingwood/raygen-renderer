@@ -422,7 +422,7 @@ void RayRenderer::render() {
         };
 
         dumpStage("00-input", this->renderingImage);
-        img::thresholdSoft(glowimg, this->settings.bloomThreshold, 3);
+        img::thresholdSoft(glowimg, this->settings.bloomThreshold, this->settings.bloomCurve);
         dumpStage("01-threshold", glowimg);
         img::gamma(glowimg, PP_GLOW_GAMMA);
         dumpStage("02-gamma", glowimg);

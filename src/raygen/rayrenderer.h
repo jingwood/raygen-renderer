@@ -98,6 +98,7 @@ struct RendererSettings {
 	float bloomThreshold = 0.7f;   // post-gamma luma at which bloom starts
 	float bloomStrength = 0.35f;   // lighter-blend strength when compositing
 	float bloomSizeAspect = 0.15f; // glow buffer size relative to main (downsample)
+	float bloomCurve = 1.0f;       // threshold falloff exponent; 1=linear, 3=sharp cutoff
 
 	// Non-empty path prefix enables dumping each post-process stage to
 	// <prefix>-bloom-01-threshold.jpg etc. Main writes the scene base-name
