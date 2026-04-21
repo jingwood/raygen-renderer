@@ -588,19 +588,32 @@ color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const
                        1.0f);
     }
 
-    // Reinhard tone map so highlights > 1.0 compress instead of clipping to
-    // white (the hard clamp was flattening wood grain / checker patterns
-    // into a solid 1.0 under bright lights). Per-channel x/(x+1) keeps darks
-    // linear and asymptotes at 1.0. Then approximate sRGB gamma (1/2.2) so
-    // linear mid-grey renders as expected on a display-referred JPG viewer —
-    // without this, output looks crushed and dark regardless of radiance.
-    const color3f mapped(radiance.r / (radiance.r + 1.0f),
-                         radiance.g / (radiance.g + 1.0f),
-                         radiance.b / (radiance.b + 1.0f));
+    // Luminance-based Reinhard: compress the perceived brightness L = luma
+    // and scale RGB by the same factor so saturated colors stay saturated.
+    // Per-channel Reinhard (the old approach) desaturated bright mixed
+    // colors toward white because it shrinks the high channels more than
+    // the low ones (10:3:1 → 0.91:0.75:0.5, washed out). If the rescaled
+    // RGB exceeds [0,1] gamut (pure saturated HDR red like (10,0,0)), clip
+    // by dividing by the peak channel so the hue is preserved and only
+    // brightness tops out at 1.
+    const float L = 0.2126f * radiance.r + 0.7152f * radiance.g + 0.0722f * radiance.b;
+    float mr = 0.0f, mg = 0.0f, mb = 0.0f;
+    if (L > 1e-6f) {
+        const float Lmapped = L / (L + 1.0f);
+        const float scale = Lmapped / L;
+        mr = radiance.r * scale;
+        mg = radiance.g * scale;
+        mb = radiance.b * scale;
+        const float peak = fmaxf(fmaxf(mr, mg), mb);
+        if (peak > 1.0f) {
+            const float inv = 1.0f / peak;
+            mr *= inv; mg *= inv; mb *= inv;
+        }
+    }
     const float invGamma = 1.0f / 2.2f;
-    const color3f encoded(powf(fmaxf(mapped.r, 0.0f), invGamma),
-                          powf(fmaxf(mapped.g, 0.0f), invGamma),
-                          powf(fmaxf(mapped.b, 0.0f), invGamma));
+    const color3f encoded(powf(fmaxf(mr, 0.0f), invGamma),
+                          powf(fmaxf(mg, 0.0f), invGamma),
+                          powf(fmaxf(mb, 0.0f), invGamma));
     return clamp(encoded, 0.0f, 1.0f);
 }
 
@@ -615,7 +628,14 @@ color4 RayRenderer::traceEyeRay(const Ray& ray) const {
         this->calcVertexInterpolation(interInfo, &vi);
 
         if (interInfo.triangle->object.visible) {
-            return clamp(this->shaderProvider->shade(interInfo, ray, vi), 0.0f, 1.0f);
+            // Return HDR radiance unclamped so high-intensity emitters (e.g.
+            // a red light with emission=10) carry through to the tonemap.
+            // Reinhard at renderPixel's output handles the compression.
+            const color3 shaded = this->shaderProvider->shade(interInfo, ray, vi);
+            return color4(fmaxf(shaded.r, 0.0f),
+                          fmaxf(shaded.g, 0.0f),
+                          fmaxf(shaded.b, 0.0f),
+                          1.0f);
         }
     }
 
@@ -1486,12 +1506,24 @@ void RayRenderer::applyTonemapGamma(Image& img) const {
     for (int y = 0; y < h; ++y) {
         for (int x = 0; x < w; ++x) {
             const color4f c = img.getPixel(x, y);
-            const float r = c.r / (c.r + 1.0f);
-            const float g = c.g / (c.g + 1.0f);
-            const float b = c.b / (c.b + 1.0f);
-            color4f out(powf(fmaxf(r, 0.0f), invGamma),
-                        powf(fmaxf(g, 0.0f), invGamma),
-                        powf(fmaxf(b, 0.0f), invGamma),
+            // Luminance-based Reinhard (see renderPixel for the rationale).
+            const float L = 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+            float mr = 0.0f, mg = 0.0f, mb = 0.0f;
+            if (L > 1e-6f) {
+                const float Lmapped = L / (L + 1.0f);
+                const float scale = Lmapped / L;
+                mr = c.r * scale;
+                mg = c.g * scale;
+                mb = c.b * scale;
+                const float peak = fmaxf(fmaxf(mr, mg), mb);
+                if (peak > 1.0f) {
+                    const float inv = 1.0f / peak;
+                    mr *= inv; mg *= inv; mb *= inv;
+                }
+            }
+            color4f out(powf(fmaxf(mr, 0.0f), invGamma),
+                        powf(fmaxf(mg, 0.0f), invGamma),
+                        powf(fmaxf(mb, 0.0f), invGamma),
                         c.a);
             if (out.r > 1.0f) out.r = 1.0f;
             if (out.g > 1.0f) out.g = 1.0f;
