@@ -648,19 +648,22 @@ color3 RayRenderer::sampleEnvironment(const vec3& dir) const {
         int face; float sc, tc, ma;
         if (ax >= ay && ax >= az) {
             ma = ax;
-            if (rx > 0) { face = 0; sc = -rz; tc = -ry; }  // +X
-            else        { face = 1; sc =  rz; tc = -ry; }  // -X
+            if (rx > 0) { face = 0; sc = -rz; tc =  ry; }  // +X
+            else        { face = 1; sc =  rz; tc =  ry; }  // -X
         } else if (ay >= ax && ay >= az) {
             ma = ay;
             if (ry > 0) { face = 2; sc =  rx; tc =  rz; }  // +Y
             else        { face = 3; sc =  rx; tc = -rz; }  // -Y
         } else {
             ma = az;
-            if (rz > 0) { face = 4; sc =  rx; tc = -ry; }  // +Z
-            else        { face = 5; sc = -rx; tc = -ry; }  // -Z
+            if (rz > 0) { face = 4; sc =  rx; tc =  ry; }  // +Z
+            else        { face = 5; sc = -rx; tc =  ry; }  // -Z
         }
         const float u = 0.5f * (sc / ma + 1.0f);
-        const float v = 0.5f * (1.0f - tc / ma);  // flip v so image +V = world up
+        // Image storage is top-down (row 0 at top), so v = 0 should be world
+        // up. Side-face tc carries +ry directly; v = 0.5·(1 − tc/ma) then
+        // maps ry > 0 (world up) to v < 0.5 (upper rows of the image).
+        const float v = 0.5f * (1.0f - tc / ma);
         return faces[face]->sample(vec2(u, v)).rgb * this->scene->envmapIntensity;
     }
 
@@ -693,12 +696,12 @@ namespace {
 // s = 2u - 1, t = 1 - 2v. Direction is un-normalised so caller can normalise.
 inline ugm::vec3 cubeFaceDir(int face, float s, float t) {
     switch (face) {
-        case 0: return ugm::vec3(+1.0f,   -t,   -s);
-        case 1: return ugm::vec3(-1.0f,   -t,    s);
+        case 0: return ugm::vec3(+1.0f,    t,   -s);
+        case 1: return ugm::vec3(-1.0f,    t,    s);
         case 2: return ugm::vec3(   s, +1.0f,    t);
         case 3: return ugm::vec3(   s, -1.0f,   -t);
-        case 4: return ugm::vec3(   s,   -t, +1.0f);
-        default: return ugm::vec3(  -s,   -t, -1.0f);
+        case 4: return ugm::vec3(   s,    t, +1.0f);
+        default: return ugm::vec3(  -s,    t, -1.0f);
     }
 }
 }
@@ -860,16 +863,16 @@ float RayRenderer::envmapDirectionPdf(const vec3& dir) const {
         int face; float s, t, ma;
         if (ax >= ay && ax >= az) {
             ma = ax;
-            if (rx > 0) { face = 0; s = -rz; t = -d.y; }
-            else        { face = 1; s =  rz; t = -d.y; }
+            if (rx > 0) { face = 0; s = -rz; t =  d.y; }
+            else        { face = 1; s =  rz; t =  d.y; }
         } else if (ay >= ax && ay >= az) {
             ma = ay;
             if (d.y > 0) { face = 2; s = rx; t = rz; }
             else         { face = 3; s = rx; t = -rz; }
         } else {
             ma = az;
-            if (rz > 0) { face = 4; s = rx; t = -d.y; }
-            else        { face = 5; s = -rx; t = -d.y; }
+            if (rz > 0) { face = 4; s =  rx; t =  d.y; }
+            else        { face = 5; s = -rx; t =  d.y; }
         }
         if (ma <= 0.0f) return 0.0f;
         const float u = 0.5f * (s / ma + 1.0f);
