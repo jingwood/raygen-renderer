@@ -406,12 +406,15 @@ void RayRenderer::render() {
     }
 
     if (this->settings.enableRenderingPostProcess) {
+        // Threshold at full resolution so sparse-pixel highlights survive —
+        // downsampling before threshold bilinear-averages the bright pixel
+        // with dim neighbours and drops it under the cutoff, killing bloom.
         Image glowimg(this->renderingImage.getPixelDataFormat(), 32);
         Image::copy(this->renderingImage, glowimg);
-        glowimg.resize((int)((float)this->renderingImage.width() * this->settings.bloomSizeAspect),
-            (int)((float)this->renderingImage.height() * this->settings.bloomSizeAspect));
         img::thresholdSoft(glowimg, this->settings.bloomThreshold, 3);
         img::gamma(glowimg, PP_GLOW_GAMMA);
+        glowimg.resize((int)((float)this->renderingImage.width() * this->settings.bloomSizeAspect),
+            (int)((float)this->renderingImage.height() * this->settings.bloomSizeAspect));
         int kernelSize = calculateGaussianKernelSize(glowimg.width(), glowimg.height());
         img::gaussBlur(glowimg, kernelSize);
         glowimg.resize(this->renderingImage.getSize());
