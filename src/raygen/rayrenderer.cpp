@@ -574,10 +574,24 @@ color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const
                 offsetX = px * ctx.aperture;
                 offsetY = py * ctx.aperture;
             } else {
-                const float r = sqrtf(du);
-                const float theta = dv * 2.0f * (float)M_PI;
-                offsetX = r * cosf(theta) * ctx.aperture;
-                offsetY = r * sinf(theta) * ctx.aperture;
+                // Shirley's concentric square-to-disk mapping — keeps
+                // stratified (u,v) grid cells compact when mapped to the
+                // disk. The older r = √u, θ = 2πv path produced radial
+                // spokes because it stretched each cell along the radius.
+                const float a = 2.0f * du - 1.0f;
+                const float b = 2.0f * dv - 1.0f;
+                float r, phi;
+                if (a == 0.0f && b == 0.0f) {
+                    r = 0.0f; phi = 0.0f;
+                } else if (a * a > b * b) {
+                    r = a;
+                    phi = (float)(M_PI / 4.0) * (b / a);
+                } else {
+                    r = b;
+                    phi = (float)(M_PI / 2.0) - (float)(M_PI / 4.0) * (a / b);
+                }
+                offsetX = r * cosf(phi) * ctx.aperture;
+                offsetY = r * sinf(phi) * ctx.aperture;
             }
 
             ray.origin = vec3(offsetX, offsetY, 0.0f);
