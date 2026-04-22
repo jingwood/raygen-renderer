@@ -434,7 +434,11 @@ void RayRenderer::render() {
         dumpStage("04-blur", glowimg);
         glowimg.resize(this->renderingImage.getSize());
         dumpStage("05-upsample", glowimg);
-        img::calc(this->renderingImage, glowimg, img::CalcMethods::Lighter, this->settings.bloomStrength);
+        // Straight additive composite — light is physically additive. The
+        // earlier Lighter blend (oc = c1 + max(c2-c1,0)·factor) dropped the
+        // halo wherever the main image was already bright (walls, metal),
+        // so bloom only showed on dark background pixels.
+        img::calc(this->renderingImage, glowimg, img::CalcMethods::Add, this->settings.bloomStrength);
         dumpStage("06-composite", this->renderingImage);
     }
 }
