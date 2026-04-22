@@ -1,12 +1,6 @@
 {
-	"_renderSettings": {
-		"samples": 1,
-		"postprocess": {	
-		}
-	},
-
 	"mainCamera": {
-		"location": [0, 2.2, 5.0],
+		"location": [0, 2.2, 6.0],
 		"angle": [-14, 0, 0],
 		"fieldOfView": 70,
 		"depthOfField": 6.2,
@@ -20,7 +14,7 @@
 			"location": [0, 4, 0],
 			"scale": [10, 1, 10],
 			"mesh": { "type": "plane" },
-			"mat": { "emission": 200 }
+			"mat": { "emission": 15 }
 		},
 
 		"Floor": {
@@ -28,7 +22,7 @@
 			"scale": [12, 1, 12],
 			"mesh": { "type": "plane" },
 			"mat": {
-				"color": [0.7, 0.7, 0.7], "glossy": 0.5, "roughness": 0.5,
+				"color": [0.7, 0.7, 0.7], "glossy": 0.5, "metallic": 0.3, "roughness": 0.5,
 				"tex": "../../textures/checkerboard.jpg", "texTiling": [2, 2]
 			}
 		},
@@ -36,14 +30,14 @@
 		"objectArray": {
 			"obj1": {
 				"mesh": "Sphere.mesh",
-				"location": [-4, 0, 0],
+				"location": [-4, 0, 1],
 				"mat": { "color": "#990000", "glossy": 0, "refraction": 0, "roughness": 0.5 }
 			},
 
 			"obj2": {
 				"mesh": "Sphere.mesh",
-				"location": [-2, 0, 0],
-				"mat": { "color": "#dddd00", "glossy": 1, "refraction": 0, "roughness": 0 }
+				"location": [-2, 0, 0.5],
+				"mat": { "color": "#dddd00", "glossy": 1, "metallic": 1.0, "refraction": 0, "roughness": 0 }
 			},
 			
 			"obj3": {
@@ -54,14 +48,14 @@
 			
 			"obj4": {
 				"mesh": "Sphere.mesh",
-				"location": [2, 0, 0],
+				"location": [2, 0, -0.5],
 				"mat": { "color": "#00dd00", "glossy": 0.7, "refraction": 0.7, "roughness": 0.3 }
 			},
 			
 			"obj5": {
 				"mesh": "Sphere.mesh",
-				"location": [4, 0, 0],
-				"mat": { "color": "#0000dd", "glossy": 1, "refraction": 0, "roughness": 0.4 }
+				"location": [4, 0, -1],
+				"mat": { "color": "#0000dd", "glossy": 1, "metallic": 0, "refraction": 0, "roughness": 0.5 }
 			}
 
 		}

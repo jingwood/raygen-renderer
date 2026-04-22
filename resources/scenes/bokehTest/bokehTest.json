@@ -38,7 +38,8 @@
 			"location": [0, 0.2, 0.5],
 			"scale": [0.45, 0.45, 0.45],
 			"mesh": { "type": "sphere" },
-			"mat": { "color": [0.95, 0.35, 0.2], "glossy": 1.0, "metallic": 0.5, "roughness": 0.1 }
+			"mat": { "color": [0.95, 0.35, 0.2], "glossy": 0.5, "metallic": 1,
+        "refraction": 0.0, "roughness": 0.1 }
 		},
 
 		"backdrop": {

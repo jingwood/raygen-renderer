@@ -7,17 +7,17 @@
 	"mainCamera": {
 		"location": [0.9, 0.45, 1.4],
 		"angle": [-12, 20, 0],
-		"fieldOfView": 38,
+		"fieldOfView": 50,
 		"focusOn": "chair",
-		"depthOfField": 1.5,
-		"aperture": 22.0,
+		"depthOfField": 0,
+		"aperture": 0,
 		"apertureBlades": 7,
 		"exposure": 1.0
 	},
 
 	"envmap": {
 		"texture": "../../textures/sky_sun.hdr",
-		"intensity": 0.6,
+		"intensity": 2,
 		"rotation": 20
 	},
 
@@ -54,7 +54,7 @@
 		},
 
 		"chair": {
-			"_bundle": "/Users/jing/Projects/unvell/yotei3d/examples/public/models/chair_adv_01.toba",
+			"_bundle": "../../models/chair_adv_01.toba",
 			"angle": [0, -120, 0],
 		}
 	}
