@@ -51,3 +51,7 @@ Release
 **/xcuserdata
 
 .DS_Store
+# IDE-generated viewer build artifacts
+projects/raygen-viewer-win32/**/x64/
+projects/raygen-viewer-win32/**/.vs/
+projects/raygen-viewer-win32/**/*.user
