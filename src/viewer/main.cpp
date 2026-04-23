@@ -86,6 +86,7 @@ struct RenderJob {
     std::condition_variable cv;
     ViewerParams pending;
     JobKind pendingKind = JobKind::Full;
+    JobKind currentKind = JobKind::Full;  // what the worker is actually running
     bool hasPending = false;
     bool running    = false;      // worker is mid-render
     bool ready      = false;      // fresh result waiting for the main thread
@@ -267,6 +268,9 @@ int main(int argc, char** argv) {
                 kind = job.pendingKind;
                 job.hasPending = false;
                 job.running = true;
+                job.currentKind = kind;
+                // Fresh progress for Full; PostOnly doesn't need a bar at all.
+                job.result.previewProgress = (kind == JobKind::PostOnly) ? 1.0f : 0.0f;
             }
 
             // Apply snapshot and render. renderer/scene are touched only
@@ -335,6 +339,7 @@ int main(int argc, char** argv) {
     int   texW = 0, texH = 0;
     double lastRenderSec = 0.0;
     bool  isRendering = true;
+    JobKind currentJobKind = JobKind::Full;
     float previewProgress = 0.0f;
     bool  lastUploadWasPreview = false;
     ViewerParams lastKickedParams = uiParams;
@@ -358,6 +363,7 @@ int main(int argc, char** argv) {
                 job.ready = false;
             }
             isRendering = job.running || job.hasPending;
+            currentJobKind = job.currentKind;
         }
 
         ImGui_ImplOpenGL3_NewFrame();
@@ -367,14 +373,20 @@ int main(int argc, char** argv) {
         // --- Control panel ---
         ImGui::Begin("raygen viewer");
         ImGui::Text("scene: %s", scenePath);
+        ImGui::Text("FPS: %.1f   last render: %.2f s", io.Framerate, lastRenderSec);
         if (isRendering) {
-            ImGui::Text("FPS: %.1f   last render: %.2f s   (rendering %3.0f%%)",
-                        io.Framerate, lastRenderSec, previewProgress * 100.0f);
+            if (currentJobKind == JobKind::PostOnly) {
+                ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "status: post-processing...");
+                ImGui::ProgressBar(1.0f, ImVec2(-1, 4), "bloom");
+            } else {
+                ImGui::TextColored(ImVec4(0.9f, 0.8f, 0.3f, 1.0f),
+                                   "status: tracing  %3.0f%%", previewProgress * 100.0f);
+                ImGui::ProgressBar(previewProgress, ImVec2(-1, 4));
+            }
         } else {
-            ImGui::Text("FPS: %.1f   last render: %.2f s",
-                        io.Framerate, lastRenderSec);
+            ImGui::TextColored(ImVec4(0.5f, 0.9f, 0.5f, 1.0f), "status: ready");
+            ImGui::ProgressBar(1.0f, ImVec2(-1, 4));
         }
-        ImGui::ProgressBar(isRendering ? previewProgress : 1.0f, ImVec2(-1, 4));
 
         bool dirty = false;
 
