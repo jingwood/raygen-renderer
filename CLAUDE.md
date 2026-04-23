@@ -43,6 +43,66 @@ Key CLI flags (full list in README): `-r WxH`, `-s <samples>`, `-c <threads>`, `
 
 There are no automated tests — validation is visual, by rendering a sample scene and inspecting the output image.
 
+## Viewer (raygen-viewer)
+
+Interactive tuner built on Dear ImGui + GLFW + OpenGL 3.2 core. Loads a scene.json, runs raygen on a worker thread, uploads results into a GL texture, and exposes every commonly-tuned parameter as a slider with live re-render. Primary use case: dialing in materials / exposure / bloom without the edit-save-re-run loop of the CLI.
+
+### Build
+
+Windows: `projects/raygen-viewer-win32/raygen-viewer.sln` (VS 2026, v145 toolset). The solution pulls in `raygen-core` (a `StaticLibrary` split of the renderer sources — `raygen.vcxproj` is just `main.cpp` + `raygen-core.lib` now, mirroring the `libraygen.a` layout the makefiles already use on mac/linux). GLFW is staged at `D:\Libs\glfw\glfw-3.4.bin.WIN64\` by default — override the `IncludePath`/`LibraryPath` if your prebuilt lives elsewhere.
+
+`lib/windows/` collects every linker input (libucm, libugm, jpeg, libpng, zlib, glfw3). `zlib.dll` must sit next to the exe — zlib's DLL reports its import name as `zlib.dll`, so copying `D:\Libs\zlib-1.2.11\build\Release\zlib64.dll` as `zlib.dll` is the canonical fix. The same applies to `raygen.exe`.
+
+Dear ImGui is a submodule at `inc/imgui` (pinned to v1.91.5); `git submodule update --init --recursive` after cloning.
+
+Mac/Linux viewer projects aren't wired up yet — when adding them, link against the existing `libraygen.a` target and `brew install glfw` / `pkg-config --cflags --libs glfw3`. The viewer sources (`src/viewer/`) are already platform-neutral; only the build script is missing.
+
+### Run
+
+```shell
+raygen-viewer.exe [path/to/scene.json]
+```
+
+Default scene path is `F:\3D Models\F2\raygen_export\F2.json` (change the default in `src/viewer/main.cpp` if that directory isn't on your machine). HiDPI: respects the monitor content scale reported by GLFW (Windows 150% / 200% etc.); override manually with `RAYGEN_UI_SCALE=2.0`.
+
+### Panels
+
+- **raygen viewer** — status line (green "ready" / yellow "tracing N%" / blue "post-processing...") + progress bar. The "x" button to the right of `tracing N%` cancels the in-flight render (cooperative — returns within a few ms at row granularity). Below that the control sections live under three `CollapsingHeader`s:
+  - **Quality**: `samples` (1..1000), `threads` (1..32), `denoise` toggle, `denoise intensity` (0..1).
+  - **Scene**: `exposure` (0.1..3), `envmap intensity` (0..3), `envmap rotation` (0..360).
+  - **Post-process (bloom)**: enable toggle, `bloom threshold`, `bloom strength`, `bloom curve`.
+- **Output** — width/height (step 10 / fast-step 100, clamped 16..8192), `Apply`, and auto-apply presets 480p/720p/1080p/2K/4K. `Apply` is disabled while the worker is running because `setRenderSize` reallocates `renderingImage`.
+- **File** — `Reload scene` re-parses the JSON into a fresh `Scene` (useful when editing scene.json in your IDE). `output path` defaults to `<scene-basename>-out.jpg`; `Save render` writes the current `RayRenderer` result via `saveImage` (format from extension).
+- **render** — displays the GL texture holding the latest rendered frame. Mouse-wheel over the window zooms in 1.1x steps (0.05..16x); `1:1` and `fit` buttons for quick reset.
+
+### Architecture
+
+A single worker thread owns `RayRenderer::render()`. The main thread holds the `Scene` (via `std::unique_ptr<Scene>` so reload can swap it), the `RayRenderer`, the GL context, and the ImGui state. Coordination is one mutex + condvar around a `RenderJob` struct.
+
+**Job kinds:**
+
+- `JobKind::Full` — trace + denoise + bloom. This is what runs for samples / exposure / envmap changes, and on a first render. The worker installs a throttled (`200 ms`) `progressCallback` that packs the in-flight `renderingImage` into RGBA and flags `ready = true` mid-render — that's the progressive preview you see converge.
+- `JobKind::PostOnly` — just re-runs the bloom pass. Uses `RayRenderer::reapplyPostProcess()`, which restores `renderingImage` from the cached `preBloomImage` (snapshotted at the end of the previous full render, right before bloom) and re-applies bloom with current settings. Typically **a few ms**. No progress callback — the bar is pinned at full during post-only.
+
+**Dispatch:** `onlyPostProcessChanged(lastKickedParams, uiParams)` decides Full vs PostOnly. Any non-bloom field delta forces Full. The `(next: post-only|full)` label on the control panel previews the dispatch decision before it fires.
+
+**Dirty handling** is one kick site per frame. `pendingDirty` is set whenever a slider moves and cleared when we actually enqueue. An earlier two-site split (immediate + pending) raced on the same frame when a PostOnly finished mid-frame: it kicked a correct PostOnly, then immediately kicked a spurious Full whose `kickKind` comparison saw no delta and fell through to the default. Don't re-split it.
+
+**Settings are written into `renderer.settings` directly**, not into an outside `RendererSettings`. The renderer copies its settings by value at construction (`this->settings = *settings;`), so mutating the original struct post-construction is a no-op. `applyParamsToScene` touches `renderer.settings.*`, `scene->envmapIntensity/Rotation`, and `scene->mainCamera->exposure`.
+
+**Cancellation** is cooperative: `RayRenderer::cancelRequested` (atomic<bool>) is cleared at the start of every `render()`, each render thread checks it at row boundaries, and `render()` also short-circuits before denoise/bloom if cancellation fired. Cancelled renders leave `hasPreBloomImage` untouched so subsequent PostOnly operations reuse the last complete frame. PostOnly itself has no cancel path (too fast to matter).
+
+**Scene reload** swaps the `std::unique_ptr<Scene>`. Safe only while the worker is idle (button disabled otherwise); the worker dereferences `*scene` at job start, so a pointer-swap from the main thread is picked up on the next job.
+
+### Viewer-driven core changes to remember
+
+- `RayRenderer::reapplyPostProcess()` / `applyPostProcess()` (private) / `preBloomImage` / `hasPreBloomImage` in `rayrenderer.{h,cpp}`. `setRenderSize` clears `hasPreBloomImage` so the cache doesn't outlive a buffer realloc.
+- `RayRenderer::cancelRequested` (atomic<bool>), cleared at the top of `render()`.
+- `ObjFileReader::readSurfaceLine` now fan-triangulates arbitrary n-gons (Blender's default OBJ export is quads). `LINE_BUFFER_LENGTH` bumped from 300 → 4096 so long n-gon face lines don't truncate mid-token.
+- OBJ texture V is flipped on read (`uv.v = 1 - uv.v`) to match the sampler's top-origin convention.
+- `usemtl` always records `selectedMatName` (previously only when the .mtl lookup failed), so scene.json `_materials` overrides apply whether or not the .mtl carried the material.
+- `SceneJsonLoader::readObjAsSceneObjects` wires .obj meshes into the scene graph. Previously the `.obj` branch in `loadMeshFromFile` read the file but discarded the result.
+
 ## Architecture
 
 CPU path tracer with a thin CLI → `libraygen.a` → shared C++ utility libs split.
