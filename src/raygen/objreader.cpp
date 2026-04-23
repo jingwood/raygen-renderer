@@ -146,6 +146,10 @@ void ObjFileReader::read(const char* filename) {
         {
             texcoord uv;
             _sscanf(line + 3, "%f %f", &uv.u, &uv.v);
+            // OBJ spec stores V with origin at the image bottom; raygen's
+            // texture sampler treats V=0 as the top row. Flip on read so
+            // Blender/standard OBJ exports land in the right pixels.
+            uv.v = 1.0f - uv.v;
             readTexcoords.push_back(uv);
         }
         else if (this->isLine("f")) // triangle
