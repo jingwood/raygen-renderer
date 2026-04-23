@@ -43,18 +43,22 @@ using namespace ugm;
 
 // -- Tunable parameters driven by the UI. All plain old data so the worker
 // thread can snapshot them under a mutex without any lifetime concerns.
+// Output resolution will move to a dedicated Output panel later; for now it's
+// hard-coded so the preview stays snappy.
 struct ViewerParams {
-    int   samples       = 4;
-    float resScale      = 0.5f;    // multiplies the scene's base resolution
-    int   baseWidth     = 1200;
-    int   baseHeight    = 750;
-    bool  denoise       = true;
-    bool  postProcess   = false;
-    float exposure      = 1.0f;
-    float envIntensity  = 0.3f;
-    float envRotation   = 120.0f;
-    float bloomThreshold = 0.7f;
-    float bloomStrength  = 0.35f;
+    int   samples          = 4;
+    // Quality / denoise
+    bool  denoise          = true;
+    float denoiseIntensity = 1.0f;
+    // Scene
+    float exposure         = 1.0f;
+    float envIntensity     = 0.3f;
+    float envRotation      = 120.0f;
+    // Post-process (bloom)
+    bool  postProcess      = false;
+    float bloomThreshold   = 0.7f;
+    float bloomStrength    = 0.35f;
+    float bloomCurve       = 1.0f;
 };
 
 // Result handed from the worker back to the main thread. A boolean ready flag
@@ -125,16 +129,18 @@ static void uploadRGBAToTexture(const unsigned char* data, int w, int h, GLuint&
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
 }
 
-static void applyParamsToScene(const ViewerParams& p, RendererSettings& rs, Scene& scene) {
-    rs.samples        = p.samples;
-    rs.resolutionWidth  = (int)(p.baseWidth  * p.resScale);
-    rs.resolutionHeight = (int)(p.baseHeight * p.resScale);
-    if (rs.resolutionWidth  < 16) rs.resolutionWidth  = 16;
-    if (rs.resolutionHeight < 16) rs.resolutionHeight = 16;
-    rs.enableDenoise              = p.denoise;
-    rs.enableRenderingPostProcess = p.postProcess;
-    rs.bloomThreshold             = p.bloomThreshold;
-    rs.bloomStrength              = p.bloomStrength;
+// RayRenderer copies its RendererSettings by value at construction time, so
+// poking the outside `rs` would be a no-op. Write into renderer.settings
+// directly - that's the field the render loop actually reads.
+static void applyParamsToScene(const ViewerParams& p, RayRenderer& renderer, Scene& scene) {
+    RendererSettings& s = renderer.settings;
+    s.samples                   = p.samples;
+    s.enableDenoise             = p.denoise;
+    s.denoiseIntensity          = p.denoiseIntensity;
+    s.enableRenderingPostProcess = p.postProcess;
+    s.bloomThreshold            = p.bloomThreshold;
+    s.bloomStrength             = p.bloomStrength;
+    s.bloomCurve                = p.bloomCurve;
 
     scene.envmapIntensity = p.envIntensity;
     scene.envmapRotation  = p.envRotation;
@@ -171,18 +177,27 @@ int main(int argc, char** argv) {
     // Scene + renderer live here on the main thread; the worker only touches
     // them while it holds the job mutex. That's enough for a cooperative
     // single-render-at-a-time model - no in-flight render is mutated.
-    RendererSettings rs;
-    RayRenderer renderer(&rs);
+    RendererSettings rsInit;
+    rsInit.resolutionWidth  = 600;
+    rsInit.resolutionHeight = 375;
+    RayRenderer renderer(&rsInit);
     Scene scene;
     RendererSceneLoader loader;
     loader.load(renderer, &scene, scenePath);
     renderer.setScene(&scene);
 
-    // Seed UI params from the just-loaded scene so sliders start where the
-    // scene.json left off.
+    // Seed UI params from the just-loaded scene/renderer so sliders start
+    // where the scene.json (and RendererSettings defaults) left off.
     ViewerParams uiParams;
-    uiParams.envIntensity = scene.envmapIntensity;
-    uiParams.envRotation  = scene.envmapRotation;
+    uiParams.samples          = renderer.settings.samples;
+    uiParams.denoise          = renderer.settings.enableDenoise;
+    uiParams.denoiseIntensity = renderer.settings.denoiseIntensity;
+    uiParams.postProcess      = renderer.settings.enableRenderingPostProcess;
+    uiParams.bloomThreshold   = renderer.settings.bloomThreshold;
+    uiParams.bloomStrength    = renderer.settings.bloomStrength;
+    uiParams.bloomCurve       = renderer.settings.bloomCurve;
+    uiParams.envIntensity     = scene.envmapIntensity;
+    uiParams.envRotation      = scene.envmapRotation;
     if (scene.mainCamera) uiParams.exposure = scene.mainCamera->exposure;
 
     RenderJob job;
@@ -204,9 +219,9 @@ int main(int argc, char** argv) {
                 job.running = true;
             }
 
-            // Apply snapshot and render. renderer/scene/rs are touched only
+            // Apply snapshot and render. renderer/scene are touched only
             // while running==true and main thread will not modify them.
-            applyParamsToScene(p, rs, scene);
+            applyParamsToScene(p, renderer, scene);
 
             // Throttle preview updates so we don't spend more time packing
             // pixels than rendering them. 200ms is about 5 updates/sec, slow
@@ -304,21 +319,32 @@ int main(int argc, char** argv) {
                         io.Framerate, lastRenderSec);
         }
         ImGui::ProgressBar(isRendering ? previewProgress : 1.0f, ImVec2(-1, 4));
-        ImGui::Separator();
 
         bool dirty = false;
-        dirty |= ImGui::SliderInt  ("samples",       &uiParams.samples, 1, 200);
-        dirty |= ImGui::SliderFloat("resolution x",  &uiParams.resScale, 0.1f, 1.5f, "%.2f");
-        dirty |= ImGui::SliderFloat("exposure",      &uiParams.exposure, 0.1f, 3.0f, "%.2f");
-        dirty |= ImGui::SliderFloat("envmap intensity", &uiParams.envIntensity, 0.0f, 3.0f, "%.2f");
-        dirty |= ImGui::SliderFloat("envmap rotation", &uiParams.envRotation, 0.0f, 360.0f, "%.0f");
-        dirty |= ImGui::Checkbox   ("denoise",       &uiParams.denoise);
-        ImGui::SameLine();
-        dirty |= ImGui::Checkbox   ("post-process",  &uiParams.postProcess);
 
-        if (uiParams.postProcess) {
-            dirty |= ImGui::SliderFloat("bloom threshold", &uiParams.bloomThreshold, 0.0f, 2.0f, "%.2f");
-            dirty |= ImGui::SliderFloat("bloom strength",  &uiParams.bloomStrength,  0.0f, 1.0f, "%.2f");
+        if (ImGui::CollapsingHeader("Quality", ImGuiTreeNodeFlags_DefaultOpen)) {
+            dirty |= ImGui::SliderInt("samples", &uiParams.samples, 1, 1000);
+            dirty |= ImGui::Checkbox ("denoise", &uiParams.denoise);
+            if (uiParams.denoise) {
+                dirty |= ImGui::SliderFloat("denoise intensity", &uiParams.denoiseIntensity, 0.0f, 1.0f, "%.2f");
+            }
+        }
+
+        if (ImGui::CollapsingHeader("Scene", ImGuiTreeNodeFlags_DefaultOpen)) {
+            dirty |= ImGui::SliderFloat("exposure",         &uiParams.exposure,     0.1f, 3.0f, "%.2f");
+            dirty |= ImGui::SliderFloat("envmap intensity", &uiParams.envIntensity, 0.0f, 3.0f, "%.2f");
+            dirty |= ImGui::SliderFloat("envmap rotation",  &uiParams.envRotation,  0.0f, 360.0f, "%.0f");
+        }
+
+        if (ImGui::CollapsingHeader("Post-process (bloom)", ImGuiTreeNodeFlags_DefaultOpen)) {
+            dirty |= ImGui::Checkbox("enable##pp", &uiParams.postProcess);
+            if (uiParams.postProcess) {
+                dirty |= ImGui::SliderFloat("bloom threshold", &uiParams.bloomThreshold, 0.0f, 2.0f, "%.2f");
+                dirty |= ImGui::SliderFloat("bloom strength",  &uiParams.bloomStrength,  0.0f, 1.0f, "%.2f");
+                dirty |= ImGui::SliderFloat("bloom curve",     &uiParams.bloomCurve,     0.1f, 4.0f, "%.2f");
+            }
+            ImGui::TextDisabled("TODO: post-process-only re-run once the core\n"
+                                "caches a pre-PP image");
         }
 
         ImGui::Separator();
