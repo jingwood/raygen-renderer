@@ -60,6 +60,8 @@ Scene argument is required; the viewer exits with a usage message otherwise. HiD
 - **Output** — width/height + Apply + resolution presets (480p–4K). Disabled while rendering.
 - **File** — Reload scene, Save render (format from extension).
 - **render** — GL texture of the latest frame; mouse-wheel zooms, `1:1` / `fit` reset.
+- **Outline** — recursive scene tree over `scene->getObjects()`. Per-row visibility checkbox toggles `SceneObject::visible` (affects BVH inclusion). Clicking a row name selects that object for the Property window.
+- **Property** — inspector for the selected object. Transform section edits `location`/`angle`/`scale`/`visible`/`renderable`. Material section edits the object's `Material` (color / diffuse / glossy / metallic / roughness / anisotropy / anisoRotation / transparency / refraction / refractionRatio / chromaDispersion / emission / spotRange); texture paths are shown read-only. Edits are live even while rendering — same model as the main control panel. `transformScene()` snapshots the BVH at the start of each render(), so mid-render visibility/transform changes land in the next kick, not the current frame. Per-hit material reads can briefly mix old/new channels while dragging, but 32-bit aligned float writes are atomic so it's transient pixel noise cleaned up by the next render — no corruption. Selected pointer is cleared on Reload since the Scene `unique_ptr` swap invalidates it. No sidecar persistence (intentional — use the planned "dump settings" feature to export).
 
 ### Architecture
 
