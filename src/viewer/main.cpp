@@ -40,6 +40,11 @@
 #include "raygen/sceneloader.h"
 #include "ugm/image.h"
 #include "ugm/imgcodec.h"
+#include "ucm/file.h"
+#include "ucm/jsonreader.h"
+#include "ucm/jsonwriter.h"
+#include "ucm/jstypes.h"
+#include "ucm/string.h"
 
 using namespace raygen;
 using namespace ugm;
@@ -120,6 +125,85 @@ static bool onlyPostProcessChanged(const ViewerParams& a, const ViewerParams& b)
         a.envIntensity     == b.envIntensity &&
         a.envRotation      == b.envRotation;
     return rest_same && !pp_same;
+}
+
+// Sidecar companion file: "<scene>.viewer.json" next to the scene JSON.
+// Strips the last extension inside the basename and appends ".viewer.json";
+// if the path has no extension we just append. This keeps scene.json free of
+// viewer state (and free of JSONC comments vs. JSON round-trip trouble).
+static void computeSidecarPath(const char* scenePath, char* out, size_t outCap) {
+    const char* lastDot = strrchr(scenePath, '.');
+    const char* lastSlashU = strrchr(scenePath, '/');
+    const char* lastSlashW = strrchr(scenePath, '\\');
+    const char* lastSlash = lastSlashU > lastSlashW ? lastSlashU : lastSlashW;
+    const bool dotInBasename = lastDot && (!lastSlash || lastDot > lastSlash);
+    const size_t baseLen = dotInBasename ? (size_t)(lastDot - scenePath)
+                                         : strlen(scenePath);
+    const char* suffix = ".viewer.json";
+    const size_t suffixLen = strlen(suffix);
+    size_t keep = baseLen;
+    if (keep + suffixLen + 1 > outCap) keep = outCap - suffixLen - 1;
+    memcpy(out, scenePath, keep);
+    memcpy(out + keep, suffix, suffixLen + 1);  // includes trailing NUL
+}
+
+// Pull the sidecar's known fields into `params` (only overwrites keys that
+// are present, so older sidecars stay forward-compatible). Returns true if
+// the file existed and parsed — on failure, defaults stay in place.
+static bool loadViewerConfig(const char* path, ViewerParams& params,
+                             int& outputWidth, int& outputHeight) {
+    ucm::string pathStr(path);
+    ucm::File f(pathStr);
+    if (!f.isExist()) return false;
+    ucm::string json;
+    ucm::File::readTextFile(path, json);
+    if (json.length() == 0) return false;
+
+    ucm::JSONReader reader(json);
+    ucm::JSObject* obj = reader.readObject();
+    if (!obj) return false;
+
+    obj->tryGetNumberProperty("samples",          &params.samples);
+    obj->tryGetNumberProperty("threads",          &params.threads);
+    if (obj->hasProperty("denoise"))
+        params.denoise = obj->isBooleanPropertyTrue("denoise");
+    obj->tryGetNumberProperty("denoiseIntensity", &params.denoiseIntensity);
+    obj->tryGetNumberProperty("exposure",         &params.exposure);
+    obj->tryGetNumberProperty("envIntensity",     &params.envIntensity);
+    obj->tryGetNumberProperty("envRotation",      &params.envRotation);
+    if (obj->hasProperty("postProcess"))
+        params.postProcess = obj->isBooleanPropertyTrue("postProcess");
+    obj->tryGetNumberProperty("bloomThreshold",   &params.bloomThreshold);
+    obj->tryGetNumberProperty("bloomStrength",    &params.bloomStrength);
+    obj->tryGetNumberProperty("bloomCurve",       &params.bloomCurve);
+    obj->tryGetNumberProperty("bloomRadius",      &params.bloomRadius);
+    obj->tryGetNumberProperty("outputWidth",      &outputWidth);
+    obj->tryGetNumberProperty("outputHeight",     &outputHeight);
+
+    delete obj;
+    return true;
+}
+
+static void saveViewerConfig(const char* path, const ViewerParams& params,
+                             int outputWidth, int outputHeight) {
+    ucm::JSONWriter w;
+    w.beginObject();
+    w.writeProperty("samples",          (int)params.samples);
+    w.writeProperty("threads",          (int)params.threads);
+    w.writeProperty("denoise",          params.denoise);
+    w.writeProperty("denoiseIntensity", (double)params.denoiseIntensity);
+    w.writeProperty("exposure",         (double)params.exposure);
+    w.writeProperty("envIntensity",     (double)params.envIntensity);
+    w.writeProperty("envRotation",      (double)params.envRotation);
+    w.writeProperty("postProcess",      params.postProcess);
+    w.writeProperty("bloomThreshold",   (double)params.bloomThreshold);
+    w.writeProperty("bloomStrength",    (double)params.bloomStrength);
+    w.writeProperty("bloomCurve",       (double)params.bloomCurve);
+    w.writeProperty("bloomRadius",      (double)params.bloomRadius);
+    w.writeProperty("outputWidth",      outputWidth);
+    w.writeProperty("outputHeight",     outputHeight);
+    w.endObject();
+    ucm::File::writeTextFile(path, w.getString().getBuffer());
 }
 
 static void glfw_error_callback(int error, const char* description) {
@@ -272,19 +356,23 @@ int main(int argc, char** argv) {
 
     // Seed UI params from the just-loaded scene/renderer so sliders start
     // where the scene.json (and RendererSettings defaults) left off.
+    auto seedUiParamsFromScene = [&](ViewerParams& p) {
+        p.samples          = renderer.settings.samples;
+        p.threads          = renderer.settings.threads;
+        p.denoise          = renderer.settings.enableDenoise;
+        p.denoiseIntensity = renderer.settings.denoiseIntensity;
+        p.postProcess      = renderer.settings.enableRenderingPostProcess;
+        p.bloomThreshold   = renderer.settings.bloomThreshold;
+        p.bloomStrength    = renderer.settings.bloomStrength;
+        p.bloomCurve       = renderer.settings.bloomCurve;
+        p.bloomRadius      = renderer.settings.bloomRadius;
+        p.envIntensity     = scene->envmapIntensity;
+        p.envRotation      = scene->envmapRotation;
+        if (scene->mainCamera) p.exposure = scene->mainCamera->exposure;
+    };
+
     ViewerParams uiParams;
-    uiParams.samples          = renderer.settings.samples;
-    uiParams.threads          = renderer.settings.threads;
-    uiParams.denoise          = renderer.settings.enableDenoise;
-    uiParams.denoiseIntensity = renderer.settings.denoiseIntensity;
-    uiParams.postProcess      = renderer.settings.enableRenderingPostProcess;
-    uiParams.bloomThreshold   = renderer.settings.bloomThreshold;
-    uiParams.bloomStrength    = renderer.settings.bloomStrength;
-    uiParams.bloomCurve       = renderer.settings.bloomCurve;
-    uiParams.bloomRadius      = renderer.settings.bloomRadius;
-    uiParams.envIntensity     = scene->envmapIntensity;
-    uiParams.envRotation      = scene->envmapRotation;
-    if (scene->mainCamera) uiParams.exposure = scene->mainCamera->exposure;
+    seedUiParamsFromScene(uiParams);
 
     // Build a default output path next to the scene.json: replace the
     // extension with "-out.jpg" so hitting Save with no edits still produces
@@ -296,6 +384,22 @@ int main(int argc, char** argv) {
         if (baseLen > sizeof(outputPath) - 16) baseLen = sizeof(outputPath) - 16;
         memcpy(outputPath, scenePath, baseLen);
         memcpy(outputPath + baseLen, "-out.jpg", 9);
+    }
+
+    // Sidecar "<scene>.viewer.json": auto-loaded here (scene-seeded values
+    // act as fallbacks for missing keys) and auto-saved on every render kick
+    // further down. Lets us persist slider state across sessions without
+    // touching scene.json (which preserves JSONC comments and author intent).
+    char sidecarPath[512] = {0};
+    computeSidecarPath(scenePath, sidecarPath, sizeof(sidecarPath));
+    int sidecarOutW = renderer.settings.resolutionWidth;
+    int sidecarOutH = renderer.settings.resolutionHeight;
+    const bool sidecarLoaded =
+        loadViewerConfig(sidecarPath, uiParams, sidecarOutW, sidecarOutH);
+    if (sidecarLoaded) {
+        renderer.settings.resolutionWidth  = sidecarOutW;
+        renderer.settings.resolutionHeight = sidecarOutH;
+        renderer.setRenderSize(sidecarOutW, sidecarOutH);
     }
 
     RenderJob job;
@@ -375,12 +479,20 @@ int main(int argc, char** argv) {
     });
 
     // Kick an initial render so something appears on screen immediately.
+    // Every kick also refreshes the sidecar: auto-save uses "what the user
+    // just committed to render" as the source of truth. File write happens
+    // outside the mutex so a slow disk can't stall the worker handoff.
     auto enqueue = [&](const ViewerParams& p, JobKind kind = JobKind::Full) {
-        std::lock_guard<std::mutex> lk(job.mu);
-        job.pending = p;
-        job.pendingKind = kind;
-        job.hasPending = true;
-        job.cv.notify_one();
+        {
+            std::lock_guard<std::mutex> lk(job.mu);
+            job.pending = p;
+            job.pendingKind = kind;
+            job.hasPending = true;
+            job.cv.notify_one();
+        }
+        saveViewerConfig(sidecarPath, p,
+                         renderer.settings.resolutionWidth,
+                         renderer.settings.resolutionHeight);
     };
     enqueue(uiParams);
 
@@ -595,10 +707,19 @@ int main(int argc, char** argv) {
             renderer.setScene(fresh.get());
             scene = std::move(fresh);
 
-            // Refresh UI params that live on the scene (not on settings).
-            uiParams.envIntensity = scene->envmapIntensity;
-            uiParams.envRotation  = scene->envmapRotation;
-            if (scene->mainCamera) uiParams.exposure = scene->mainCamera->exposure;
+            // Re-seed from scene then overlay the sidecar, so Reload behaves
+            // symmetrically with initial load: user tweaks win, scene defaults
+            // fill in the rest.
+            seedUiParamsFromScene(uiParams);
+            int reloadOutW = renderer.settings.resolutionWidth;
+            int reloadOutH = renderer.settings.resolutionHeight;
+            if (loadViewerConfig(sidecarPath, uiParams, reloadOutW, reloadOutH)) {
+                renderer.settings.resolutionWidth  = reloadOutW;
+                renderer.settings.resolutionHeight = reloadOutH;
+                renderer.setRenderSize(reloadOutW, reloadOutH);
+                outputWidth  = reloadOutW;
+                outputHeight = reloadOutH;
+            }
 
             lastKickedParams = uiParams;
             enqueue(uiParams, JobKind::Full);

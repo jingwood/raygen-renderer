@@ -37,6 +37,7 @@ build/mac-intel/libraygen.a
 
 build/mac-m/*.o
 build/mac-m/raygen
+build/mac-m/raygen-viewer
 build/mac-m/libraygen.a
 
 build/linux/*.o
@@ -57,3 +58,6 @@ projects/raygen-viewer-win32/**/.vs/
 projects/raygen-viewer-win32/**/*.user
 imgui.ini
 .claude/
+
+# Per-scene viewer tuning state (auto-saved by raygen-viewer next to each scene.json)
+*.viewer.json

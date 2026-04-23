@@ -77,6 +77,14 @@ Cancellation is cooperative: `RayRenderer::cancelRequested` is checked at row bo
 
 Scene reload swaps the `unique_ptr` while the worker is idle (button disabled otherwise).
 
+### Per-scene tuning (`<scene>.viewer.json`)
+
+Every render kick auto-writes the committed slider state to a sidecar next to the scene JSON: `cubeRoom.json` → `cubeRoom.viewer.json`. On load (startup *or* Reload scene) the sidecar overlays values onto the scene-seeded defaults, so user tweaks win while missing keys fall back to the scene. Sidecars are `.gitignore`-d (`*.viewer.json`) — they're per-user state, not scene authoring.
+
+Fields mirror the sliders plus output resolution: `samples`, `threads`, `denoise`, `denoiseIntensity`, `exposure`, `envIntensity`, `envRotation`, `postProcess`, `bloom{Threshold,Strength,Curve,Radius}`, `outputWidth`, `outputHeight`. Unknown/missing keys are ignored; unknown fields written by a future viewer version get dropped on rewrite.
+
+Why sidecar over writing back into scene.json: JSONC comments + authored structure would be lost on every round-trip, and scene authoring state (objects, lights, materials) has a different ownership than "what I last dialed the UI to".
+
 ## Architecture
 
 CPU path tracer: thin CLI → `libraygen.a` → shared C++ utility libs.
