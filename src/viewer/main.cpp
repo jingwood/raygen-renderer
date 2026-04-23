@@ -344,6 +344,15 @@ int main(int argc, char** argv) {
     bool  lastUploadWasPreview = false;
     ViewerParams lastKickedParams = uiParams;
 
+    // Output resolution: deliberately kept out of ViewerParams so slider
+    // motion never resizes the buffer mid-drag. The user commits changes by
+    // clicking Apply, which must happen while the worker is idle.
+    int outputWidth  = renderer.settings.resolutionWidth;
+    int outputHeight = renderer.settings.resolutionHeight;
+
+    // Preview image zoom driven by mouse-wheel over the render window.
+    float imageZoom = 1.0f;
+
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
@@ -458,10 +467,75 @@ int main(int argc, char** argv) {
 
         ImGui::End();
 
+        // --- Output resolution window ---
+        ImGui::Begin("Output");
+        ImGui::InputInt("width",  &outputWidth);
+        ImGui::InputInt("height", &outputHeight);
+        if (outputWidth  < 16)   outputWidth  = 16;
+        if (outputHeight < 16)   outputHeight = 16;
+        if (outputWidth  > 8192) outputWidth  = 8192;
+        if (outputHeight > 8192) outputHeight = 8192;
+
+        const bool sizeChanged =
+            outputWidth  != renderer.settings.resolutionWidth ||
+            outputHeight != renderer.settings.resolutionHeight;
+        const bool canApply = !isRendering && sizeChanged;
+
+        if (!canApply) ImGui::BeginDisabled();
+        if (ImGui::Button("Apply")) {
+            // Safe to touch the renderer here because the worker is idle
+            // (button disabled otherwise). setRenderSize also invalidates
+            // the post-process cache so a full re-trace kicks next.
+            renderer.settings.resolutionWidth  = outputWidth;
+            renderer.settings.resolutionHeight = outputHeight;
+            renderer.setRenderSize(outputWidth, outputHeight);
+            lastKickedParams = uiParams;
+            enqueue(uiParams, JobKind::Full);
+        }
+        if (!canApply) ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::TextDisabled("current: %d x %d",
+                            renderer.settings.resolutionWidth,
+                            renderer.settings.resolutionHeight);
+
+        // Quick presets land on common 16:9 sizes; custom values still edit
+        // above. Presets do NOT auto-apply - user still clicks Apply.
+        ImGui::Text("preset:");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("480p")) { outputWidth = 854;  outputHeight = 480; }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("720p")) { outputWidth = 1280; outputHeight = 720; }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("1080p")) { outputWidth = 1920; outputHeight = 1080; }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("2K"))  { outputWidth = 2560; outputHeight = 1440; }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("4K"))  { outputWidth = 3840; outputHeight = 2160; }
+        ImGui::End();
+
         // --- Render preview ---
         ImGui::Begin("render", nullptr, ImGuiWindowFlags_HorizontalScrollbar);
         if (renderTex != 0) {
-            ImGui::Image((ImTextureID)(intptr_t)renderTex, ImVec2((float)texW, (float)texH));
+            // Zoom via mouse wheel while the render window is hovered. 1.1x
+            // per tick gives a nicely log-ish zoom feel at any starting size.
+            if (ImGui::IsWindowHovered() && io.MouseWheel != 0.0f) {
+                imageZoom *= (io.MouseWheel > 0.0f) ? 1.1f : (1.0f / 1.1f);
+                if (imageZoom < 0.05f) imageZoom = 0.05f;
+                if (imageZoom > 16.0f) imageZoom = 16.0f;
+            }
+            ImGui::Text("zoom: %.2fx   (mouse wheel, or)", imageZoom);
+            ImGui::SameLine();
+            if (ImGui::SmallButton("1:1")) imageZoom = 1.0f;
+            ImGui::SameLine();
+            if (ImGui::SmallButton("fit")) {
+                const ImVec2 avail = ImGui::GetContentRegionAvail();
+                const float sx = avail.x / (float)texW;
+                const float sy = avail.y / (float)texH;
+                imageZoom = (sx < sy) ? sx : sy;
+                if (imageZoom < 0.05f) imageZoom = 0.05f;
+            }
+            ImGui::Image((ImTextureID)(intptr_t)renderTex,
+                         ImVec2((float)texW * imageZoom, (float)texH * imageZoom));
         } else {
             ImGui::Text("(warming up...)");
         }

@@ -263,6 +263,9 @@ public:
 	
 	inline void setRenderSize(const int width, const int height) {
 		this->renderingImage.createEmpty(width, height);
+		// Pre-bloom cache was sized to the old buffer; drop it so the next
+		// reapplyPostProcess call correctly falls back to a full render.
+		this->hasPreBloomImage = false;
 	}
   
     inline const Image& getRenderResult() const {
