@@ -406,41 +406,66 @@ void RayRenderer::render() {
         this->applyTonemapGamma(this->renderingImage);
     }
 
+    // Cache the pre-bloom image so reapplyPostProcess() can re-run bloom
+    // against it without a full re-trace. Captured whether or not bloom is
+    // currently enabled so the user can toggle it on later and re-run from
+    // this baseline.
+    this->preBloomImage.setPixelDataFormat(this->renderingImage.getPixelDataFormat(),
+                                           this->renderingImage.getBitDepth());
+    Image::copy(this->renderingImage, this->preBloomImage);
+    this->hasPreBloomImage = true;
+
     if (this->settings.enableRenderingPostProcess) {
-        // Threshold at full resolution so sparse-pixel highlights survive —
-        // downsampling before threshold bilinear-averages the bright pixel
-        // with dim neighbours and drops it under the cutoff, killing bloom.
-        Image glowimg(this->renderingImage.getPixelDataFormat(), 32);
-        Image::copy(this->renderingImage, glowimg);
-
-        const bool dump = !this->settings.postprocessDumpPath.isEmpty();
-        auto dumpStage = [&](const char* tag, const Image& img) {
-            if (!dump) return;
-            ucm::string p = this->settings.postprocessDumpPath;
-            p.appendFormat("-bloom-%s.jpg", tag);
-            saveImage(img, p);
-        };
-
-        dumpStage("00-input", this->renderingImage);
-        img::thresholdSoft(glowimg, this->settings.bloomThreshold, this->settings.bloomCurve);
-        dumpStage("01-threshold", glowimg);
-        img::gamma(glowimg, PP_GLOW_GAMMA);
-        dumpStage("02-gamma", glowimg);
-        glowimg.resize((int)((float)this->renderingImage.width() * this->settings.bloomSizeAspect),
-            (int)((float)this->renderingImage.height() * this->settings.bloomSizeAspect));
-        dumpStage("03-downsample", glowimg);
-        int kernelSize = calculateGaussianKernelSize(glowimg.width(), glowimg.height());
-        img::gaussBlur(glowimg, kernelSize);
-        dumpStage("04-blur", glowimg);
-        glowimg.resize(this->renderingImage.getSize());
-        dumpStage("05-upsample", glowimg);
-        // Straight additive composite — light is physically additive. The
-        // earlier Lighter blend (oc = c1 + max(c2-c1,0)·factor) dropped the
-        // halo wherever the main image was already bright (walls, metal),
-        // so bloom only showed on dark background pixels.
-        img::calc(this->renderingImage, glowimg, img::CalcMethods::Add, this->settings.bloomStrength);
-        dumpStage("06-composite", this->renderingImage);
+        this->applyPostProcess();
     }
+}
+
+void RayRenderer::applyPostProcess() {
+    // Threshold at full resolution so sparse-pixel highlights survive —
+    // downsampling before threshold bilinear-averages the bright pixel
+    // with dim neighbours and drops it under the cutoff, killing bloom.
+    Image glowimg(this->renderingImage.getPixelDataFormat(), 32);
+    Image::copy(this->renderingImage, glowimg);
+
+    const bool dump = !this->settings.postprocessDumpPath.isEmpty();
+    auto dumpStage = [&](const char* tag, const Image& img) {
+        if (!dump) return;
+        ucm::string p = this->settings.postprocessDumpPath;
+        p.appendFormat("-bloom-%s.jpg", tag);
+        saveImage(img, p);
+    };
+
+    dumpStage("00-input", this->renderingImage);
+    img::thresholdSoft(glowimg, this->settings.bloomThreshold, this->settings.bloomCurve);
+    dumpStage("01-threshold", glowimg);
+    img::gamma(glowimg, PP_GLOW_GAMMA);
+    dumpStage("02-gamma", glowimg);
+    glowimg.resize((int)((float)this->renderingImage.width() * this->settings.bloomSizeAspect),
+        (int)((float)this->renderingImage.height() * this->settings.bloomSizeAspect));
+    dumpStage("03-downsample", glowimg);
+    int kernelSize = calculateGaussianKernelSize(glowimg.width(), glowimg.height());
+    img::gaussBlur(glowimg, kernelSize);
+    dumpStage("04-blur", glowimg);
+    glowimg.resize(this->renderingImage.getSize());
+    dumpStage("05-upsample", glowimg);
+    // Straight additive composite — light is physically additive. The
+    // earlier Lighter blend (oc = c1 + max(c2-c1,0)·factor) dropped the
+    // halo wherever the main image was already bright (walls, metal),
+    // so bloom only showed on dark background pixels.
+    img::calc(this->renderingImage, glowimg, img::CalcMethods::Add, this->settings.bloomStrength);
+    dumpStage("06-composite", this->renderingImage);
+}
+
+bool RayRenderer::reapplyPostProcess() {
+    if (!this->hasPreBloomImage) return false;
+
+    // Restore the denoised-but-not-bloomed frame and re-run the bloom pass
+    // with whatever parameters are currently in settings.
+    Image::copy(this->preBloomImage, this->renderingImage);
+    if (this->settings.enableRenderingPostProcess) {
+        this->applyPostProcess();
+    }
+    return true;
 }
 
 void RayRenderer::renderAsyncThread(RenderThreadCallback* callback) {

@@ -72,6 +72,10 @@ struct RenderResult {
     float previewProgress = 0.0f;      // 0..1, final upload writes 1.0
 };
 
+// Full = trace + denoise + bloom. PostOnly = bloom over the cached pre-bloom
+// image (skips ray tracing entirely, takes a few ms).
+enum class JobKind { Full, PostOnly };
+
 // Render job state machine:
 //   Idle: worker is asleep. Main thread sets `pending` + notifies to start.
 //   Busy: worker is rendering. Main thread shows spinner + previous image.
@@ -81,12 +85,31 @@ struct RenderJob {
     std::mutex mu;
     std::condition_variable cv;
     ViewerParams pending;
+    JobKind pendingKind = JobKind::Full;
     bool hasPending = false;
     bool running    = false;      // worker is mid-render
     bool ready      = false;      // fresh result waiting for the main thread
     bool quit       = false;
     RenderResult result;
 };
+
+// Return true if the only thing that changed between `a` and `b` is a
+// post-process parameter; the bloom pass can be re-run without retracing.
+static bool onlyPostProcessChanged(const ViewerParams& a, const ViewerParams& b) {
+    const bool pp_same =
+        a.postProcess     == b.postProcess &&
+        a.bloomThreshold  == b.bloomThreshold &&
+        a.bloomStrength   == b.bloomStrength &&
+        a.bloomCurve      == b.bloomCurve;
+    const bool rest_same =
+        a.samples          == b.samples &&
+        a.denoise          == b.denoise &&
+        a.denoiseIntensity == b.denoiseIntensity &&
+        a.exposure         == b.exposure &&
+        a.envIntensity     == b.envIntensity &&
+        a.envRotation      == b.envRotation;
+    return rest_same && !pp_same;
+}
 
 static void glfw_error_callback(int error, const char* description) {
     fprintf(stderr, "GLFW error %d: %s\n", error, description);
@@ -166,11 +189,36 @@ int main(int argc, char** argv) {
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
 
+    // Pick up Windows/macOS display scaling (150%, 200%, etc.) so 4K monitors
+    // don't render the UI at postage-stamp size. Env override lets power users
+    // dial it in manually: e.g. `set RAYGEN_UI_SCALE=2.0`.
+    float uiScale = 1.0f;
+    {
+        float xs = 1.0f, ys = 1.0f;
+        glfwGetWindowContentScale(window, &xs, &ys);
+        uiScale = xs;
+        if (const char* env = getenv("RAYGEN_UI_SCALE")) {
+            float v = (float)atof(env);
+            if (v >= 0.5f && v <= 4.0f) uiScale = v;
+        }
+        if (uiScale < 1.0f) uiScale = 1.0f;
+    }
+
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     ImGui::StyleColorsDark();
+
+    // Crisp text: rasterize the default font at the scaled size rather than
+    // relying on FontGlobalScale (which bilinear-stretches a small atlas).
+    {
+        ImFontConfig cfg;
+        cfg.SizePixels = 13.0f * uiScale;
+        io.Fonts->AddFontDefault(&cfg);
+    }
+    ImGui::GetStyle().ScaleAllSizes(uiScale);
+
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init(glsl_version);
 
@@ -209,12 +257,14 @@ int main(int argc, char** argv) {
     // clean because the render has fully returned by then.
     std::thread worker([&]() {
         ViewerParams p;
+        JobKind kind = JobKind::Full;
         while (true) {
             {
                 std::unique_lock<std::mutex> lk(job.mu);
                 job.cv.wait(lk, [&]{ return job.quit || job.hasPending; });
                 if (job.quit) return;
                 p = job.pending;
+                kind = job.pendingKind;
                 job.hasPending = false;
                 job.running = true;
             }
@@ -223,35 +273,40 @@ int main(int argc, char** argv) {
             // while running==true and main thread will not modify them.
             applyParamsToScene(p, renderer, scene);
 
-            // Throttle preview updates so we don't spend more time packing
-            // pixels than rendering them. 200ms is about 5 updates/sec, slow
-            // enough to be cheap and fast enough to feel live.
-            double lastPreview = glfwGetTime();
-            renderer.progressCallback = [&](float progress) {
-                const double now = glfwGetTime();
-                if (now - lastPreview < 0.2) return;
-                lastPreview = now;
-
-                // getRenderResult() returns the live buffer; pack it outside
-                // the mutex so render threads aren't contending on it.
-                std::vector<unsigned char> rgba;
-                int w = 0, h = 0;
-                packImageToRGBA(renderer.getRenderResult(), rgba, w, h);
-
-                std::lock_guard<std::mutex> lk(job.mu);
-                job.result.rgba = std::move(rgba);
-                job.result.width = w;
-                job.result.height = h;
-                job.result.secs = now; // repurpose until final render
-                job.result.isPreview = true;
-                job.result.previewProgress = progress;
-                job.ready = true;
-            };
-
             double t0 = glfwGetTime();
-            renderer.render();
+            if (kind == JobKind::PostOnly) {
+                // reapplyPostProcess returns false the first time (no cached
+                // pre-bloom image yet); fall back to a full render so the
+                // UI still produces something.
+                if (!renderer.reapplyPostProcess()) {
+                    renderer.render();
+                }
+            } else {
+                // Progressive preview for full renders only. Bloom-only is
+                // too fast for mid-frame snapshotting to matter.
+                double lastPreview = glfwGetTime();
+                renderer.progressCallback = [&](float progress) {
+                    const double now = glfwGetTime();
+                    if (now - lastPreview < 0.2) return;
+                    lastPreview = now;
+
+                    std::vector<unsigned char> rgba;
+                    int w = 0, h = 0;
+                    packImageToRGBA(renderer.getRenderResult(), rgba, w, h);
+
+                    std::lock_guard<std::mutex> lk(job.mu);
+                    job.result.rgba = std::move(rgba);
+                    job.result.width = w;
+                    job.result.height = h;
+                    job.result.secs = now;
+                    job.result.isPreview = true;
+                    job.result.previewProgress = progress;
+                    job.ready = true;
+                };
+                renderer.render();
+                renderer.progressCallback = nullptr;
+            }
             double secs = glfwGetTime() - t0;
-            renderer.progressCallback = nullptr;
 
             {
                 std::lock_guard<std::mutex> lk(job.mu);
@@ -267,9 +322,10 @@ int main(int argc, char** argv) {
     });
 
     // Kick an initial render so something appears on screen immediately.
-    auto enqueue = [&](const ViewerParams& p) {
+    auto enqueue = [&](const ViewerParams& p, JobKind kind = JobKind::Full) {
         std::lock_guard<std::mutex> lk(job.mu);
         job.pending = p;
+        job.pendingKind = kind;
         job.hasPending = true;
         job.cv.notify_one();
     };
@@ -349,12 +405,23 @@ int main(int argc, char** argv) {
 
         ImGui::Separator();
         const bool canKick = !isRendering;
+        auto kickKind = [&](const ViewerParams& next) {
+            return onlyPostProcessChanged(lastKickedParams, next)
+                   ? JobKind::PostOnly : JobKind::Full;
+        };
+
         if (!canKick) ImGui::BeginDisabled();
-        if (ImGui::Button("Re-render now") || (dirty && !isRendering)) {
+        if (ImGui::Button("Re-render (full)")) {
             lastKickedParams = uiParams;
-            enqueue(uiParams);
+            enqueue(uiParams, JobKind::Full);
         }
         if (!canKick) ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (dirty && !isRendering) {
+            JobKind kind = kickKind(uiParams);
+            lastKickedParams = uiParams;
+            enqueue(uiParams, kind);
+        }
 
         // When the UI goes dirty but a render is already in flight, we still
         // want the latest slider values reflected on the next render. Hold the
@@ -363,8 +430,9 @@ int main(int argc, char** argv) {
         if (dirty && isRendering) pendingDirty = true;
         if (!isRendering && pendingDirty) {
             pendingDirty = false;
+            JobKind kind = kickKind(uiParams);
             lastKickedParams = uiParams;
-            enqueue(uiParams);
+            enqueue(uiParams, kind);
         }
 
         ImGui::End();

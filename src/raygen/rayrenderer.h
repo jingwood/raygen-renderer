@@ -197,7 +197,18 @@ protected:
     // Reinhard + ≈1/2.2 gamma applied in-place. Used as the post-denoise
     // step when linear-HDR denoising is active.
     void applyTonemapGamma(Image& img) const;
-    
+
+    // Bloom pass (threshold → blur → additive composite). Extracted out of
+    // render() so reapplyPostProcess() can run it against the cached pre-bloom
+    // image without re-tracing any rays.
+    void applyPostProcess();
+
+    // Snapshot of the denoised render result taken right before bloom kicks
+    // in. reapplyPostProcess restores from this so tweaking bloom params is
+    // near-free compared to a full re-render.
+    Image preBloomImage;
+    bool hasPreBloomImage = false;
+
 public:
 	RendererSettings settings;
 	RayShaderProvider* shaderProvider = NULL;
@@ -257,8 +268,13 @@ public:
     inline const Image& getRenderResult() const {
         return this->renderingImage;
     }
-	
+
 	void clearRenderResult();
+
+	// Re-runs post-process (bloom) on the cached pre-bloom image, skipping
+	// the ray-tracing + denoise passes entirely. Returns false and leaves
+	// renderingImage untouched if no prior render is cached yet.
+	bool reapplyPostProcess();
   
 //  inline const RaySpaceTree& getTree() const {
 //    return this->tree;
