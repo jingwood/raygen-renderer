@@ -55,3 +55,4 @@ Release
 projects/raygen-viewer-win32/**/x64/
 projects/raygen-viewer-win32/**/.vs/
 projects/raygen-viewer-win32/**/*.user
+imgui.ini

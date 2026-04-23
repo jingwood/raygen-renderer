@@ -34,13 +34,13 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
-    <IncludePath>$(SolutionDir)..\..\inc\imgui;$(SolutionDir)..\..\inc\imgui\backends;D:\Libs\glfw\glfw-3.4.bin.WIN64\include;$(IncludePath)</IncludePath>
-    <LibraryPath>$(SolutionDir)..\..\lib\windows\;$(LibraryPath)</LibraryPath>
+    <IncludePath>$(SolutionDir)..\..\src;$(SolutionDir)..\..\..\cpp-common-class\src;$(SolutionDir)..\..\..\cpp-graphics-math\src;$(SolutionDir)..\..\inc\imgui;$(SolutionDir)..\..\inc\imgui\backends;D:\Libs\glfw\glfw-3.4.bin.WIN64\include;$(IncludePath)</IncludePath>
+    <LibraryPath>$(SolutionDir)..\..\lib\windows\;$(SolutionDir)..\raygen-win32\x64\Release\;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
-    <IncludePath>$(SolutionDir)..\..\inc\imgui;$(SolutionDir)..\..\inc\imgui\backends;D:\Libs\glfw\glfw-3.4.bin.WIN64\include;$(IncludePath)</IncludePath>
-    <LibraryPath>$(SolutionDir)..\..\lib\windows\;$(LibraryPath)</LibraryPath>
+    <IncludePath>$(SolutionDir)..\..\src;$(SolutionDir)..\..\..\cpp-common-class\src;$(SolutionDir)..\..\..\cpp-graphics-math\src;$(SolutionDir)..\..\inc\imgui;$(SolutionDir)..\..\inc\imgui\backends;D:\Libs\glfw\glfw-3.4.bin.WIN64\include;$(IncludePath)</IncludePath>
+    <LibraryPath>$(SolutionDir)..\..\lib\windows\;$(SolutionDir)..\raygen-win32\x64\Debug\;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -58,7 +58,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalDependencies>glfw3.lib;opengl32.lib;gdi32.lib;user32.lib;shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>raygen-core.lib;libucm64.lib;libugm64.lib;jpeg.lib;libpng16_static.lib;zlib64.lib;glfw3.lib;opengl32.lib;gdi32.lib;user32.lib;shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -72,7 +72,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>glfw3.lib;opengl32.lib;gdi32.lib;user32.lib;shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>raygen-core.lib;libucm64d.lib;libugm64d.lib;jpeg.lib;libpng16_staticd.lib;zlib64d.lib;glfw3.lib;opengl32.lib;gdi32.lib;user32.lib;shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -84,6 +84,11 @@
     <ClCompile Include="..\..\..\inc\imgui\imgui_demo.cpp" />
     <ClCompile Include="..\..\..\inc\imgui\backends\imgui_impl_glfw.cpp" />
     <ClCompile Include="..\..\..\inc\imgui\backends\imgui_impl_opengl3.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\raygen-win32\raygen-core\raygen-core.vcxproj">
+      <Project>{3B4C5D6E-7F8A-4B5C-8D9E-0A1B2C3D4E5F}</Project>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

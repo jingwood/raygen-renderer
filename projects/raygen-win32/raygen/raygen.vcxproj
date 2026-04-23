@@ -164,44 +164,11 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\..\..\src\main.cpp" />
-    <ClCompile Include="..\..\..\src\raygen\bakerenderer.cpp" />
-    <ClCompile Include="..\..\..\src\raygen\bsdf.cpp" />
-    <ClCompile Include="..\..\..\src\raygen\bvh.cpp" />
-    <ClCompile Include="..\..\..\src\raygen\cubetex.cpp" />
-    <ClCompile Include="..\..\..\src\raygen\fbxloader.cpp" />
-    <ClCompile Include="..\..\..\src\raygen\lambert.cpp" />
-    <ClCompile Include="..\..\..\src\raygen\material.cpp" />
-    <ClCompile Include="..\..\..\src\raygen\mesh.cpp" />
-    <ClCompile Include="..\..\..\src\raygen\meshloader.cpp" />
-    <ClCompile Include="..\..\..\src\raygen\objreader.cpp" />
-    <ClCompile Include="..\..\..\src\raygen\objwriter.cpp" />
-    <ClCompile Include="..\..\..\src\raygen\polygons.cpp" />
-    <ClCompile Include="..\..\..\src\raygen\raycommon.cpp" />
-    <ClCompile Include="..\..\..\src\raygen\rayrenderer.cpp" />
-    <ClCompile Include="..\..\..\src\raygen\renderer.cpp" />
-    <ClCompile Include="..\..\..\src\raygen\scene.cpp" />
-    <ClCompile Include="..\..\..\src\raygen\sceneloader.cpp" />
-    <ClCompile Include="..\..\..\src\raygen\texture.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\..\src\raygen\bakerenderer.h" />
-    <ClInclude Include="..\..\..\src\raygen\bsdf.h" />
-    <ClInclude Include="..\..\..\src\raygen\bvh.h" />
-    <ClInclude Include="..\..\..\src\raygen\cubetex.h" />
-    <ClInclude Include="..\..\..\src\raygen\fbxloader.h" />
-    <ClInclude Include="..\..\..\src\raygen\lambert.h" />
-    <ClInclude Include="..\..\..\src\raygen\material.h" />
-    <ClInclude Include="..\..\..\src\raygen\mesh.h" />
-    <ClInclude Include="..\..\..\src\raygen\meshloader.h" />
-    <ClInclude Include="..\..\..\src\raygen\objreader.h" />
-    <ClInclude Include="..\..\..\src\raygen\objwriter.h" />
-    <ClInclude Include="..\..\..\src\raygen\polygons.h" />
-    <ClInclude Include="..\..\..\src\raygen\raycommon.h" />
-    <ClInclude Include="..\..\..\src\raygen\rayrenderer.h" />
-    <ClInclude Include="..\..\..\src\raygen\renderer.h" />
-    <ClInclude Include="..\..\..\src\raygen\scene.h" />
-    <ClInclude Include="..\..\..\src\raygen\sceneloader.h" />
-    <ClInclude Include="..\..\..\src\raygen\texture.h" />
+    <ProjectReference Include="..\raygen-core\raygen-core.vcxproj">
+      <Project>{3B4C5D6E-7F8A-4B5C-8D9E-0A1B2C3D4E5F}</Project>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

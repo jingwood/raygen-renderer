@@ -5,6 +5,8 @@ VisualStudioVersion = 16.0.29519.181
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "raygen", "raygen\raygen.vcxproj", "{1456B9C6-1B56-48D0-BDFB-C6B9CE5597FC}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "raygen-core", "raygen-core\raygen-core.vcxproj", "{3B4C5D6E-7F8A-4B5C-8D9E-0A1B2C3D4E5F}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -21,6 +23,10 @@ Global
 		{1456B9C6-1B56-48D0-BDFB-C6B9CE5597FC}.Release|x64.Build.0 = Release|x64
 		{1456B9C6-1B56-48D0-BDFB-C6B9CE5597FC}.Release|x86.ActiveCfg = Release|Win32
 		{1456B9C6-1B56-48D0-BDFB-C6B9CE5597FC}.Release|x86.Build.0 = Release|Win32
+		{3B4C5D6E-7F8A-4B5C-8D9E-0A1B2C3D4E5F}.Debug|x64.ActiveCfg = Debug|x64
+		{3B4C5D6E-7F8A-4B5C-8D9E-0A1B2C3D4E5F}.Debug|x64.Build.0 = Debug|x64
+		{3B4C5D6E-7F8A-4B5C-8D9E-0A1B2C3D4E5F}.Release|x64.ActiveCfg = Release|x64
+		{3B4C5D6E-7F8A-4B5C-8D9E-0A1B2C3D4E5F}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
