@@ -64,6 +64,8 @@ struct RenderResult {
     int width  = 0;
     int height = 0;
     double secs = 0.0;
+    bool  isPreview = false;           // true for mid-render snapshots
+    float previewProgress = 0.0f;      // 0..1, final upload writes 1.0
 };
 
 // Render job state machine:
@@ -185,6 +187,11 @@ int main(int argc, char** argv) {
 
     RenderJob job;
 
+    // Progressive preview: while the render thread pool is still filling
+    // pixels, periodically snapshot `renderingImage` into the job result so
+    // the UI can show intermediate frames. Pixel reads race with writers and
+    // may tear, but for a preview that is acceptable - the final upload is
+    // clean because the render has fully returned by then.
     std::thread worker([&]() {
         ViewerParams p;
         while (true) {
@@ -201,15 +208,43 @@ int main(int argc, char** argv) {
             // while running==true and main thread will not modify them.
             applyParamsToScene(p, rs, scene);
 
+            // Throttle preview updates so we don't spend more time packing
+            // pixels than rendering them. 200ms is about 5 updates/sec, slow
+            // enough to be cheap and fast enough to feel live.
+            double lastPreview = glfwGetTime();
+            renderer.progressCallback = [&](float progress) {
+                const double now = glfwGetTime();
+                if (now - lastPreview < 0.2) return;
+                lastPreview = now;
+
+                // getRenderResult() returns the live buffer; pack it outside
+                // the mutex so render threads aren't contending on it.
+                std::vector<unsigned char> rgba;
+                int w = 0, h = 0;
+                packImageToRGBA(renderer.getRenderResult(), rgba, w, h);
+
+                std::lock_guard<std::mutex> lk(job.mu);
+                job.result.rgba = std::move(rgba);
+                job.result.width = w;
+                job.result.height = h;
+                job.result.secs = now; // repurpose until final render
+                job.result.isPreview = true;
+                job.result.previewProgress = progress;
+                job.ready = true;
+            };
+
             double t0 = glfwGetTime();
             renderer.render();
             double secs = glfwGetTime() - t0;
+            renderer.progressCallback = nullptr;
 
             {
                 std::lock_guard<std::mutex> lk(job.mu);
                 packImageToRGBA(renderer.getRenderResult(), job.result.rgba,
                                 job.result.width, job.result.height);
                 job.result.secs = secs;
+                job.result.isPreview = false;
+                job.result.previewProgress = 1.0f;
                 job.running = false;
                 job.ready = true;
             }
@@ -229,6 +264,8 @@ int main(int argc, char** argv) {
     int   texW = 0, texH = 0;
     double lastRenderSec = 0.0;
     bool  isRendering = true;
+    float previewProgress = 0.0f;
+    bool  lastUploadWasPreview = false;
     ViewerParams lastKickedParams = uiParams;
 
     while (!glfwWindowShouldClose(window)) {
@@ -242,7 +279,11 @@ int main(int argc, char** argv) {
                                     job.result.width, job.result.height, renderTex);
                 texW = job.result.width;
                 texH = job.result.height;
-                lastRenderSec = job.result.secs;
+                if (!job.result.isPreview) {
+                    lastRenderSec = job.result.secs;
+                }
+                previewProgress = job.result.previewProgress;
+                lastUploadWasPreview = job.result.isPreview;
                 job.ready = false;
             }
             isRendering = job.running || job.hasPending;
@@ -255,8 +296,14 @@ int main(int argc, char** argv) {
         // --- Control panel ---
         ImGui::Begin("raygen viewer");
         ImGui::Text("scene: %s", scenePath);
-        ImGui::Text("FPS: %.1f   last render: %.2f s%s",
-                    io.Framerate, lastRenderSec, isRendering ? "  (rendering...)" : "");
+        if (isRendering) {
+            ImGui::Text("FPS: %.1f   last render: %.2f s   (rendering %3.0f%%)",
+                        io.Framerate, lastRenderSec, previewProgress * 100.0f);
+        } else {
+            ImGui::Text("FPS: %.1f   last render: %.2f s",
+                        io.Framerate, lastRenderSec);
+        }
+        ImGui::ProgressBar(isRendering ? previewProgress : 1.0f, ImVec2(-1, 4));
         ImGui::Separator();
 
         bool dirty = false;
