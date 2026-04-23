@@ -253,12 +253,15 @@ void ObjFileReader::read(const char* filename) {
             if (this->currentObject != NULL) {
                 string matName;
                 matName.append(this->line + 7);
-                
+
+                // Always record the material name on the object. Downstream code
+                // (e.g. scene.json `_materials` overrides) looks up meshes by
+                // material name; skipping this when the .mtl library happens to
+                // resolve the name left it empty and silently broke overrides.
+                this->currentObject->selectedMatName = matName;
+
                 const ObjMaterial* selectedMat = this->getMaterialByName(matName);
-                
-                if (selectedMat == NULL) {
-                    this->currentObject->selectedMatName = matName;
-                } else {
+                if (selectedMat != NULL) {
                     this->currentObject->setMaterial(selectedMat);
                 }
             }
