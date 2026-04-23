@@ -29,26 +29,26 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v142</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v142</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v142</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v142</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
@@ -72,23 +72,23 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <LinkIncremental>true</LinkIncremental>
-    <IncludePath>$(SolutionDir)..\..\..\cpp-common-class\src;$(SolutionDir)..\..\..\cpp-graphics-module\src;$(IncludePath)</IncludePath>
-    <LibraryPath>$(SolutionDir)..\..\lib\win32\;$(LibraryPath)</LibraryPath>
+    <IncludePath>$(SolutionDir)..\..\..\cpp-common-class\src;$(SolutionDir)..\..\..\cpp-graphics-math\src;$(IncludePath)</IncludePath>
+    <LibraryPath>$(SolutionDir)..\..\lib\windows\;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
-    <IncludePath>$(SolutionDir)..\..\..\cpp-common-class\src;$(SolutionDir)..\..\..\cpp-graphics-module\src;$(IncludePath)</IncludePath>
-    <LibraryPath>$(SolutionDir)..\..\lib\win32\;$(LibraryPath)</LibraryPath>
+    <IncludePath>$(SolutionDir)..\..\..\cpp-common-class\src;$(SolutionDir)..\..\..\cpp-graphics-math\src;$(IncludePath)</IncludePath>
+    <LibraryPath>$(SolutionDir)..\..\lib\windows\;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
-    <IncludePath>$(SolutionDir)..\..\..\cpp-common-class\src;$(SolutionDir)..\..\..\cpp-graphics-module\src;$(IncludePath)</IncludePath>
-    <LibraryPath>$(SolutionDir)..\..\lib\win64\;$(LibraryPath)</LibraryPath>
+    <IncludePath>$(SolutionDir)..\..\..\cpp-common-class\src;$(SolutionDir)..\..\..\cpp-graphics-math\src;$(IncludePath)</IncludePath>
+    <LibraryPath>$(SolutionDir)..\..\lib\windows\;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
-    <IncludePath>$(SolutionDir)..\..\..\cpp-common-class\src;$(SolutionDir)..\..\..\cpp-graphics-module\src;$(IncludePath)</IncludePath>
-    <LibraryPath>$(SolutionDir)..\..\lib\win32\;$(LibraryPath)</LibraryPath>
+    <IncludePath>$(SolutionDir)..\..\..\cpp-common-class\src;$(SolutionDir)..\..\..\cpp-graphics-math\src;$(IncludePath)</IncludePath>
+    <LibraryPath>$(SolutionDir)..\..\lib\windows\;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -149,21 +149,24 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NDEBUG;_CONSOLE;_CRT_SECURE_NO_WARNINGS;NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <Optimization>Full</Optimization>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>libucm64.lib;libugm64.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>libucm64.lib;libugm64.lib;jpeg.lib;libpng16_static.lib;zlib64.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\..\..\src\main.cpp" />
     <ClCompile Include="..\..\..\src\raygen\bakerenderer.cpp" />
     <ClCompile Include="..\..\..\src\raygen\bsdf.cpp" />
+    <ClCompile Include="..\..\..\src\raygen\bvh.cpp" />
     <ClCompile Include="..\..\..\src\raygen\cubetex.cpp" />
     <ClCompile Include="..\..\..\src\raygen\fbxloader.cpp" />
     <ClCompile Include="..\..\..\src\raygen\lambert.cpp" />
@@ -183,6 +186,7 @@
   <ItemGroup>
     <ClInclude Include="..\..\..\src\raygen\bakerenderer.h" />
     <ClInclude Include="..\..\..\src\raygen\bsdf.h" />
+    <ClInclude Include="..\..\..\src\raygen\bvh.h" />
     <ClInclude Include="..\..\..\src\raygen\cubetex.h" />
     <ClInclude Include="..\..\..\src\raygen\fbxloader.h" />
     <ClInclude Include="..\..\..\src\raygen\lambert.h" />
