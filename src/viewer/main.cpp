@@ -184,9 +184,11 @@ static void applyParamsToScene(const ViewerParams& p, RayRenderer& renderer, Sce
 }
 
 int main(int argc, char** argv) {
-    const char* scenePath = (argc > 1)
-        ? argv[1]
-        : "F:\\3D Models\\F2\\raygen_export\\F2.json";
+    if (argc < 2) {
+        fprintf(stderr, "usage: %s <scene.json>\n", argv[0]);
+        return 1;
+    }
+    const char* scenePath = argv[1];
 
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit()) return 1;
@@ -202,19 +204,33 @@ int main(int argc, char** argv) {
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
 
-    // Pick up Windows/macOS display scaling (150%, 200%, etc.) so 4K monitors
-    // don't render the UI at postage-stamp size. Env override lets power users
-    // dial it in manually: e.g. `set RAYGEN_UI_SCALE=2.0`.
-    float uiScale = 1.0f;
+    // Two independent scales:
+    //   fontPixelScale — HiDPI rasterization factor so text stays crisp on
+    //     Retina / fractional-DPI displays. Always driven by the OS.
+    //   widgetScale    — ImGui widget zoom.
+    //     On macOS the GLFW backend reports DisplaySize in POINTS and
+    //     DisplayFramebufferScale = contentScale, so ImGui's 96-DPI-tuned
+    //     defaults end up physically 2x on Retina. Cancel the point→pixel
+    //     blow-up with widgetScale = 1/contentScale.
+    //     On Windows the backend reports DisplaySize in pixels and doesn't
+    //     auto-scale, so we mirror the OS content scale onto widgets.
+    //     RAYGEN_UI_SCALE overrides it end-to-end, e.g. `RAYGEN_UI_SCALE=0.9`.
+    float fontPixelScale = 1.0f;
+    float widgetScale    = 1.0f;
     {
         float xs = 1.0f, ys = 1.0f;
         glfwGetWindowContentScale(window, &xs, &ys);
-        uiScale = xs;
+        fontPixelScale = xs;
+#ifdef __APPLE__
+        widgetScale = (xs > 0.0f) ? (1.0f / xs) : 1.0f;
+#else
+        widgetScale = xs;
+#endif
         if (const char* env = getenv("RAYGEN_UI_SCALE")) {
             float v = (float)atof(env);
-            if (v >= 0.5f && v <= 4.0f) uiScale = v;
+            if (v >= 0.25f && v <= 4.0f) widgetScale = v;
         }
-        if (uiScale < 1.0f) uiScale = 1.0f;
+        if (widgetScale < 0.25f) widgetScale = 0.25f;
     }
 
     IMGUI_CHECKVERSION();
@@ -223,14 +239,15 @@ int main(int argc, char** argv) {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     ImGui::StyleColorsDark();
 
-    // Crisp text: rasterize the default font at the scaled size rather than
-    // relying on FontGlobalScale (which bilinear-stretches a small atlas).
+    // Crisp text: rasterize the default font at the combined pixel size
+    // (widget zoom × HiDPI) rather than relying on FontGlobalScale, which
+    // bilinear-stretches a small atlas.
     {
         ImFontConfig cfg;
-        cfg.SizePixels = 13.0f * uiScale;
+        cfg.SizePixels = 13.0f * widgetScale * fontPixelScale;
         io.Fonts->AddFontDefault(&cfg);
     }
-    ImGui::GetStyle().ScaleAllSizes(uiScale);
+    ImGui::GetStyle().ScaleAllSizes(widgetScale);
 
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init(glsl_version);

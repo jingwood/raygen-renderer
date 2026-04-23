@@ -30,10 +30,44 @@ $(BIN): $(DEV_BIN) main.o
 main.o: ../../src/main.cpp
 	$(CX) $(INC) -c ../../src/main.cpp -o main.o
 
-%.o:    %.cpp
+%.o:	%.cpp
 	$(CX) $(INC) -c $< -o $@
 
-clean:
-	rm -f $(BIN) $(DEV_BIN) *.o
-	rm -rf $(BIN).dSYM
+# --- Viewer (opt-in: `make viewer`) -----------------------------------------
+# Interactive tuner built on Dear ImGui + GLFW + OpenGL. Requires GLFW
+# (install via `brew install glfw`). Override GLFW_PREFIX if brew isn't at the
+# default Apple Silicon location.
+GLFW_PREFIX ?= /opt/homebrew/opt/glfw
+IMGUI_DIR=../../inc/imgui
+VIEWER_BIN=raygen-viewer
+VIEWER_SRC=../../src/viewer/main.cpp
+VIEWER_INC=-I../../src -I../../../cpp-common-class/src -I../../../cpp-graphics-math/src \
+           -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends -I$(GLFW_PREFIX)/include
+# macOS deprecated the OpenGL framework in 10.14 but still ships it; silence
+# the ~300 deprecation warnings from viewer and imgui_impl_opengl3 sources.
+VIEWER_DEFS=-DGL_SILENCE_DEPRECATION
+VIEWER_LIB=-L$(GLFW_PREFIX)/lib -lglfw \
+           -framework Cocoa -framework OpenGL -framework IOKit -framework CoreVideo -framework CoreFoundation
 
+IMGUI_CORE_OBJS=imgui.o imgui_draw.o imgui_tables.o imgui_widgets.o imgui_demo.o
+IMGUI_BACKEND_OBJS=imgui_impl_glfw.o imgui_impl_opengl3.o
+VIEWER_OBJS=viewer_main.o $(IMGUI_CORE_OBJS) $(IMGUI_BACKEND_OBJS)
+
+viewer: $(VIEWER_BIN)
+
+$(VIEWER_BIN): $(DEV_BIN) $(VIEWER_OBJS)
+	$(CX) -o $(VIEWER_BIN) $(VIEWER_OBJS) $(DEV_BIN) $(LIB) $(VIEWER_LIB) -flto
+	@echo "Viewer binary generated: $(VIEWER_BIN)"
+
+viewer_main.o: $(VIEWER_SRC)
+	$(CX) $(VIEWER_DEFS) $(VIEWER_INC) -c $(VIEWER_SRC) -o viewer_main.o
+
+$(IMGUI_CORE_OBJS): %.o: $(IMGUI_DIR)/%.cpp
+	$(CX) -I$(IMGUI_DIR) -c $< -o $@
+
+$(IMGUI_BACKEND_OBJS): %.o: $(IMGUI_DIR)/backends/%.cpp
+	$(CX) $(VIEWER_DEFS) -I$(IMGUI_DIR) -I$(GLFW_PREFIX)/include -c $< -o $@
+
+clean:
+	rm -f $(BIN) $(DEV_BIN) $(VIEWER_BIN) *.o
+	rm -rf $(BIN).dSYM $(VIEWER_BIN).dSYM

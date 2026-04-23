@@ -42,15 +42,17 @@ GLFW defaults to `D:\Libs\glfw\glfw-3.4.bin.WIN64\`; `lib/windows/` carries the 
 
 Dear ImGui is a submodule at `inc/imgui` — `git submodule update --init --recursive`.
 
-Mac/Linux viewer build scripts aren't wired up yet; sources in `src/viewer/` are platform-neutral.
+macOS (Apple Silicon): `cd build/mac-m && make viewer` produces `raygen-viewer` next to `libraygen.a`. GLFW comes from Homebrew (`brew install glfw`); override the install prefix with `make viewer GLFW_PREFIX=/path/to/glfw` if it isn't at `/opt/homebrew/opt/glfw`. Links against the system `Cocoa`, `OpenGL`, `IOKit`, `CoreVideo`, `CoreFoundation` frameworks; builds with `-DGL_SILENCE_DEPRECATION` since macOS 10.14 deprecated the GL framework (still shipping, still works).
+
+Linux viewer build isn't wired up yet; sources in `src/viewer/` are platform-neutral.
 
 ### Run
 
 ```shell
-raygen-viewer.exe [path/to/scene.json]
+raygen-viewer[.exe] path/to/scene.json
 ```
 
-HiDPI follows the monitor scale; override with `RAYGEN_UI_SCALE`.
+Scene argument is required; the viewer exits with a usage message otherwise. HiDPI follows the monitor scale; override with `RAYGEN_UI_SCALE`.
 
 ### Panels
 
