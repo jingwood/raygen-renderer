@@ -386,6 +386,7 @@ void RayRenderer::render() {
     }
 
     this->progressRate = 0;
+    this->cancelRequested = false;
 
     std::vector<std::thread> threads;
 
@@ -395,6 +396,13 @@ void RayRenderer::render() {
 
     for (std::thread &th : threads) {
         th.join();
+    }
+
+    // If the user cancelled, leave the partial image alone and skip the
+    // expensive post passes. Don't refresh the pre-bloom cache either, so
+    // subsequent post-only tweaks reuse whatever prior full render produced.
+    if (this->cancelRequested.load(std::memory_order_relaxed)) {
+        return;
     }
 
     if (this->settings.enableDenoise) {
@@ -485,6 +493,12 @@ void RayRenderer::renderThread(const RenderThreadContext& ctx, const int threadI
     Ray ray(vec3(0.0001f, 0.0001f, camera->viewNear), vec3(0.0001f, 0.0001f, -camera->viewFar));
     
     for (int y = threadId * pixelBlock; y < renderHeight; y += pixelBlock * this->settings.threads) {
+        // Row-granular cancellation. A finer check per pixel would spam an
+        // atomic load on every ray; checking once per row is cheap and still
+        // returns the viewer to an idle state within a few milliseconds on
+        // typical resolutions.
+        if (this->cancelRequested.load(std::memory_order_relaxed)) return;
+
         for (int x = 0; x < renderWidth; x += pixelBlock) {
             const color4f c = this->renderPixel(ctx, ray, x, y);
 

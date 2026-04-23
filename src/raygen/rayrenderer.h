@@ -10,6 +10,7 @@
 #define __ray_renderer_h__
 
 #include <stdio.h>
+#include <atomic>
 #include <map>
 
 #include "raycommon.h"
@@ -278,6 +279,13 @@ public:
 	// the ray-tracing + denoise passes entirely. Returns false and leaves
 	// renderingImage untouched if no prior render is cached yet.
 	bool reapplyPostProcess();
+
+	// Cooperative cancellation. Setting this from another thread makes the
+	// current render() call bail out at the next row boundary and skip
+	// denoise + bloom; the partial image in renderingImage is left intact so
+	// the UI can still display it. Automatically cleared at the start of the
+	// next render().
+	std::atomic<bool> cancelRequested{false};
   
 //  inline const RaySpaceTree& getTree() const {
 //    return this->tree;

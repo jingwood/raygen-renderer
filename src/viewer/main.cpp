@@ -415,6 +415,13 @@ int main(int argc, char** argv) {
             } else {
                 ImGui::TextColored(ImVec4(0.9f, 0.8f, 0.3f, 1.0f),
                                    "status: tracing  %3.0f%%", previewProgress * 100.0f);
+                ImGui::SameLine();
+                // Cooperative cancel: the renderer checks cancelRequested at
+                // every row boundary. Clicking x here returns within a few ms.
+                if (ImGui::SmallButton("x##cancel")) {
+                    renderer.cancelRequested = true;
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("cancel this render");
                 ImGui::ProgressBar(previewProgress, ImVec2(-1, 4));
             }
         } else {
