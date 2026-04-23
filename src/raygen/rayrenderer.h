@@ -96,10 +96,14 @@ struct RendererSettings {
 	float denoiseSigmaDepth = 0.1f;
 	float denoiseIntensity = 1.0f;  // 0 = pass-through, 1 = full À-Trous
 
-	float bloomThreshold = 0.7f;   // post-gamma luma at which bloom starts
-	float bloomStrength = 0.35f;   // lighter-blend strength when compositing
-	float bloomSizeAspect = 0.15f; // glow buffer size relative to main (downsample)
-	float bloomCurve = 1.0f;       // threshold falloff exponent; 1=linear, 3=sharp cutoff
+	// Bloom runs in linear HDR radiance (pre-tonemap) so a tiny 10000-cd
+	// emitter produces proportionally larger halo than a diffuse white pixel,
+	// which a post-tonemap LDR bloom can't — both clamp to ~1 after Reinhard.
+	float bloomThreshold = 1.0f;   // linear-radiance luma at which bloom starts
+	float bloomStrength = 1.0f;    // additive gain on the blurred halo (HDR)
+	float bloomRadius = 0.03f;     // halo sigma as fraction of main image width
+	float bloomSizeAspect = 0.15f; // glow buffer size relative to main (performance; does not affect halo width)
+	float bloomCurve = 1.0f;       // knee sharpness on excess ratio; 1=linear, >1=sharper
 
 	// Non-empty path prefix enables dumping each post-process stage to
 	// <prefix>-bloom-01-threshold.jpg etc. Main writes the scene base-name
@@ -164,7 +168,7 @@ private:
 	color3 traceAreaLight(const LightSource& lightSource, const vec3& hit, const vec3& normal) const;
 	color3 tracePointLight(const LightSource& lightSource, const vec3& hit, const vec3& objectNormal) const;
 
-	color4 renderPixel(const RenderThreadContext& ctx, Ray& ray, const int x, const int y);
+	color4 renderPixel(const RenderThreadContext& ctx, Ray& ray, const int x, const int y, color4f* outHdr = NULL);
 	color4 traceEyeRay(const Ray& ray) const;
     void traceEyeRaySurfaceInfo(const Ray& ray, ViewRaySurfaceInfo* info) const;
 
@@ -195,19 +199,24 @@ protected:
     void atrousPass(const Image3f& srcColor, Image3f& dstColor,
                     const Image3f& normal, const Image3f& depth,
                     int stepSize, int yStart, int yEnd) const;
-    // Reinhard + ≈1/2.2 gamma applied in-place. Used as the post-denoise
-    // step when linear-HDR denoising is active.
-    void applyTonemapGamma(Image& img) const;
+    // Reinhard + ≈1/2.2 gamma. Reads linear HDR `src`, writes LDR `dst`.
+    // Used as the final pass after HDR bloom (or as-is when bloom is off).
+    void applyTonemapGamma(const Image& src, Image& dst) const;
 
-    // Bloom pass (threshold → blur → additive composite). Extracted out of
-    // render() so reapplyPostProcess() can run it against the cached pre-bloom
-    // image without re-tracing any rays.
-    void applyPostProcess();
+    // Energy-based bloom — operates entirely on linear HDR radiance so a
+    // 1-pixel 10000-cd source produces a halo proportional to (L-threshold),
+    // not to the Reinhard-saturated ~1. Extracted out of render() so
+    // reapplyPostProcess() can re-run it against the cached HDR image.
+    void applyPostProcess(Image& hdr);
 
-    // Snapshot of the denoised render result taken right before bloom kicks
-    // in. reapplyPostProcess restores from this so tweaking bloom params is
-    // near-free compared to a full re-render.
-    Image preBloomImage;
+    // Linear HDR radiance buffer populated by each render thread alongside
+    // the LDR `renderingImage` preview. Bloom + tonemap operate from here.
+    Image hdrImage;
+
+    // Snapshot of the (optionally denoised) linear HDR image taken right
+    // before bloom. reapplyPostProcess restores from this so tweaking bloom
+    // params is near-free compared to a full re-render.
+    Image preBloomHdrImage;
     bool hasPreBloomImage = false;
 
 public:
@@ -264,6 +273,7 @@ public:
 	
 	inline void setRenderSize(const int width, const int height) {
 		this->renderingImage.createEmpty(width, height);
+		this->hdrImage.createEmpty(width, height);
 		// Pre-bloom cache was sized to the old buffer; drop it so the next
 		// reapplyPostProcess call correctly falls back to a full render.
 		this->hasPreBloomImage = false;

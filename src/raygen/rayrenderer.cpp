@@ -332,6 +332,106 @@ int calculateGaussianKernelSize(int width, int height) {
     return kernelSize;
 }
 
+// Area-averaging downsample. Every source pixel contributes to exactly one
+// destination pixel (its tile of size ~sw/dw × sh/dh in source space). The
+// shared `Image::resize` is bilinear point-sampling at grid sample points,
+// which means a single-pixel bright feature either happens to align with the
+// sample grid (preserved) or misses it entirely (vanishes). That's why bloom
+// used to ignore individual nav lights depending on bloomSizeAspect — the
+// grid alignment shifted, picking up some emitters but dropping others.
+// Box filter is energy-preserving in aggregate and alias-free.
+static void downsampleArea(const Image& src, Image& dst) {
+    const int sw = (int)src.width();
+    const int sh = (int)src.height();
+    const int dw = (int)dst.width();
+    const int dh = (int)dst.height();
+    if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0) return;
+
+    for (int y = 0; y < dh; ++y) {
+        const int y0 = (int)((int64_t)y * sh / dh);
+        const int y1 = std::max(y0 + 1, (int)((int64_t)(y + 1) * sh / dh));
+        for (int x = 0; x < dw; ++x) {
+            const int x0 = (int)((int64_t)x * sw / dw);
+            const int x1 = std::max(x0 + 1, (int)((int64_t)(x + 1) * sw / dw));
+
+            float ar = 0.0f, ag = 0.0f, ab = 0.0f, aa = 0.0f;
+            int count = 0;
+            for (int sy = y0; sy < y1 && sy < sh; ++sy) {
+                for (int sx = x0; sx < x1 && sx < sw; ++sx) {
+                    const color4f c = src.getPixel(sx, sy);
+                    ar += c.r; ag += c.g; ab += c.b; aa += c.a;
+                    count++;
+                }
+            }
+            if (count > 0) {
+                const float inv = 1.0f / (float)count;
+                dst.setPixel(x, y, color4f(ar * inv, ag * inv, ab * inv, aa * inv));
+            }
+        }
+    }
+}
+
+// Separable Gaussian blur with a real pixel-space sigma. The shared
+// img::gaussBlur uses ugm's gaussianDistributionGenKernel, which normalises
+// the kernel span to [-0.5, 0.5] regardless of size and effectively produces
+// a near-box filter at sigma=0.2 (value at the edge is ~0.53 of center).
+// Combined with the tiny kernel size `calculateGaussianKernelSize` returns
+// for small downsampled buffers (min 3×3), bloom halos came out square.
+// This version uses a true Gaussian with sigma in pixels and runs as two
+// 1D passes (O(N·r) instead of O(N·r²)).
+static void separableGaussianBlur(Image& img, float sigma) {
+    const int W = (int)img.width();
+    const int H = (int)img.height();
+    if (W <= 0 || H <= 0 || sigma < 0.25f) return;
+
+    const int r = std::max(1, (int)ceilf(sigma * 3.0f));  // ±3σ covers ~99.7%
+    const int kSize = 2 * r + 1;
+    std::vector<float> kernel((size_t)kSize);
+    float sum = 0.0f;
+    const float twoSigmaSq = 2.0f * sigma * sigma;
+    for (int i = 0; i < kSize; ++i) {
+        const float x = (float)(i - r);
+        const float w = expf(-(x * x) / twoSigmaSq);
+        kernel[i] = w;
+        sum += w;
+    }
+    const float invSum = 1.0f / sum;
+    for (int i = 0; i < kSize; ++i) kernel[i] *= invSum;
+
+    Image tmp(img.getPixelDataFormat(), img.getBitDepth());
+    tmp.createEmpty(W, H);
+
+    // Horizontal pass: img → tmp
+    for (int y = 0; y < H; ++y) {
+        for (int x = 0; x < W; ++x) {
+            float ar = 0.0f, ag = 0.0f, ab = 0.0f, aa = 0.0f;
+            for (int k = -r; k <= r; ++k) {
+                int sx = x + k;
+                if (sx < 0) sx = 0; else if (sx >= W) sx = W - 1;
+                const color4f c = img.getPixel(sx, y);
+                const float w = kernel[(size_t)(k + r)];
+                ar += c.r * w; ag += c.g * w; ab += c.b * w; aa += c.a * w;
+            }
+            tmp.setPixel(x, y, color4f(ar, ag, ab, aa));
+        }
+    }
+
+    // Vertical pass: tmp → img
+    for (int y = 0; y < H; ++y) {
+        for (int x = 0; x < W; ++x) {
+            float ar = 0.0f, ag = 0.0f, ab = 0.0f, aa = 0.0f;
+            for (int k = -r; k <= r; ++k) {
+                int sy = y + k;
+                if (sy < 0) sy = 0; else if (sy >= H) sy = H - 1;
+                const color4f c = tmp.getPixel(x, sy);
+                const float w = kernel[(size_t)(k + r)];
+                ar += c.r * w; ag += c.g * w; ab += c.b * w; aa += c.a * w;
+            }
+            img.setPixel(x, y, color4f(ar, ag, ab, aa));
+        }
+    }
+}
+
 void RayRenderer::render() {
     if (this->shaderProvider == NULL) return;
     
@@ -378,7 +478,12 @@ void RayRenderer::render() {
 
     this->clearTransformedScene();
     this->transformScene();
-    
+
+    // hdrImage is the linear-radiance shadow of renderingImage. It's what bloom
+    // and the final tonemap read from. Sized here so it tracks any external
+    // setRenderSize that happened before render().
+    this->hdrImage.createEmpty(ctx.renderSize.width, ctx.renderSize.height);
+
     if (this->settings.enableDenoise) {
         this->normalBuffer.createEmpty(ctx.renderSize.width, ctx.renderSize.height);
         this->depthBuffer.createEmpty(ctx.renderSize.width, ctx.renderSize.height);
@@ -406,34 +511,68 @@ void RayRenderer::render() {
     }
 
     if (this->settings.enableDenoise) {
+        // Denoise runs on linear HDR (filtering in radiance avoids the banding
+        // non-linear compression induces around edges and gradients).
         Image3f denoised;
         denoised.createEmpty(ctx.renderSize.width, ctx.renderSize.height);
-        this->denoiseImage(this->renderingImage, this->normalBuffer,
+        this->denoiseImage(this->hdrImage, this->normalBuffer,
                            this->depthBuffer, this->albedoBuffer, denoised);
-        Image::copy(denoised, this->renderingImage);
-        this->applyTonemapGamma(this->renderingImage);
+        Image::copy(denoised, this->hdrImage);
     }
 
-    // Cache the pre-bloom image so reapplyPostProcess() can re-run bloom
+    // Cache the pre-bloom HDR so reapplyPostProcess() can re-run bloom
     // against it without a full re-trace. Captured whether or not bloom is
     // currently enabled so the user can toggle it on later and re-run from
     // this baseline.
-    this->preBloomImage.setPixelDataFormat(this->renderingImage.getPixelDataFormat(),
-                                           this->renderingImage.getBitDepth());
-    Image::copy(this->renderingImage, this->preBloomImage);
+    this->preBloomHdrImage.setPixelDataFormat(this->hdrImage.getPixelDataFormat(),
+                                              this->hdrImage.getBitDepth());
+    Image::copy(this->hdrImage, this->preBloomHdrImage);
     this->hasPreBloomImage = true;
 
     if (this->settings.enableRenderingPostProcess) {
-        this->applyPostProcess();
+        this->applyPostProcess(this->hdrImage);
     }
+
+    // Final pass: linear HDR (bloomed or not) → Reinhard + gamma → LDR display.
+    this->applyTonemapGamma(this->hdrImage, this->renderingImage);
 }
 
-void RayRenderer::applyPostProcess() {
-    // Threshold at full resolution so sparse-pixel highlights survive —
-    // downsampling before threshold bilinear-averages the bright pixel
-    // with dim neighbours and drops it under the cutoff, killing bloom.
-    Image glowimg(this->renderingImage.getPixelDataFormat(), 32);
-    Image::copy(this->renderingImage, glowimg);
+void RayRenderer::applyPostProcess(Image& hdr) {
+    // Energy-based HDR bloom. Extract the *excess* radiance above a luma
+    // threshold, blur it, and add it back unclamped — a 1-pixel 10000-cd
+    // source contributes ~9999 units of energy that the Gaussian spreads
+    // across kernel_radius² pixels. After the final Reinhard tonemap the
+    // halo is visible and proportional to the emitter strength, which a
+    // post-tonemap LDR bloom can't reproduce (10000 and 1 both clamp to ~1).
+    const int W = (int)hdr.width();
+    const int H = (int)hdr.height();
+    if (W <= 0 || H <= 0) return;
+
+    Image glow(hdr.getPixelDataFormat(), hdr.getBitDepth());
+    glow.createEmpty(W, H);
+
+    const float threshold = fmaxf(this->settings.bloomThreshold, 0.0f);
+    const float curve = fmaxf(this->settings.bloomCurve, 1e-3f);
+
+    for (int y = 0; y < H; ++y) {
+        for (int x = 0; x < W; ++x) {
+            const color4f c = hdr.getPixel(x, y);
+            const float L = 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+            color4f g(0.0f, 0.0f, 0.0f, c.a);
+            if (L > threshold && L > 1e-6f) {
+                // scale is the fraction of luma that exceeds threshold. At
+                // curve=1 this gives strict energy-above-threshold (physically
+                // what "the halo carries the over-white light" means).
+                // curve>1 sharpens the knee so near-threshold pixels fade out.
+                float scale = (L - threshold) / L;
+                if (curve != 1.0f) scale = powf(scale, curve);
+                g.r = c.r * scale;
+                g.g = c.g * scale;
+                g.b = c.b * scale;
+            }
+            glow.setPixel(x, y, g);
+        }
+    }
 
     const bool dump = !this->settings.postprocessDumpPath.isEmpty();
     auto dumpStage = [&](const char* tag, const Image& img) {
@@ -443,36 +582,73 @@ void RayRenderer::applyPostProcess() {
         saveImage(img, p);
     };
 
-    dumpStage("00-input", this->renderingImage);
-    img::thresholdSoft(glowimg, this->settings.bloomThreshold, this->settings.bloomCurve);
-    dumpStage("01-threshold", glowimg);
-    img::gamma(glowimg, PP_GLOW_GAMMA);
-    dumpStage("02-gamma", glowimg);
-    glowimg.resize((int)((float)this->renderingImage.width() * this->settings.bloomSizeAspect),
-        (int)((float)this->renderingImage.height() * this->settings.bloomSizeAspect));
-    dumpStage("03-downsample", glowimg);
-    int kernelSize = calculateGaussianKernelSize(glowimg.width(), glowimg.height());
-    img::gaussBlur(glowimg, kernelSize);
-    dumpStage("04-blur", glowimg);
-    glowimg.resize(this->renderingImage.getSize());
-    dumpStage("05-upsample", glowimg);
-    // Straight additive composite — light is physically additive. The
-    // earlier Lighter blend (oc = c1 + max(c2-c1,0)·factor) dropped the
-    // halo wherever the main image was already bright (walls, metal),
-    // so bloom only showed on dark background pixels.
-    img::calc(this->renderingImage, glowimg, img::CalcMethods::Add, this->settings.bloomStrength);
-    dumpStage("06-composite", this->renderingImage);
+    dumpStage("00-input", hdr);
+    dumpStage("01-extract", glow);
+
+    const float aspect = fmaxf(0.02f, this->settings.bloomSizeAspect);
+    const int gw = std::max(1, (int)((float)W * aspect));
+    const int gh = std::max(1, (int)((float)H * aspect));
+
+    // Downsample via area averaging, NOT Image::resize (which is bilinear
+    // point-sampling at grid positions and silently drops any source pixel
+    // that doesn't align with the grid — this was the bug where red nav
+    // lights bloomed but white ones didn't, depending on bloomSizeAspect).
+    Image glowSmall(glow.getPixelDataFormat(), glow.getBitDepth());
+    glowSmall.createEmpty(gw, gh);
+    downsampleArea(glow, glowSmall);
+    dumpStage("02-downsample", glowSmall);
+
+    // Halo sigma in full-resolution pixels is bloomRadius × W. The blur runs
+    // in downsampled space, so scale the sigma by the downsample ratio; after
+    // the bilinear upsample the effective sigma in full-res pixels comes back
+    // out to roughly `bloomRadius × W`. This decouples halo width from
+    // bloomSizeAspect (which is now purely a perf/quality knob), so sliding
+    // bloomRadius scales the halo linearly instead of fading it as wider
+    // glow buffers spread the same energy over more pixels.
+    const float sigmaFull = fmaxf(0.0f, this->settings.bloomRadius) * (float)W;
+    const float sigmaDown = sigmaFull * aspect;
+    if (sigmaDown >= 0.5f) {
+        // Two passes compound to an effective sigma of sigma·√2 and give a
+        // visibly smoother falloff than one pass at the equivalent total.
+        separableGaussianBlur(glowSmall, sigmaDown * 0.70710678f);  // /√2
+        separableGaussianBlur(glowSmall, sigmaDown * 0.70710678f);
+    }
+    dumpStage("03-blur", glowSmall);
+
+    // Bilinear upsample back to full resolution. Upsampling a smoothly-blurred
+    // Gaussian with bilinear preserves the shape well, unlike the downsample
+    // direction where it would alias.
+    Image::copy(glowSmall, glow);
+    glow.resize(W, H);
+    dumpStage("04-upsample", glow);
+
+    // Unclamped HDR add — img::calc clamps to [0,1], which would defeat the
+    // whole point of doing this in linear radiance.
+    const float strength = this->settings.bloomStrength;
+    for (int y = 0; y < H; ++y) {
+        for (int x = 0; x < W; ++x) {
+            const color4f a = hdr.getPixel(x, y);
+            const color4f g = glow.getPixel(x, y);
+            hdr.setPixel(x, y, color4f(a.r + g.r * strength,
+                                       a.g + g.g * strength,
+                                       a.b + g.b * strength,
+                                       a.a));
+        }
+    }
+    dumpStage("05-composite", hdr);
 }
 
 bool RayRenderer::reapplyPostProcess() {
     if (!this->hasPreBloomImage) return false;
 
-    // Restore the denoised-but-not-bloomed frame and re-run the bloom pass
-    // with whatever parameters are currently in settings.
-    Image::copy(this->preBloomImage, this->renderingImage);
+    // Restore the denoised-but-not-bloomed HDR and re-run the bloom pass
+    // with whatever parameters are currently in settings, then tonemap to
+    // renderingImage for display.
+    Image::copy(this->preBloomHdrImage, this->hdrImage);
     if (this->settings.enableRenderingPostProcess) {
-        this->applyPostProcess();
+        this->applyPostProcess(this->hdrImage);
     }
+    this->applyTonemapGamma(this->hdrImage, this->renderingImage);
     return true;
 }
 
@@ -500,12 +676,15 @@ void RayRenderer::renderThread(const RenderThreadContext& ctx, const int threadI
         if (this->cancelRequested.load(std::memory_order_relaxed)) return;
 
         for (int x = 0; x < renderWidth; x += pixelBlock) {
-            const color4f c = this->renderPixel(ctx, ray, x, y);
+            color4f hdrPix;
+            const color4f c = this->renderPixel(ctx, ray, x, y, &hdrPix);
 
 #if PIXEL_BLOCK == 1
             this->renderingImage.setPixel(x, y, c);
+            this->hdrImage.setPixel(x, y, hdrPix);
 #else
             this->renderingImage.fillRect(recti(x, y, pixelBlock, pixelBlock), c);
+            this->hdrImage.fillRect(recti(x, y, pixelBlock, pixelBlock), hdrPix);
 #endif /* PIXEL_BLOCK */
         }
         
@@ -529,7 +708,7 @@ void RayRenderer::renderThread(const RenderThreadContext& ctx, const int threadI
     }
 }
 
-color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const int x, const int y) {
+color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const int x, const int y, color4f* outHdr) {
 
     // Guided-denoise AOVs (primary hit only). Miss pixels get sentinels so
     // the denoiser's depth weight naturally isolates background from geometry.
@@ -655,14 +834,23 @@ color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const
 
     const color3f radiance = sampleColor * ctx.exposure / (float)totalSamples;
 
+    // Linear HDR radiance clamped to non-negative. renderThread fans this out
+    // across the pixel block into hdrImage; bloom and the final tonemap read
+    // from there. That's what makes the bloom energy-proportional instead of
+    // clamp-proportional (10000-cd emitter vs 1.0 diffuse white).
+    const color4f hdrPix(fmaxf(radiance.r, 0.0f),
+                         fmaxf(radiance.g, 0.0f),
+                         fmaxf(radiance.b, 0.0f),
+                         1.0f);
+    if (outHdr) *outHdr = hdrPix;
+
     // When the denoiser is on we defer tonemap+gamma to a post-denoise pass:
     // filtering in linear radiance avoids the banding that non-linear
-    // compression induces around edges and gradients.
+    // compression induces around edges and gradients. The returned value
+    // feeds the in-flight preview in renderingImage — same HDR values as
+    // the shadow hdrImage; they get clamped at display time.
     if (this->settings.enableDenoise) {
-        return color4f(fmaxf(radiance.r, 0.0f),
-                       fmaxf(radiance.g, 0.0f),
-                       fmaxf(radiance.b, 0.0f),
-                       1.0f);
+        return hdrPix;
     }
 
     // Luminance-based Reinhard: compress the perceived brightness L = luma
@@ -1576,14 +1764,19 @@ void RayRenderer::atrousPass(const Image3f& srcColor, Image3f& dstColor,
     }
 }
 
-void RayRenderer::applyTonemapGamma(Image& img) const {
-    const int w = (int)img.width();
-    const int h = (int)img.height();
+void RayRenderer::applyTonemapGamma(const Image& src, Image& dst) const {
+    const int w = (int)src.width();
+    const int h = (int)src.height();
+    if (dst.width() != (uint)w || dst.height() != (uint)h) {
+        dst.createEmpty(w, h);
+    }
     const float invGamma = 1.0f / 2.2f;
     for (int y = 0; y < h; ++y) {
         for (int x = 0; x < w; ++x) {
-            const color4f c = img.getPixel(x, y);
-            // Luminance-based Reinhard (see renderPixel for the rationale).
+            const color4f c = src.getPixel(x, y);
+            // Luminance-based Reinhard: compress the perceived brightness
+            // L = luma and scale RGB by the same factor so saturated colors
+            // stay saturated (per-channel Reinhard desaturates toward white).
             const float L = 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
             float mr = 0.0f, mg = 0.0f, mb = 0.0f;
             if (L > 1e-6f) {
@@ -1605,7 +1798,7 @@ void RayRenderer::applyTonemapGamma(Image& img) const {
             if (out.r > 1.0f) out.r = 1.0f;
             if (out.g > 1.0f) out.g = 1.0f;
             if (out.b > 1.0f) out.b = 1.0f;
-            img.setPixel(x, y, out);
+            dst.setPixel(x, y, out);
         }
     }
 }

@@ -220,9 +220,10 @@ int main(int argc, const char * argv[]) {
 							 "  -enpp | --enable-postprocess         eanble post-processes such as grow and blur\n"
 							 "  -endn | --enable-denoise             enable À-Trous wavelet denoiser (default: off)\n"
 							 "  -dni  | --denoise-intensity          blend 0..1 between noisy and denoised (default: 1.0)\n"
-							 "  -blth | --bloom-threshold            post-gamma luma at which bloom starts (default: 0.7)\n"
-							 "  -blst | --bloom-strength             bloom composite strength (default: 0.35)\n"
-							 "  -blcv | --bloom-curve                threshold falloff exponent; 1=linear, 3=sharp (default: 1.0)\n"
+							 "  -blth | --bloom-threshold            linear-radiance luma at which bloom starts (default: 1.0)\n"
+							 "  -blst | --bloom-strength             additive gain on the blurred HDR halo (default: 1.0)\n"
+							 "  -blcv | --bloom-curve                knee sharpness; 1=linear, >1=sharper cutoff (default: 1.0)\n"
+							 "  -blrd | --bloom-radius               halo sigma as fraction of image width (default: 0.03)\n"
 							 "  -d | --shader                        specify shader type\n"
 							 "  --focus-obj                          make camera look at specified object\n"
 							 "  --dump                               dump scene define\n"
@@ -251,6 +252,8 @@ int main(int argc, const char * argv[]) {
 				else READ_ARG_FLT("--bloom-strength", rs.bloomStrength)
 				else READ_ARG_FLT("-blcv", rs.bloomCurve)
 				else READ_ARG_FLT("--bloom-curve", rs.bloomCurve)
+				else READ_ARG_FLT("-blrd", rs.bloomRadius)
+				else READ_ARG_FLT("--bloom-radius", rs.bloomRadius)
 				else READ_ARG_INT("-d", rs.shaderProvider)
 				else READ_ARG_INT("--shader", rs.shaderProvider)
 				else READ_ARG_STR("--focus-obj", focusObjectName)

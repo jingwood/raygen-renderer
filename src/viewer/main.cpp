@@ -58,11 +58,15 @@ struct ViewerParams {
     float exposure         = 1.0f;
     float envIntensity     = 0.3f;
     float envRotation      = 120.0f;
-    // Post-process (bloom)
+    // Post-process (bloom) — HDR energy-based, not LDR. Threshold is the
+    // linear-radiance luma above which the excess energy becomes halo; a
+    // diffuse white surface sits around 1, so threshold=1 means "only bloom
+    // things brighter than white" (emitters, sun hits, specular highlights).
     bool  postProcess      = false;
-    float bloomThreshold   = 0.7f;
-    float bloomStrength    = 0.35f;
+    float bloomThreshold   = 1.0f;
+    float bloomStrength    = 1.0f;
     float bloomCurve       = 1.0f;
+    float bloomRadius      = 0.03f;
 };
 
 // Result handed from the worker back to the main thread. A boolean ready flag
@@ -105,7 +109,8 @@ static bool onlyPostProcessChanged(const ViewerParams& a, const ViewerParams& b)
         a.postProcess     == b.postProcess &&
         a.bloomThreshold  == b.bloomThreshold &&
         a.bloomStrength   == b.bloomStrength &&
-        a.bloomCurve      == b.bloomCurve;
+        a.bloomCurve      == b.bloomCurve &&
+        a.bloomRadius     == b.bloomRadius;
     const bool rest_same =
         a.samples          == b.samples &&
         a.threads          == b.threads &&
@@ -171,6 +176,7 @@ static void applyParamsToScene(const ViewerParams& p, RayRenderer& renderer, Sce
     s.bloomThreshold            = p.bloomThreshold;
     s.bloomStrength             = p.bloomStrength;
     s.bloomCurve                = p.bloomCurve;
+    s.bloomRadius               = p.bloomRadius;
 
     scene.envmapIntensity = p.envIntensity;
     scene.envmapRotation  = p.envRotation;
@@ -258,6 +264,7 @@ int main(int argc, char** argv) {
     uiParams.bloomThreshold   = renderer.settings.bloomThreshold;
     uiParams.bloomStrength    = renderer.settings.bloomStrength;
     uiParams.bloomCurve       = renderer.settings.bloomCurve;
+    uiParams.bloomRadius      = renderer.settings.bloomRadius;
     uiParams.envIntensity     = scene->envmapIntensity;
     uiParams.envRotation      = scene->envmapRotation;
     if (scene->mainCamera) uiParams.exposure = scene->mainCamera->exposure;
@@ -449,9 +456,10 @@ int main(int argc, char** argv) {
         if (ImGui::CollapsingHeader("Post-process (bloom)", ImGuiTreeNodeFlags_DefaultOpen)) {
             dirty |= ImGui::Checkbox("enable##pp", &uiParams.postProcess);
             if (uiParams.postProcess) {
-                dirty |= ImGui::SliderFloat("bloom threshold", &uiParams.bloomThreshold, 0.0f, 2.0f, "%.2f");
-                dirty |= ImGui::SliderFloat("bloom strength",  &uiParams.bloomStrength,  0.0f, 1.0f, "%.2f");
-                dirty |= ImGui::SliderFloat("bloom curve",     &uiParams.bloomCurve,     0.1f, 4.0f, "%.2f");
+                dirty |= ImGui::SliderFloat("bloom threshold", &uiParams.bloomThreshold, 0.0f,  2.0f, "%.2f");
+                dirty |= ImGui::SliderFloat("bloom strength",  &uiParams.bloomStrength,  0.0f,  5.0f,  "%.2f");
+                dirty |= ImGui::SliderFloat("bloom curve",     &uiParams.bloomCurve,     1.0f,  4.0f,  "%.2f");
+                dirty |= ImGui::SliderFloat("bloom radius",    &uiParams.bloomRadius,    0.0f,  0.15f, "%.3f");
             }
             ImGui::TextDisabled("TODO: post-process-only re-run once the core\n"
                                 "caches a pre-PP image");
