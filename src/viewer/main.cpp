@@ -34,9 +34,12 @@
 #define GL_RGBA8 0x8058
 #endif
 
+#include <memory>
+
 #include "raygen/rayrenderer.h"
 #include "raygen/sceneloader.h"
 #include "ugm/image.h"
+#include "ugm/imgcodec.h"
 
 using namespace raygen;
 using namespace ugm;
@@ -47,6 +50,7 @@ using namespace ugm;
 // hard-coded so the preview stays snappy.
 struct ViewerParams {
     int   samples          = 4;
+    int   threads          = 7;
     // Quality / denoise
     bool  denoise          = true;
     float denoiseIntensity = 1.0f;
@@ -104,6 +108,7 @@ static bool onlyPostProcessChanged(const ViewerParams& a, const ViewerParams& b)
         a.bloomCurve      == b.bloomCurve;
     const bool rest_same =
         a.samples          == b.samples &&
+        a.threads          == b.threads &&
         a.denoise          == b.denoise &&
         a.denoiseIntensity == b.denoiseIntensity &&
         a.exposure         == b.exposure &&
@@ -159,6 +164,7 @@ static void uploadRGBAToTexture(const unsigned char* data, int w, int h, GLuint&
 static void applyParamsToScene(const ViewerParams& p, RayRenderer& renderer, Scene& scene) {
     RendererSettings& s = renderer.settings;
     s.samples                   = p.samples;
+    s.threads                   = p.threads;
     s.enableDenoise             = p.denoise;
     s.denoiseIntensity          = p.denoiseIntensity;
     s.enableRenderingPostProcess = p.postProcess;
@@ -230,24 +236,43 @@ int main(int argc, char** argv) {
     rsInit.resolutionWidth  = 600;
     rsInit.resolutionHeight = 375;
     RayRenderer renderer(&rsInit);
-    Scene scene;
-    RendererSceneLoader loader;
-    loader.load(renderer, &scene, scenePath);
-    renderer.setScene(&scene);
+
+    // unique_ptr lets us swap the Scene object on reload without disturbing
+    // the worker's capture - the worker dereferences `*scene` each job, so a
+    // pointer-swap from the main thread (while the worker is idle) is safe.
+    auto scene = std::make_unique<Scene>();
+    {
+        RendererSceneLoader loader;
+        loader.load(renderer, scene.get(), scenePath);
+    }
+    renderer.setScene(scene.get());
 
     // Seed UI params from the just-loaded scene/renderer so sliders start
     // where the scene.json (and RendererSettings defaults) left off.
     ViewerParams uiParams;
     uiParams.samples          = renderer.settings.samples;
+    uiParams.threads          = renderer.settings.threads;
     uiParams.denoise          = renderer.settings.enableDenoise;
     uiParams.denoiseIntensity = renderer.settings.denoiseIntensity;
     uiParams.postProcess      = renderer.settings.enableRenderingPostProcess;
     uiParams.bloomThreshold   = renderer.settings.bloomThreshold;
     uiParams.bloomStrength    = renderer.settings.bloomStrength;
     uiParams.bloomCurve       = renderer.settings.bloomCurve;
-    uiParams.envIntensity     = scene.envmapIntensity;
-    uiParams.envRotation      = scene.envmapRotation;
-    if (scene.mainCamera) uiParams.exposure = scene.mainCamera->exposure;
+    uiParams.envIntensity     = scene->envmapIntensity;
+    uiParams.envRotation      = scene->envmapRotation;
+    if (scene->mainCamera) uiParams.exposure = scene->mainCamera->exposure;
+
+    // Build a default output path next to the scene.json: replace the
+    // extension with "-out.jpg" so hitting Save with no edits still produces
+    // something sensible.
+    char outputPath[512] = {0};
+    {
+        const char* dot = strrchr(scenePath, '.');
+        size_t baseLen = dot ? (size_t)(dot - scenePath) : strlen(scenePath);
+        if (baseLen > sizeof(outputPath) - 16) baseLen = sizeof(outputPath) - 16;
+        memcpy(outputPath, scenePath, baseLen);
+        memcpy(outputPath + baseLen, "-out.jpg", 9);
+    }
 
     RenderJob job;
 
@@ -275,7 +300,7 @@ int main(int argc, char** argv) {
 
             // Apply snapshot and render. renderer/scene are touched only
             // while running==true and main thread will not modify them.
-            applyParamsToScene(p, renderer, scene);
+            applyParamsToScene(p, renderer, *scene);
 
             double t0 = glfwGetTime();
             if (kind == JobKind::PostOnly) {
@@ -401,6 +426,7 @@ int main(int argc, char** argv) {
 
         if (ImGui::CollapsingHeader("Quality", ImGuiTreeNodeFlags_DefaultOpen)) {
             dirty |= ImGui::SliderInt("samples", &uiParams.samples, 1, 1000);
+            dirty |= ImGui::SliderInt("threads", &uiParams.threads, 1, 32);
             dirty |= ImGui::Checkbox ("denoise", &uiParams.denoise);
             if (uiParams.denoise) {
                 dirty |= ImGui::SliderFloat("denoise intensity", &uiParams.denoiseIntensity, 0.0f, 1.0f, "%.2f");
@@ -469,8 +495,8 @@ int main(int argc, char** argv) {
 
         // --- Output resolution window ---
         ImGui::Begin("Output");
-        ImGui::InputInt("width",  &outputWidth);
-        ImGui::InputInt("height", &outputHeight);
+        ImGui::InputInt("width",  &outputWidth,  10, 100);
+        ImGui::InputInt("height", &outputHeight, 10, 100);
         if (outputWidth  < 16)   outputWidth  = 16;
         if (outputHeight < 16)   outputHeight = 16;
         if (outputWidth  > 8192) outputWidth  = 8192;
@@ -481,36 +507,81 @@ int main(int argc, char** argv) {
             outputHeight != renderer.settings.resolutionHeight;
         const bool canApply = !isRendering && sizeChanged;
 
-        if (!canApply) ImGui::BeginDisabled();
-        if (ImGui::Button("Apply")) {
-            // Safe to touch the renderer here because the worker is idle
-            // (button disabled otherwise). setRenderSize also invalidates
-            // the post-process cache so a full re-trace kicks next.
+        // Shared helper: commit current outputWidth/Height and kick a full
+        // render. Safe to call only while the worker is idle.
+        auto applyResolution = [&]() {
             renderer.settings.resolutionWidth  = outputWidth;
             renderer.settings.resolutionHeight = outputHeight;
             renderer.setRenderSize(outputWidth, outputHeight);
             lastKickedParams = uiParams;
             enqueue(uiParams, JobKind::Full);
-        }
+        };
+
+        if (!canApply) ImGui::BeginDisabled();
+        if (ImGui::Button("Apply")) applyResolution();
         if (!canApply) ImGui::EndDisabled();
         ImGui::SameLine();
         ImGui::TextDisabled("current: %d x %d",
                             renderer.settings.resolutionWidth,
                             renderer.settings.resolutionHeight);
 
-        // Quick presets land on common 16:9 sizes; custom values still edit
-        // above. Presets do NOT auto-apply - user still clicks Apply.
+        // Presets now auto-apply: one click jumps to the resolution and kicks
+        // a render, as long as the worker is idle. If it's busy, the button
+        // is disabled so we don't race with setRenderSize.
+        const bool canPreset = !isRendering;
+        auto preset = [&](int w, int h) {
+            outputWidth = w; outputHeight = h;
+            if (canPreset) applyResolution();
+        };
         ImGui::Text("preset:");
         ImGui::SameLine();
-        if (ImGui::SmallButton("480p")) { outputWidth = 854;  outputHeight = 480; }
+        if (!canPreset) ImGui::BeginDisabled();
+        if (ImGui::SmallButton("480p"))  preset(854,  480);
         ImGui::SameLine();
-        if (ImGui::SmallButton("720p")) { outputWidth = 1280; outputHeight = 720; }
+        if (ImGui::SmallButton("720p"))  preset(1280, 720);
         ImGui::SameLine();
-        if (ImGui::SmallButton("1080p")) { outputWidth = 1920; outputHeight = 1080; }
+        if (ImGui::SmallButton("1080p")) preset(1920, 1080);
         ImGui::SameLine();
-        if (ImGui::SmallButton("2K"))  { outputWidth = 2560; outputHeight = 1440; }
+        if (ImGui::SmallButton("2K"))    preset(2560, 1440);
         ImGui::SameLine();
-        if (ImGui::SmallButton("4K"))  { outputWidth = 3840; outputHeight = 2160; }
+        if (ImGui::SmallButton("4K"))    preset(3840, 2160);
+        if (!canPreset) ImGui::EndDisabled();
+        ImGui::End();
+
+        // --- File window (save / reload) ---
+        ImGui::Begin("File");
+        ImGui::TextWrapped("scene: %s", scenePath);
+        const bool canFile = !isRendering;
+        if (!canFile) ImGui::BeginDisabled();
+        if (ImGui::Button("Reload scene")) {
+            // Drop the old Scene (destructor releases meshes) and re-parse
+            // the JSON into a fresh one. Worker sees the new *scene on the
+            // next job because it dereferences the unique_ptr each time.
+            auto fresh = std::make_unique<Scene>();
+            RendererSceneLoader loader2;
+            loader2.load(renderer, fresh.get(), scenePath);
+            renderer.setScene(fresh.get());
+            scene = std::move(fresh);
+
+            // Refresh UI params that live on the scene (not on settings).
+            uiParams.envIntensity = scene->envmapIntensity;
+            uiParams.envRotation  = scene->envmapRotation;
+            if (scene->mainCamera) uiParams.exposure = scene->mainCamera->exposure;
+
+            lastKickedParams = uiParams;
+            enqueue(uiParams, JobKind::Full);
+        }
+        if (!canFile) ImGui::EndDisabled();
+
+        ImGui::InputText("output path", outputPath, sizeof(outputPath));
+        const bool canSave = !isRendering && renderTex != 0 && outputPath[0] != 0;
+        if (!canSave) ImGui::BeginDisabled();
+        if (ImGui::Button("Save render")) {
+            // Grab the latest finished frame straight out of the renderer;
+            // saveImage handles JPEG/PNG based on extension.
+            saveImage(renderer.getRenderResult(), ucm::string(outputPath));
+        }
+        if (!canSave) ImGui::EndDisabled();
         ImGui::End();
 
         // --- Render preview ---
