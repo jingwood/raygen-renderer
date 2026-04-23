@@ -8,6 +8,8 @@
 
 #include <cassert>
 
+#include <functional>
+
 #include "sceneloader.h"
 #include "ucm/jsonreader.h"
 #include "ucm/strutil.h"
@@ -15,6 +17,7 @@
 #include "ugm/imgcodec.h"
 #include "meshloader.h"
 #include "fbxloader.h"
+#include "objreader.h"
 #include "polygons.h"
 
 #define FORMAT_TAG_JSON 0x6e6f736a
@@ -246,13 +249,83 @@ void SceneJsonLoader::readMeshDefines(const JSObject* obj, std::vector<Mesh> mes
 }
 
 void SceneJsonLoader::readMesh(SceneObject& obj, const string& meshPath, Archive* bundle) {
-//	Mesh* mesh = this->loadMeshFile(obj, meshPath, bundle);
 	string filepath;
 	this->transformPath(meshPath, filepath);
-    
+
+	if (filepath.endsWith(".obj", StringComparingFlags::SCF_CASE_INSENSITIVE)) {
+		this->readObjAsSceneObjects(obj, filepath, bundle);
+		return;
+	}
+
 	Mesh* mesh = this->resPool->loadMeshFromFile(filepath, bundle);
 	if (mesh != NULL) {
 		obj.addMesh(*mesh);
+	}
+}
+
+// Fill Material with .mtl defaults (diffuse -> color, transparency, map_Kd -> texture).
+// Emission (Ke), refractive index, and other PBR fields are not carried in plain .mtl,
+// so they stay at Material's defaults and can be overridden via scene.json `_materials`.
+static void applyObjMaterialDefaults(Material& dst, const ObjMaterial& src,
+                                     const string& basePath, SceneResourcePool* pool) {
+	dst.color = color3f(src.diffuse.r, src.diffuse.g, src.diffuse.b);
+	dst.transparency = src.transparency;
+
+	if (!src.textureFilename.isEmpty()) {
+		string texPath;
+		texPath.append(basePath);
+		texPath.append(src.textureFilename);
+		dst.texturePath = texPath;
+		if (pool != NULL) {
+			dst.texture = pool->getTexture(texPath, NULL);
+		}
+	}
+}
+
+void SceneJsonLoader::readObjAsSceneObjects(SceneObject& parent, const string& objPath, Archive* bundle) {
+	ObjFileReader reader;
+	reader.read(objPath.getBuffer());
+
+	File objFile(objPath);
+	string baseDir = objFile.getPath();
+	if (!baseDir.isEmpty() && !baseDir.endsWith(PATH_SPLITTER)) {
+		baseDir.append(PATH_SPLITTER);
+	}
+
+	std::function<void(SceneObject&, ObjObject&)> addAsChild = [&](SceneObject& target, ObjObject& oo) {
+		SceneObject* child = new SceneObject();
+		child->setName(oo.getName());
+
+		Mesh& objMesh = oo.getMesh();
+		if (objMesh.vertexCount > 0) {
+			Mesh* m = objMesh.clone();
+			if (m != NULL) {
+				child->addMesh(*m);
+			}
+		}
+
+		// Resolution order for material: scene.json _materials override (by name) > .mtl defaults.
+		// Keeping the material name on the child lets downstream code (and later overrides) address it.
+		const string& matName = oo.selectedMatName;
+		Material* overridden = matName.isEmpty() ? NULL : this->findMaterialByName(matName);
+		if (overridden != NULL) {
+			child->material = *overridden;
+		} else if (oo.getMaterial() != NULL) {
+			applyObjMaterialDefaults(child->material, *oo.getMaterial(), baseDir, this->resPool);
+		}
+		if (!matName.isEmpty()) {
+			child->material.name = matName;
+		}
+
+		target.addObject(*child);
+
+		for (ObjObject* kid : oo.getChildren()) {
+			addAsChild(*child, *kid);
+		}
+	};
+
+	for (ObjObject* obj : reader.getObjects()) {
+		addAsChild(parent, *obj);
 	}
 }
 

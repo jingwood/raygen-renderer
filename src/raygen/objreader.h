@@ -27,7 +27,7 @@
 #define _strcpy strcpy
 #endif // WIN32
 
-#define LINE_BUFFER_LENGTH 300
+#define LINE_BUFFER_LENGTH 4096
 
 using namespace ucm;
 using namespace ugm;

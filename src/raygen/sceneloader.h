@@ -65,6 +65,7 @@ private:
 	void readMeshDefines(const JSObject* obj, std::vector<Mesh> meshes);
 	
 	void readMesh(SceneObject& obj, const string& meshPath, Archive* bundle = NULL);
+	void readObjAsSceneObjects(SceneObject& parent, const string& objPath, Archive* bundle);
 
 	void readSceneObject(SceneObject& obj, const JSObject& json, Archive* bundle = NULL);
 

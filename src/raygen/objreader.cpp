@@ -87,13 +87,13 @@ ObjFileReader::~ObjFileReader() {
 
 void ObjFileReader::read(const char* filename) {
     this->file = new File(filename);
-    
+
     FileStream stream(filename);
     this->stream = &stream;
     stream.openRead(FileStreamType::Text);
-    
+
     if (stream.error()) return;
-    
+
     this->currentObject = new ObjObject();
     
     bool inheadCommentBlock = true;
@@ -267,9 +267,9 @@ void ObjFileReader::read(const char* filename) {
     
     stream.close();
     this->stream = NULL;
-    
+
     this->finalizeObject();
-    
+
     delete this->currentObject;
     this->currentObject = NULL;
     
@@ -278,28 +278,30 @@ void ObjFileReader::read(const char* filename) {
 
 bool ObjFileReader::readSurfaceLine()
 {
-    unsigned int vertexIndexes[4], texcoordIndexes[4], normalIndexes[4];
-    
+    // Use growable buffers so n-gons (common in Blender exports) can be fan-triangulated
+    // without an arbitrary vertex-per-face cap.
+    std::vector<uint> vertexIndexes;
+    std::vector<uint> texcoordIndexes;
+    std::vector<uint> normalIndexes;
+
     ObjObject* obj = this->currentObject;
-    
+
     auto& lexer = this->surfaceLineLexer;
-    
+
     lexer.setInput(this->line + 2);
     lexer.enableSkipWS = false;
-    
-    int vertexCount = 0;
-    
+
     bool hasNormal = false;
     bool hasTexcoord = false;
-    
+
     while (!lexer.eof()) {
-        
+
         if (!lexer.readNumber()) {
             return false;
         } else {
-            vertexIndexes[vertexCount] = (uint)lexer.getCurrentToken().v_num - 1;
+            vertexIndexes.push_back((uint)lexer.getCurrentToken().v_num - 1);
         }
-        
+
         if (lexer.readChar('/')) {
             if (!lexer.readNumber()) {
                 if (obj->hasTexcoord) {
@@ -316,11 +318,11 @@ bool ObjFileReader::readSurfaceLine()
                     }
                     return false;
                 }
-                texcoordIndexes[vertexCount] = (uint)lexer.getCurrentToken().v_num - 1;
+                texcoordIndexes.push_back((uint)lexer.getCurrentToken().v_num - 1);
                 obj->hasTexcoord = hasTexcoord = true;
             }
         }
-        
+
         if (lexer.readChar('/')) {
             if (!lexer.readNumber()) {
                 if (obj->hasNormal) {
@@ -337,134 +339,46 @@ bool ObjFileReader::readSurfaceLine()
                     }
                     return false;
                 }
-                normalIndexes[vertexCount] = (uint)lexer.getCurrentToken().v_num - 1;
+                normalIndexes.push_back((uint)lexer.getCurrentToken().v_num - 1);
                 obj->hasNormal = hasNormal = true;
             }
         }
-        
-        vertexCount++;
-        
+
         if (!lexer.readChar(' ')) {
             break;
         }
     }
-    
+
+    const int vertexCount = (int)vertexIndexes.size();
     if (vertexCount < 3) {
         if (this->console != NULL) {
             this->console->error("error: not enough numbers of vertex: %d\n", vertexCount);
         }
         return false;
-    } else if (vertexCount > 3) {
-        if (this->console != NULL) {
-            this->console->error("error: surface must be triangulated\n");
-        }
-        return false;
     }
-    
-    const vec3& v1 = this->readVertexs[vertexIndexes[0]];
-    const vec3& v2 = this->readVertexs[vertexIndexes[1]];
-    const vec3& v3 = this->readVertexs[vertexIndexes[2]];
-    
-    //	vec3 n1, n2, n3, n4;
-    //	vec2 uv1, uv2, uv3, uv4;
-    vec3 n1, n2, n3;
-    vec2 uv1, uv2, uv3;
-    
-    if (hasNormal) {
-        n1 = this->readNormals[normalIndexes[0]];
-        n2 = this->readNormals[normalIndexes[1]];
-        n3 = this->readNormals[normalIndexes[2]];
-    }
-    
-    if (hasTexcoord) {
-        uv1 = this->readTexcoords[texcoordIndexes[0]];
-        uv2 = this->readTexcoords[texcoordIndexes[1]];
-        uv3 = this->readTexcoords[texcoordIndexes[2]];
-    }
-    
-    if (vertexCount == 4) {
-        const vec3& v4 = this->readVertexs[vertexIndexes[3]];
-        const vec3& n4 = this->readNormals[normalIndexes[3]];
-        const vec2& uv4 = this->readTexcoords[texcoordIndexes[3]];
-        
-        //		vec3 faceNormal = (n1 + n2 + n3 + n4) / 3.0f;
-        //
-        //		vec3 edge1 = v2 - v1;
-        //		vec3 edge2 = v3 - v2;
-        //		vec3 normal = cross(edge1, edge2);
-        //
-        //		if (dot(normal, faceNormal) < 0) {
-        //			const vec3 tmp = v2;
-        //			v2 = v3;
-        //			v3 = tmp;
-        //
-        //			const vec3 tmp = n2;
-        //			n2 = n3;
-        //			n3 = n2;
-        //		}
-        //
-        //		vec3 edge2 = v2 - v3;
-        //		vec3 edge3 = v3 - v2;
-        //		vec3 normal = cross(edge1, edge2);
-        //
-        //		if (dot(normal, faceNormal) < 0) {
-        //			const vec3 tmp = v2;
-        //			v2 = v3;
-        //			v3 = tmp;
-        //
-        //			const vec3 tmp = n2;
-        //			n2 = n3;
-        //			n3 = n2;
-        //		}
-        
-        obj->vertices.push_back(v4);
-        obj->vertices.push_back(v1);
-        obj->vertices.push_back(v2);
-        
+
+    // Fan triangulation: for a polygon (v0, v1, ..., v_{n-1}) emit triangles
+    // (v0, v_i, v_{i+1}) for i in [1, n-2]. Works for all convex polygons which
+    // covers virtually all DCC-exported .obj geometry.
+    for (int i = 1; i + 1 < vertexCount; i++) {
+        const vec3& v0 = this->readVertexs[vertexIndexes[0]];
+        const vec3& va = this->readVertexs[vertexIndexes[i]];
+        const vec3& vb = this->readVertexs[vertexIndexes[i + 1]];
+
+        obj->vertices.push_back(v0);
+        obj->vertices.push_back(va);
+        obj->vertices.push_back(vb);
+
         if (hasNormal) {
-            obj->normals.push_back(n4);
-            obj->normals.push_back(n1);
-            obj->normals.push_back(n2);
+            obj->normals.push_back(this->readNormals[normalIndexes[0]]);
+            obj->normals.push_back(this->readNormals[normalIndexes[i]]);
+            obj->normals.push_back(this->readNormals[normalIndexes[i + 1]]);
         }
-        
+
         if (hasTexcoord) {
-            obj->texcoords.push_back(uv4);
-            obj->texcoords.push_back(uv1);
-            obj->texcoords.push_back(uv2);
-        }
-        
-        obj->vertices.push_back(v4);
-        obj->vertices.push_back(v2);
-        obj->vertices.push_back(v3);
-        
-        if (hasNormal) {
-            obj->normals.push_back(n4);
-            obj->normals.push_back(n2);
-            obj->normals.push_back(n3);
-        }
-        
-        if (hasTexcoord) {
-            obj->texcoords.push_back(uv4);
-            obj->texcoords.push_back(uv2);
-            obj->texcoords.push_back(uv3);
-        }
-        
-    } else {
-        
-        obj->vertices.push_back(v1);
-        obj->vertices.push_back(v2);
-        obj->vertices.push_back(v3);
-        
-        if (hasNormal) {
-            obj->normals.push_back(n1);
-            obj->normals.push_back(n2);
-            obj->normals.push_back(n3);
-        }
-        
-        if (hasTexcoord) {
-            obj->texcoords.push_back(uv1);
-            obj->texcoords.push_back(uv2);
-            obj->texcoords.push_back(uv3);
+            obj->texcoords.push_back(this->readTexcoords[texcoordIndexes[0]]);
+            obj->texcoords.push_back(this->readTexcoords[texcoordIndexes[i]]);
+            obj->texcoords.push_back(this->readTexcoords[texcoordIndexes[i + 1]]);
         }
     }
     
