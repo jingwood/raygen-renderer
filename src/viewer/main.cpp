@@ -417,34 +417,43 @@ int main(int argc, char** argv) {
 
         ImGui::Separator();
         const bool canKick = !isRendering;
-        auto kickKind = [&](const ViewerParams& next) {
-            return onlyPostProcessChanged(lastKickedParams, next)
-                   ? JobKind::PostOnly : JobKind::Full;
-        };
+
+        // Intent tracking: `pendingDirty` is set whenever sliders move while
+        // we can't kick, and the single kick site below fires at most once
+        // per frame. The previous code fired both an immediate kick *and*
+        // the pending kick in the same frame after a PostOnly finished,
+        // which left the second kick comparing lastKickedParams (just
+        // updated) against itself, reporting "no bloom diff", and falling
+        // back to JobKind::Full - a full re-trace with fresh noise.
+        static bool pendingDirty = false;
+        if (dirty) pendingDirty = true;
 
         if (!canKick) ImGui::BeginDisabled();
         if (ImGui::Button("Re-render (full)")) {
             lastKickedParams = uiParams;
             enqueue(uiParams, JobKind::Full);
+            pendingDirty = false;
         }
         if (!canKick) ImGui::EndDisabled();
-        ImGui::SameLine();
-        if (dirty && !isRendering) {
-            JobKind kind = kickKind(uiParams);
-            lastKickedParams = uiParams;
-            enqueue(uiParams, kind);
+
+        // Preview what the next auto-kick will do, so the user can tell at
+        // a glance which kind is queued.
+        if (pendingDirty) {
+            const JobKind nextKind =
+                onlyPostProcessChanged(lastKickedParams, uiParams)
+                    ? JobKind::PostOnly : JobKind::Full;
+            ImGui::SameLine();
+            ImGui::TextDisabled("(next: %s)",
+                                nextKind == JobKind::PostOnly ? "post-only" : "full");
         }
 
-        // When the UI goes dirty but a render is already in flight, we still
-        // want the latest slider values reflected on the next render. Hold the
-        // intent and fire once the worker frees up.
-        static bool pendingDirty = false;
-        if (dirty && isRendering) pendingDirty = true;
         if (!isRendering && pendingDirty) {
-            pendingDirty = false;
-            JobKind kind = kickKind(uiParams);
+            const JobKind kind =
+                onlyPostProcessChanged(lastKickedParams, uiParams)
+                    ? JobKind::PostOnly : JobKind::Full;
             lastKickedParams = uiParams;
             enqueue(uiParams, kind);
+            pendingDirty = false;
         }
 
         ImGui::End();
