@@ -59,8 +59,17 @@ struct ViewerParams {
     // Quality / denoise
     bool  denoise          = true;
     float denoiseIntensity = 1.0f;
-    // Scene
+    // Camera (mainCamera). Angles in degrees; aperture is an f-stop-like
+    // value (smaller = wider blur); apertureBlades=0 is a round iris.
+    float camLocation[3]   = {0.0f, 0.0f, 0.0f};
+    float camAngle[3]      = {0.0f, 0.0f, 0.0f};
+    float fieldOfView      = 45.0f;
+    float depthOfField     = 0.0f;
+    float aperture         = 1.8f;
+    int   apertureBlades   = 0;
+    float apertureRotation = 0.0f;
     float exposure         = 1.0f;
+    // Scene
     float envIntensity     = 0.3f;
     float envRotation      = 120.0f;
     // Post-process (bloom) — HDR energy-based, not LDR. Threshold is the
@@ -116,6 +125,18 @@ static bool onlyPostProcessChanged(const ViewerParams& a, const ViewerParams& b)
         a.bloomStrength   == b.bloomStrength &&
         a.bloomCurve      == b.bloomCurve &&
         a.bloomRadius     == b.bloomRadius;
+    const bool cam_same =
+        a.camLocation[0]   == b.camLocation[0] &&
+        a.camLocation[1]   == b.camLocation[1] &&
+        a.camLocation[2]   == b.camLocation[2] &&
+        a.camAngle[0]      == b.camAngle[0] &&
+        a.camAngle[1]      == b.camAngle[1] &&
+        a.camAngle[2]      == b.camAngle[2] &&
+        a.fieldOfView      == b.fieldOfView &&
+        a.depthOfField     == b.depthOfField &&
+        a.aperture         == b.aperture &&
+        a.apertureBlades   == b.apertureBlades &&
+        a.apertureRotation == b.apertureRotation;
     const bool rest_same =
         a.samples          == b.samples &&
         a.threads          == b.threads &&
@@ -123,7 +144,8 @@ static bool onlyPostProcessChanged(const ViewerParams& a, const ViewerParams& b)
         a.denoiseIntensity == b.denoiseIntensity &&
         a.exposure         == b.exposure &&
         a.envIntensity     == b.envIntensity &&
-        a.envRotation      == b.envRotation;
+        a.envRotation      == b.envRotation &&
+        cam_same;
     return rest_same && !pp_same;
 }
 
@@ -147,6 +169,25 @@ static void computeSidecarPath(const char* scenePath, char* out, size_t outCap) 
     memcpy(out + keep, suffix, suffixLen + 1);  // includes trailing NUL
 }
 
+// Read a JSON array of 3 numbers into `v`. Silently leaves `v` untouched if
+// the key is missing or the array is the wrong shape — defaults stay in place.
+static void readVec3Into(const ucm::JSObject* obj, const char* key, float v[3]) {
+    std::vector<ucm::JSValue>* arr = obj->getArrayProperty(key);
+    if (!arr || arr->size() < 3) return;
+    for (int i = 0; i < 3; i++) {
+        const ucm::JSValue& val = (*arr)[i];
+        if (val.type == ucm::JSType::JSType_Number) v[i] = (float)val.number;
+    }
+}
+
+static void writeVec3(ucm::JSONWriter& w, const char* key, const float v[3]) {
+    w.beginArrayWithKey(ucm::string(key));
+    w.writeArrayElement((double)v[0]);
+    w.writeArrayElement((double)v[1]);
+    w.writeArrayElement((double)v[2]);
+    w.endArray();
+}
+
 // Pull the sidecar's known fields into `params` (only overwrites keys that
 // are present, so older sidecars stay forward-compatible). Returns true if
 // the file existed and parsed — on failure, defaults stay in place.
@@ -168,15 +209,26 @@ static bool loadViewerConfig(const char* path, ViewerParams& params,
     if (obj->hasProperty("denoise"))
         params.denoise = obj->isBooleanPropertyTrue("denoise");
     obj->tryGetNumberProperty("denoiseIntensity", &params.denoiseIntensity);
+    // Camera
+    readVec3Into(obj, "location", params.camLocation);
+    readVec3Into(obj, "angle",    params.camAngle);
+    obj->tryGetNumberProperty("fieldOfView",      &params.fieldOfView);
+    obj->tryGetNumberProperty("depthOfField",     &params.depthOfField);
+    obj->tryGetNumberProperty("aperture",         &params.aperture);
+    obj->tryGetNumberProperty("apertureBlades",   &params.apertureBlades);
+    obj->tryGetNumberProperty("apertureRotation", &params.apertureRotation);
     obj->tryGetNumberProperty("exposure",         &params.exposure);
+    // Scene
     obj->tryGetNumberProperty("envIntensity",     &params.envIntensity);
     obj->tryGetNumberProperty("envRotation",      &params.envRotation);
+    // Post-process
     if (obj->hasProperty("postProcess"))
         params.postProcess = obj->isBooleanPropertyTrue("postProcess");
     obj->tryGetNumberProperty("bloomThreshold",   &params.bloomThreshold);
     obj->tryGetNumberProperty("bloomStrength",    &params.bloomStrength);
     obj->tryGetNumberProperty("bloomCurve",       &params.bloomCurve);
     obj->tryGetNumberProperty("bloomRadius",      &params.bloomRadius);
+    // Output
     obj->tryGetNumberProperty("outputWidth",      &outputWidth);
     obj->tryGetNumberProperty("outputHeight",     &outputHeight);
 
@@ -192,6 +244,13 @@ static void saveViewerConfig(const char* path, const ViewerParams& params,
     w.writeProperty("threads",          (int)params.threads);
     w.writeProperty("denoise",          params.denoise);
     w.writeProperty("denoiseIntensity", (double)params.denoiseIntensity);
+    writeVec3(w,     "location",        params.camLocation);
+    writeVec3(w,     "angle",           params.camAngle);
+    w.writeProperty("fieldOfView",      (double)params.fieldOfView);
+    w.writeProperty("depthOfField",     (double)params.depthOfField);
+    w.writeProperty("aperture",         (double)params.aperture);
+    w.writeProperty("apertureBlades",   (int)params.apertureBlades);
+    w.writeProperty("apertureRotation", (double)params.apertureRotation);
     w.writeProperty("exposure",         (double)params.exposure);
     w.writeProperty("envIntensity",     (double)params.envIntensity);
     w.writeProperty("envRotation",      (double)params.envRotation);
@@ -264,7 +323,17 @@ static void applyParamsToScene(const ViewerParams& p, RayRenderer& renderer, Sce
 
     scene.envmapIntensity = p.envIntensity;
     scene.envmapRotation  = p.envRotation;
-    if (scene.mainCamera) scene.mainCamera->exposure = p.exposure;
+    if (scene.mainCamera) {
+        Camera& cam = *scene.mainCamera;
+        cam.location         = vec3(p.camLocation[0], p.camLocation[1], p.camLocation[2]);
+        cam.angle            = vec3(p.camAngle[0],    p.camAngle[1],    p.camAngle[2]);
+        cam.fieldOfView      = p.fieldOfView;
+        cam.depthOfField     = p.depthOfField;
+        cam.aperture         = p.aperture;
+        cam.apertureBlades   = p.apertureBlades;
+        cam.apertureRotation = p.apertureRotation;
+        cam.exposure         = p.exposure;
+    }
 }
 
 int main(int argc, char** argv) {
@@ -368,7 +437,21 @@ int main(int argc, char** argv) {
         p.bloomRadius      = renderer.settings.bloomRadius;
         p.envIntensity     = scene->envmapIntensity;
         p.envRotation      = scene->envmapRotation;
-        if (scene->mainCamera) p.exposure = scene->mainCamera->exposure;
+        if (scene->mainCamera) {
+            const Camera& cam = *scene->mainCamera;
+            p.camLocation[0]   = cam.location.x;
+            p.camLocation[1]   = cam.location.y;
+            p.camLocation[2]   = cam.location.z;
+            p.camAngle[0]      = cam.angle.x;
+            p.camAngle[1]      = cam.angle.y;
+            p.camAngle[2]      = cam.angle.z;
+            p.fieldOfView      = cam.fieldOfView;
+            p.depthOfField     = cam.depthOfField;
+            p.aperture         = cam.aperture;
+            p.apertureBlades   = cam.apertureBlades;
+            p.apertureRotation = cam.apertureRotation;
+            p.exposure         = cam.exposure;
+        }
     };
 
     ViewerParams uiParams;
@@ -576,8 +659,34 @@ int main(int argc, char** argv) {
             }
         }
 
+        if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen)) {
+            // Drag widgets for position/rotation so a big scene (e.g. far-away
+            // mesh) and a small scene (tabletop) both feel natural; units are
+            // world-space metres for location, degrees for angle.
+            dirty |= ImGui::DragFloat3("location",         uiParams.camLocation,  0.05f, -1000.0f, 1000.0f, "%.3f");
+            dirty |= ImGui::DragFloat3("angle",            uiParams.camAngle,     0.5f,  -360.0f, 360.0f,   "%.2f");
+            dirty |= ImGui::SliderFloat("fieldOfView",    &uiParams.fieldOfView,  10.0f,  120.0f,           "%.1f");
+            dirty |= ImGui::SliderFloat("depthOfField",   &uiParams.depthOfField,  0.0f,  50.0f,            "%.2f");
+            // Show a hint when the scene pinned focus to an object: the
+            // renderer overwrites depthOfField each frame from that object's
+            // bbox, so the slider's value won't stick until it's cleared.
+            if (scene->mainCamera && !scene->mainCamera->focusOnObjectName.isEmpty()) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("(focus lock: %s)",
+                                    scene->mainCamera->focusOnObjectName.getBuffer());
+                ImGui::SameLine();
+                if (ImGui::SmallButton("clear##focus")) {
+                    scene->mainCamera->focusOnObjectName.clear();
+                    dirty = true;
+                }
+            }
+            dirty |= ImGui::SliderFloat("aperture",       &uiParams.aperture,      0.5f,  22.0f, "f/%.2f");
+            dirty |= ImGui::SliderInt  ("apertureBlades", &uiParams.apertureBlades, 0,    12);
+            dirty |= ImGui::SliderFloat("apertureRotation", &uiParams.apertureRotation, 0.0f, 360.0f, "%.1f");
+            dirty |= ImGui::SliderFloat("exposure",       &uiParams.exposure,      0.1f,  3.0f, "%.2f");
+        }
+
         if (ImGui::CollapsingHeader("Scene", ImGuiTreeNodeFlags_DefaultOpen)) {
-            dirty |= ImGui::SliderFloat("exposure",         &uiParams.exposure,     0.1f, 3.0f, "%.2f");
             dirty |= ImGui::SliderFloat("envmap intensity", &uiParams.envIntensity, 0.0f, 3.0f, "%.2f");
             dirty |= ImGui::SliderFloat("envmap rotation",  &uiParams.envRotation,  0.0f, 360.0f, "%.0f");
         }

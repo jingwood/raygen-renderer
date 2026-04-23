@@ -56,7 +56,7 @@ Scene argument is required; the viewer exits with a usage message otherwise. HiD
 
 ### Panels
 
-- **raygen viewer** — status + progress bar + cancel. Three collapsible sections: Quality (samples, threads, denoise), Scene (exposure, envmap intensity/rotation), Post-process (bloom threshold/strength/curve).
+- **raygen viewer** — status + progress bar + cancel. Four collapsible sections: Quality (samples, threads, denoise), Camera (location / angle / FoV / DoF / aperture / blades / apertureRotation / exposure, targets `scene.mainCamera`), Scene (envmap intensity/rotation), Post-process (bloom threshold/strength/curve/radius). When the scene pins `focusOn`, a "focus lock: <name>" badge appears next to the DoF slider with a `clear` button — the renderer recomputes DoF from the focus object's bbox every frame, so the slider won't stick until cleared.
 - **Output** — width/height + Apply + resolution presets (480p–4K). Disabled while rendering.
 - **File** — Reload scene, Save render (format from extension).
 - **render** — GL texture of the latest frame; mouse-wheel zooms, `1:1` / `fit` reset.
@@ -81,7 +81,7 @@ Scene reload swaps the `unique_ptr` while the worker is idle (button disabled ot
 
 Every render kick auto-writes the committed slider state to a sidecar next to the scene JSON: `cubeRoom.json` → `cubeRoom.viewer.json`. On load (startup *or* Reload scene) the sidecar overlays values onto the scene-seeded defaults, so user tweaks win while missing keys fall back to the scene. Sidecars are `.gitignore`-d (`*.viewer.json`) — they're per-user state, not scene authoring.
 
-Fields mirror the sliders plus output resolution: `samples`, `threads`, `denoise`, `denoiseIntensity`, `exposure`, `envIntensity`, `envRotation`, `postProcess`, `bloom{Threshold,Strength,Curve,Radius}`, `outputWidth`, `outputHeight`. Unknown/missing keys are ignored; unknown fields written by a future viewer version get dropped on rewrite.
+Fields mirror the sliders plus output resolution: `samples`, `threads`, `denoise`, `denoiseIntensity`, `location`, `angle`, `fieldOfView`, `depthOfField`, `aperture`, `apertureBlades`, `apertureRotation`, `exposure`, `envIntensity`, `envRotation`, `postProcess`, `bloom{Threshold,Strength,Curve,Radius}`, `outputWidth`, `outputHeight`. Camera keys use the same JSON shape as `scene.mainCamera` (arrays for `location`/`angle`) so the sidecar is hand-editable and diffable. Unknown/missing keys are ignored; unknown fields written by a future viewer version get dropped on rewrite.
 
 Why sidecar over writing back into scene.json: JSONC comments + authored structure would be lost on every round-trip, and scene authoring state (objects, lights, materials) has a different ownership than "what I last dialed the UI to".
 
