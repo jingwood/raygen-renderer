@@ -13,8 +13,13 @@
 #include "ucm/file.h"
 
 #if _WIN32
-#define _sscanf sscanf_s
-#define _sprintf sprintf_s
+// Plain sscanf/sprintf, not the *_s variants — the secure variants require a
+// buffer-size argument after each %s/%[...], and calling them without one hits
+// the CRT invalid-parameter handler that __fastfails (0xC0000409) at runtime.
+// Mac/Linux already use the plain versions.
+#define _CRT_SECURE_NO_WARNINGS
+#define _sscanf sscanf
+#define _sprintf sprintf
 #else
 #define _sscanf sscanf
 #define _sprintf sprintf

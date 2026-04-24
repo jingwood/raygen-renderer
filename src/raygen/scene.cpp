@@ -18,7 +18,11 @@
 #include "objreader.h"
 
 #ifdef _WIN32
-#define _sscanf sscanf_s
+// Plain sscanf, not sscanf_s — sscanf_s requires a buffer-size argument after
+// each %s/%[...] and without it invokes the CRT invalid-parameter handler,
+// which __fastfails (0xC0000409) at runtime. Mac/Linux already use sscanf.
+#define _CRT_SECURE_NO_WARNINGS
+#define _sscanf sscanf
 #ifndef PATH_MAX
 #define PATH_MAX 350
 #endif
