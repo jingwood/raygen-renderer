@@ -10,7 +10,7 @@
 		"fieldOfView": 45,
 		"depthOfField": 4.5,
 		"aperture": 2.8,
-		"apertureBlades": 0,
+		"apertureBlades": 8,
 		"apertureRotation": 10,
 		"exposure": 1.0
 	},
@@ -54,7 +54,7 @@
 		// footprint so the aperture sampling actually lands on it; scale*2
 		// (since SphereMesh has radius 1 by default) → 0.15 world radius.
 		// Bright emission so the centre saturates into the tone map.
-		"bokeh_01": { "location": [-3.2, 1.8, -3], "scale": [0.15, 0.15, 0.15], "mesh": { "type": "sphere" },   "mat": { "emission": 300, "color": [1.0, 0.25, 0.15] } },
+		"bokeh_01": { "location": [-3.2, 1.8, -3], "scale": [0.15, 0.15, 0.15], "mesh": { "type": "sphere" },   "mat": { "emission": 300, "color": [0.5, 0.95, 0.15] } },
 		"bokeh_02": { "location": [-2.0, 2.5, -4], "scale": [0.15, 0.15, 0.15], "mesh": { "type": "sphere" },   "mat": { "emission": 300, "color": [0.15, 0.25, 1.0] } },
 		"bokeh_03": { "location": [-0.8, 0.9, -5], "scale": [0.15, 0.15, 0.15], "mesh": { "type": "sphere" },   "mat": { "emission": 300, "color": [1.0, 1.0, 0.2] } },
 		"bokeh_04": { "location": [ 1.1, 1.6, -3.5], "scale": [0.15, 0.15, 0.15], "mesh": { "type": "sphere" }, "mat": { "emission": 300, "color": [0.2, 1.0, 0.35] } },
