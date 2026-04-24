@@ -829,7 +829,18 @@ color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const
                            -1.0f).normalize();
         }
 
-        sampleColor += this->traceEyeRay(ray);
+        color4f oneSample = this->traceEyeRay(ray);
+        // Firefly clamp: bound per-sample radiance before accumulation so a
+        // single near-infinite-variance path (tight NEE r², low-roughness
+        // glossy caustics…) cannot anchor the Monte-Carlo average. Biased but
+        // the bias shrinks as samples grow and speckles vanish.
+        const float clampMax = this->settings.fireflyClamp;
+        if (clampMax > 0.0f) {
+            oneSample.r = fminf(oneSample.r, clampMax);
+            oneSample.g = fminf(oneSample.g, clampMax);
+            oneSample.b = fminf(oneSample.b, clampMax);
+        }
+        sampleColor += oneSample;
     }
 
     const color3f radiance = sampleColor * ctx.exposure / (float)totalSamples;
@@ -1223,14 +1234,15 @@ color3 RayRenderer::tracePath(const Ray& ray, void* shaderParam) const {
     // from every direction. Falls back to zero when no envmap is set.
     color3 env = this->sampleEnvironment(ray.dir);
 
-    // If the caller advertised envmap MIS (i.e. sampled this direction with
-    // a cos-weighted diffuse lobe), apply the power-heuristic weight so
-    // direct NEE via traceEnvmapLight does not double-count.
+    // If the caller advertised BSDF MIS (i.e. sampled this direction via a
+    // BSDF strategy with known solid-angle pdf), apply the power-heuristic
+    // weight so direct NEE via traceEnvmapLight / GlossyShader envmap NEE
+    // does not double-count.
     if (shaderParam != NULL) {
         const BSDFParam* sp = (const BSDFParam*)shaderParam;
-        if (sp->misEnvBsdfPdf > 0.0f) {
+        if (sp->bsdfSampledPdf > 0.0f) {
             const float envPdf = this->envmapDirectionPdf(ray.dir);
-            const float b2 = sp->misEnvBsdfPdf * sp->misEnvBsdfPdf;
+            const float b2 = sp->bsdfSampledPdf * sp->bsdfSampledPdf;
             const float e2 = envPdf * envPdf;
             const float w = (b2 + e2 > 0.0f) ? b2 / (b2 + e2) : 1.0f;
             env = env * w;
@@ -1357,6 +1369,87 @@ color3 RayRenderer::traceAreaLight(const LightSource& lightSource, const vec3& h
     return lightMat.color * lightMat.emission
         * (dotObjectToLight * dotLightToRay * sampledArea / ((float)M_PI * r2))
         * wLight;
+}
+
+bool RayRenderer::sampleAreaLightForNEE(const vec3& hit, const vec3& surfaceNormal,
+                                        vec3& outDir, float& outPdfLight, color3& outLe) const {
+    const int N = (int)this->areaLightSources.size();
+    if (N <= 0) return false;
+
+    const LightSource& ls = this->areaLightSources[rand() % N];
+    const SceneObject* obj = ls.object;
+    if (obj == NULL) return false;
+
+    const auto& meshes = obj->getMeshes();
+    if (meshes.size() <= 0) return false;
+    const Mesh* mesh = meshes[rand() % meshes.size()];
+
+    const auto it = this->meshTriangles.find(mesh);
+    if (it == this->meshTriangles.end()) return false;
+    const auto& triangleList = it->second;
+    const size_t triCount = triangleList.size();
+    if (triCount <= 0) return false;
+
+    const auto& triangle = *triangleList[rand() % triCount];
+
+    // Same uniform-area sampling scheme traceAreaLight uses — the MIS pairing
+    // in the caller assumes this exact pdf.
+    const vec3 p = ldsPointInTriangle(triangle.tri);
+    const vec3 lightRay = p - hit;
+    const vec3 dir = normalize(lightRay);
+
+    const float cosObj = dot(dir, surfaceNormal);
+    if (cosObj <= 0.0f) return false;
+
+    VertexInterpolation lightHit;
+    calcVertexInterpolation(triangle, p, &lightHit);
+    const float cosLight = dot(-dir, lightHit.normal);
+    if (cosLight <= 0.0f) return false;
+
+    Ray shadowRay = ThicknessRay(hit, lightRay);
+    constexpr float maxt = 0.99999f;
+    const bool blocked = this->bvh.intersectAny(shadowRay, maxt, [](const RenderMeshTriangle* rt) {
+        const auto& mat = rt->object.material;
+        return mat.transparency < 0.01f && mat.emission <= 0.0f;
+    });
+    if (blocked) return false;
+
+    const Material& lightMat = obj->material;
+    const float sampledArea = (float)triCount * triangle.area;
+    const float r2 = lightRay.length2();
+    outDir = dir;
+    outPdfLight = r2 / (cosLight * sampledArea);
+    outLe = lightMat.color * lightMat.emission;
+    return true;
+}
+
+bool RayRenderer::sampleEnvmapForNEE(const vec3& hit, const vec3& surfaceNormal,
+                                     vec3& outDir, float& outPdfEnv, color3& outLi) const {
+    if (this->scene == NULL) return false;
+    const bool hasEquirect = this->scene->envmap != NULL && this->scene->envmapTotalWeight > 0.0f;
+    const bool hasCube = this->scene->envCubeFaceSize > 0 && this->scene->envCubeTotalWeight > 0.0f;
+    if (!hasEquirect && !hasCube) return false;
+
+    vec3 envDir;
+    float envPdf = 0.0f;
+    this->sampleEnvmapDirection(randomValue(), randomValue(), envDir, envPdf);
+    if (envPdf <= 0.0f) return false;
+
+    const float cosObj = dot(envDir, surfaceNormal);
+    if (cosObj <= 0.0f) return false;
+
+    const Ray shadowRay = ThicknessRay(hit, envDir);
+    const bool blocked = this->bvh.intersectAny(shadowRay, 1e30f, [](const RenderMeshTriangle* rt) {
+        const auto& mat = rt->object.material;
+        if (mat.emission > 0.0f) return false;
+        return mat.transparency < 0.01f || mat.refraction > 0.1f;
+    });
+    if (blocked) return false;
+
+    outDir = envDir;
+    outPdfEnv = envPdf;
+    outLi = this->sampleEnvironment(envDir);
+    return true;
 }
 
 color3 RayRenderer::tracePointLight(const LightSource& lightSource, const vec3& hit, const vec3& objectNormal) const {
@@ -1938,21 +2031,22 @@ color3 RayBSDFShaderProvider::shade(const RayTriangleIntersectionInfo& interInfo
     if (m.emission > 0.0f) {
         const color3 emission = m.color * m.emission;
 
-        // MIS partner for traceAreaLight: if the caller sampled this direction
-        // from a cos-weighted diffuse lobe, weight the emission we found with
-        // the BSDF-strategy power-heuristic weight. Otherwise (eye ray, or a
-        // non-MIS caller like GlossyShader), return the full emission.
+        // MIS partner for traceAreaLight / GlossyShader NEE: when the caller
+        // sampled this direction via a BSDF strategy with a known solid-angle
+        // pdf, weight the emission with the BSDF-side power-heuristic weight
+        // so the two strategies sum to one. bsdfSampledPdf == 0 means the
+        // caller sampled via a delta lobe (mirror / refraction) or no MIS
+        // pair exists (eye ray), in which case full emission is correct.
         if (shaderParam != NULL) {
             const BSDFParam* sp = (const BSDFParam*)shaderParam;
-            if (sp->misDiffuse) {
-                const float cosObj = dot(sp->misNormal, inray.dir);
+            if (sp->bsdfSampledPdf > 0.0f) {
                 const float cosLight = -dot(inray.dir, vi.normal);
-                if (cosObj <= 0.0f || cosLight <= 0.0f) return color3::zero;
+                if (cosLight <= 0.0f) return color3::zero;
 
                 const float r2 = (interInfo.hit - inray.origin).length2();
                 const float sampledArea = this->renderer->areaLightSampledArea(*interInfo.triangle);
                 const float pdfLight = r2 / (cosLight * sampledArea);
-                const float pdfBsdf = cosObj / (float)M_PI;
+                const float pdfBsdf = sp->bsdfSampledPdf;
                 const float pdfLight2 = pdfLight * pdfLight;
                 const float pdfBsdf2 = pdfBsdf * pdfBsdf;
                 const float wBsdf = pdfBsdf2 / (pdfBsdf2 + pdfLight2);
@@ -2006,11 +2100,12 @@ color3 RayBSDFShaderProvider::shade(const RayTriangleIntersectionInfo& interInfo
         // interface on this path uses the same wavelength — otherwise the
         // per-interface channel masks zero each other out.
         param.chromaChannel = sp->chromaChannel;
-        // Carry the envmap-MIS BSDF pdf forward too. It is relevant only at
-        // the immediate next hit (where tracePath would consume it); after
-        // any further bounce through a BSDF, the direction is re-sampled and
-        // this pdf no longer applies. Shaders that resample should clear it.
-        param.misEnvBsdfPdf = sp->misEnvBsdfPdf;
+        // Carry the BSDF-sampled pdf forward too. It is relevant only at the
+        // immediate next hit (where emission MIS / tracePath's envmap miss
+        // would consume it); after any further bounce through a BSDF, the
+        // direction is re-sampled and this pdf no longer applies. Shaders
+        // that resample save/overwrite/restore it around their tracePath.
+        param.bsdfSampledPdf = sp->bsdfSampledPdf;
 
         // Russian Roulette: kill low-contribution paths probabilistically and
         // rescale survivors by 1/q to keep the estimator unbiased. The max

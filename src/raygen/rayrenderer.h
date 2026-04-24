@@ -96,6 +96,14 @@ struct RendererSettings {
 	float denoiseSigmaDepth = 0.1f;
 	float denoiseIntensity = 1.0f;  // 0 = pass-through, 1 = full À-Trous
 
+	// Per-sample radiance clamp (“firefly clamp”). Bounds the HDR return of
+	// each primary sample before accumulation so a single path with
+	// near-infinite variance (small-radius NEE, glossy-caustic spikes, etc.)
+	// can’t dominate the Monte-Carlo average. Introduces a small energy bias
+	// on very bright features but cuts the speckle that otherwise never
+	// converges. 0 disables. Interpreted in linear HDR radiance.
+	float fireflyClamp = 10.0f;
+
 	// Bloom runs in linear HDR radiance (pre-tonemap) so a tiny 10000-cd
 	// emitter produces proportionally larger halo than a diffuse white pixel,
 	// which a post-tonemap LDR bloom can't — both clamp to ~1 after Reinhard.
@@ -254,6 +262,19 @@ public:
 	// (caller multiplies). bsdfPdf=0 skips MIS (weight 1).
 	color3 traceEnvmapLight(const vec3& hit, const vec3& normal, float bsdfPdf) const;
 	color3 traceLight(const vec3& hit, const vec3& objectNormal) const;
+
+	// BSDF-agnostic NEE sampling primitives: draw a direction from the light
+	// strategy, shadow-test it, and hand back (dir, pdf_light, Le) so the
+	// caller can evaluate its own BRDF·cos and compose the power-heuristic
+	// MIS weight. Returns false when no sample is useful (no lights, back-
+	// facing caller, back-facing light, or the shadow ray is blocked) — the
+	// caller then contributes zero without a MIS pair. `pdf_light` is solid-
+	// angle and matches the value traceAreaLight / traceEnvmapLight use on
+	// their own MIS calculation.
+	bool sampleAreaLightForNEE(const vec3& hit, const vec3& surfaceNormal,
+	                           vec3& outDir, float& outPdfLight, color3& outLe) const;
+	bool sampleEnvmapForNEE(const vec3& hit, const vec3& surfaceNormal,
+	                        vec3& outDir, float& outPdfEnv, color3& outLi) const;
 	color3 lambertTraceLights(const vec3& hit, const vec3& objectNormal) const;
 
 	// Effective area of the light strategy's pdf at a given emitter triangle:

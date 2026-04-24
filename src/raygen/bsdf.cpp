@@ -57,29 +57,21 @@ color3 DiffuseShader::shade(BSDFParam& param) {
     }
 
     const color3 savedT = param.throughput;
-    const bool savedMIS = param.misDiffuse;
-    const vec3 savedMISNormal = param.misNormal;
-    const float savedEnvBsdfPdf = param.misEnvBsdfPdf;
+    const float savedBsdfPdf = param.bsdfSampledPdf;
     param.throughput *= albedo;
-    // Advertise to the next hit that we sampled a cos-weighted diffuse lobe,
-    // so it can MIS-weight any emission it finds against the shadow-ray
-    // strategy used by traceLight.
-    param.misDiffuse = true;
-    param.misNormal = param.vi.normal;
-    // pdf of the cos-weighted sampled direction = cosθ/π. Pass it down so
-    // tracePath can MIS-weight envmap hits against the luminance-IS strategy
-    // used by traceEnvmapLight.
+    // pdf of the cos-weighted sampled direction = cosθ/π. Pass it down so the
+    // next hit (emission MIS) and tracePath (envmap miss MIS) can weight the
+    // BSDF-strategy side of the power heuristic against the area-light / env
+    // luminance-IS strategies used by traceLight / traceEnvmapLight.
     const float cosSampled = fmaxf(0.0f, dot(dir, param.vi.normal));
-    param.misEnvBsdfPdf = cosSampled * (float)(1.0 / M_PI);
+    param.bsdfSampledPdf = cosSampled * (float)(1.0 / M_PI);
 
     color3f color = renderer.tracePath(ray, (void*)&param)
                   + renderer.traceLight(interInfo.hit, param.vi.normal)
-                  + renderer.traceEnvmapLight(interInfo.hit, param.vi.normal, param.misEnvBsdfPdf);
+                  + renderer.traceEnvmapLight(interInfo.hit, param.vi.normal, param.bsdfSampledPdf);
 
     param.throughput = savedT;
-    param.misDiffuse = savedMIS;
-    param.misNormal = savedMISNormal;
-    param.misEnvBsdfPdf = savedEnvBsdfPdf;
+    param.bsdfSampledPdf = savedBsdfPdf;
 
     return color * albedo;
 }
@@ -164,21 +156,31 @@ color3 GlossyShader::shade(BSDFParam& param) {
         albedo *= m.texture->sample(param.vi.uv * m.texTiling).rgb;
     }
 
-    // Smooth material fast path: treat ~0 roughness as a delta mirror so we
-    // don't divide by a vanishing D in the microfacet estimator.
+    const color3 F0 = (m.metallic >= 1.0f) ? albedo
+                    : (albedo * m.metallic + color3(0.04f, 0.04f, 0.04f) * (1.0f - m.metallic));
+    auto schlickF = [&](float VdotH) {
+        const float a1 = fmaxf(0.0f, 1.0f - VdotH);
+        const float a5 = a1 * a1 * a1 * a1 * a1;
+        return F0 + (color3(1.0f, 1.0f, 1.0f) - F0) * a5;
+    };
+
+    // Smooth material fast path: treat ~0 roughness as a delta mirror. The
+    // BSDF pdf is a Dirac delta so NEE can't hit this lobe, and the emission
+    // hit at the reflected direction needs full radiance weight (no MIS) —
+    // advertise bsdfSampledPdf = 0 so the next hit skips the BSDF-side MIS
+    // weight.
     if (m.roughness < 1e-3f) {
         const vec3 r = reflect(inDir, normal);
         const float cosI = fmaxf(0.0f, -dot(inDir, normal));
-        const color3 F0 = (m.metallic >= 1.0f) ? albedo
-                        : (albedo * m.metallic + color3(0.04f, 0.04f, 0.04f) * (1.0f - m.metallic));
-        const float m1 = 1.0f - cosI;
-        const float m5 = m1 * m1 * m1 * m1 * m1;
-        const color3 F = F0 + (color3(1.0f, 1.0f, 1.0f) - F0) * m5;
+        const color3 F = schlickF(cosI);
 
         const color3 savedT = param.throughput;
+        const float savedPdf = param.bsdfSampledPdf;
         param.throughput *= F;
+        param.bsdfSampledPdf = 0.0f;
         const color3 incoming = renderer.tracePath(ThicknessRay(interInfo.hit, r), (void*)&param);
         param.throughput = savedT;
+        param.bsdfSampledPdf = savedPdf;
         return incoming * F;
     }
 
@@ -203,37 +205,103 @@ color3 GlossyShader::shade(BSDFParam& param) {
     const float ax = fmaxf(1e-3f, r2 * (1.0f - aniso));
     const float ay = fmaxf(1e-3f, r2 * (1.0f + aniso));
 
-    // Transform the view direction into the local frame (z = normal).
-    const vec3 V = -inDir;  // toward camera from hit
+    // View direction in the local frame (z = normal).
+    const vec3 V = -inDir;
     const vec3 Vlocal(dot(V, t), dot(V, b), dot(V, normal));
     if (Vlocal.z <= 0.0f) return color3::zero;  // back-face
 
-    // Visible-normal sample → half vector, then reflect.
+    const float G1v = smithG1(Vlocal, ax, ay);
+
+    // Evaluate (f·cos_L, pdf_bsdf) at an arbitrary world-space outgoing dir.
+    // Returns false when the geometry is invalid (below-surface / degenerate
+    // half-vector). Shared between area-light and envmap NEE.
+    auto evalGlossy = [&](const vec3& dirWorld, color3& fCos, float& pdfBsdf) -> bool {
+        const vec3 Llocal(dot(dirWorld, t), dot(dirWorld, b), dot(dirWorld, normal));
+        if (Llocal.z <= 0.0f) return false;
+        vec3 Hlocal = Vlocal + Llocal;
+        const float hlen2 = Hlocal.x*Hlocal.x + Hlocal.y*Hlocal.y + Hlocal.z*Hlocal.z;
+        if (hlen2 <= 0.0f) return false;
+        Hlocal = Hlocal * (1.0f / sqrtf(hlen2));
+        if (Hlocal.z <= 0.0f) return false;
+        const float VdotH = fmaxf(0.0f, dot(Vlocal, Hlocal));
+        if (VdotH <= 0.0f) return false;
+        const float hx_ax = Hlocal.x / ax;
+        const float hy_ay = Hlocal.y / ay;
+        const float denom = hx_ax * hx_ax + hy_ay * hy_ay + Hlocal.z * Hlocal.z;
+        const float D = 1.0f / ((float)M_PI * ax * ay * denom * denom);
+        const float G1l = smithG1(Llocal, ax, ay);
+        const color3 F = schlickF(VdotH);
+        // f·cos_L = F·D·G2 / (4·V.z) — the L.z cancels the 1/L.z in the BRDF.
+        fCos = F * (D * G1v * G1l / (4.0f * Vlocal.z));
+        pdfBsdf = G1v * D / (4.0f * Vlocal.z);
+        return true;
+    };
+
+    color3 direct = color3::zero;
+
+    // Area-light NEE with MIS against the BSDF strategy. This is the payoff
+    // path for scenes where the light is only reachable by a glossy bounce
+    // from the eye — BSDF-only sampling rarely lines up with the emitter, so
+    // without NEE those pixels remain as high-variance fireflies forever.
+    {
+        vec3 lDir; float pdfLight = 0.0f; color3 Le;
+        if (renderer.sampleAreaLightForNEE(interInfo.hit, normal, lDir, pdfLight, Le)) {
+            color3 fCos; float pdfBsdf = 0.0f;
+            if (evalGlossy(lDir, fCos, pdfBsdf)) {
+                const float pl2 = pdfLight * pdfLight;
+                const float pb2 = pdfBsdf * pdfBsdf;
+                const float wLight = pl2 / (pl2 + pb2);
+                direct += Le * fCos * (wLight / pdfLight);
+            }
+        }
+    }
+
+    // Envmap NEE with MIS (same structure as area-light NEE).
+    {
+        vec3 eDir; float pdfEnv = 0.0f; color3 Li;
+        if (renderer.sampleEnvmapForNEE(interInfo.hit, normal, eDir, pdfEnv, Li)) {
+            color3 fCos; float pdfBsdf = 0.0f;
+            if (evalGlossy(eDir, fCos, pdfBsdf)) {
+                const float pe2 = pdfEnv * pdfEnv;
+                const float pb2 = pdfBsdf * pdfBsdf;
+                const float wEnv = pe2 / (pe2 + pb2);
+                direct += Li * fCos * (wEnv / pdfEnv);
+            }
+        }
+    }
+
+    // BSDF sampling: visible-normal sample → half vector, then reflect.
     const vec3 H_local = sampleGGXVNDF(Vlocal, ax, ay, randomValue(), randomValue());
     vec3 L_local = H_local * (2.0f * dot(Vlocal, H_local)) - Vlocal;
-    if (L_local.z <= 0.0f) return color3::zero;  // below surface
+    if (L_local.z <= 0.0f) return direct;  // below surface — direct-only
 
     const vec3 L = t * L_local.x + b * L_local.y + normal * L_local.z;
 
-    // Fresnel Schlick, with F0 colour-locked to albedo for metals.
     const float VdotH = fmaxf(0.0f, dot(Vlocal, H_local));
-    const color3 F0 = (m.metallic >= 1.0f) ? albedo
-                    : (albedo * m.metallic + color3(0.04f, 0.04f, 0.04f) * (1.0f - m.metallic));
-    const float m1 = 1.0f - VdotH;
-    const float m5 = m1 * m1 * m1 * m1 * m1;
-    const color3 F = F0 + (color3(1.0f, 1.0f, 1.0f) - F0) * m5;
+    const color3 F = schlickF(VdotH);
 
     // VNDF sampling estimator: weight = F · G1(outgoing). The V-side G1 is
     // cancelled by the VNDF pdf.
     const float G1o = smithG1(L_local, ax, ay);
     const color3 weight = F * G1o;
 
+    // pdf of the sampled direction, handed to the next hit so emission MIS
+    // and envmap-miss MIS can apply the complementary BSDF-side weight.
+    const float hx_ax = H_local.x / ax;
+    const float hy_ay = H_local.y / ay;
+    const float denomBS = hx_ax * hx_ax + hy_ay * hy_ay + H_local.z * H_local.z;
+    const float D_bs = 1.0f / ((float)M_PI * ax * ay * denomBS * denomBS);
+    const float pdfBsdfSampled = G1v * D_bs / (4.0f * Vlocal.z);
+
     const color3 savedT = param.throughput;
+    const float savedPdf = param.bsdfSampledPdf;
     param.throughput *= weight;
+    param.bsdfSampledPdf = pdfBsdfSampled;
     const color3 incoming = renderer.tracePath(ThicknessRay(interInfo.hit, L), (void*)&param);
     param.throughput = savedT;
+    param.bsdfSampledPdf = savedPdf;
 
-    return incoming * weight;
+    return direct + incoming * weight;
 }
 
 color3 RefractionShader::shade(BSDFParam& param) {
@@ -293,11 +361,17 @@ color3 RefractionShader::shade(BSDFParam& param) {
     }
 
     const color3 savedT = param.throughput;
+    const float savedPdf = param.bsdfSampledPdf;
     param.throughput *= m.color;
+    // Refraction picks via a stochastic delta Fresnel split — both branches
+    // are effectively delta lobes. The next hit should get full contribution
+    // with no BSDF-side MIS pair.
+    param.bsdfSampledPdf = 0.0f;
 
     const color3f color = renderer.tracePath(ThicknessRay(interInfo.hit, dir), (void*)&param);
 
     param.throughput = savedT;
+    param.bsdfSampledPdf = savedPdf;
 
     return color * m.color * chanMask;
 }
@@ -318,11 +392,14 @@ color3 GlassShader::shade(BSDFParam& param) {
     }
 
     const color3 savedT = param.throughput;
+    const float savedPdf = param.bsdfSampledPdf;
     param.throughput *= m.color;
+    param.bsdfSampledPdf = 0.0f;  // delta refraction lobe
 
     const color3f color = renderer.tracePath(ThicknessRay(interInfo.hit, r), (void*)&param);
 
     param.throughput = savedT;
+    param.bsdfSampledPdf = savedPdf;
 
     return color * m.color;
 }

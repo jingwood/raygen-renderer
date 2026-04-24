@@ -28,23 +28,15 @@ public:
     // own BSDF attenuation). Consumed by Russian Roulette in the shader
     // provider to decide whether to keep extending the path.
     color3 throughput = color3(1.0f, 1.0f, 1.0f);
-    // MIS context for direct lighting: when the caller sampled the outgoing
-    // direction from a cosine-weighted diffuse lobe, record that here so the
-    // emission check at the next hit can apply the BSDF-strategy power-
-    // heuristic weight. misNormal is the caller's shading normal (needed to
-    // reconstruct pdf_bsdf = cos(θ_obj)/π for the hit direction).
-    bool misDiffuse = false;
-    vec3 misNormal;
     void* sourceShader = NULL;
     bool enableLightSample = false;
-    // When the current indirect ray was sampled from a cosine-weighted
-    // diffuse lobe with envmap MIS in play, record the BSDF pdf of the
-    // sampled direction here. If that ray escapes to the envmap, the
-    // path-tracer weights the envmap radiance with
-    //   pdf_bsdf² / (pdf_bsdf² + pdf_env²)
-    // so direct envmap NEE at the diffuse hit does not double-count.
-    // Zero disables MIS (no envmap NEE pair — full envmap contribution).
-    float misEnvBsdfPdf = 0.0f;
+    // Solid-angle pdf of the outgoing direction the caller sampled via its
+    // BSDF strategy. Used as the BSDF side of the power-heuristic MIS weight
+    // at the next hit — both when it lands on an emitter (vs area-light NEE)
+    // and when the ray escapes to the envmap (vs envmap NEE). BSDF-agnostic:
+    // DiffuseShader stores cosθ/π, GlossyShader stores the GGX VNDF pdf, a
+    // delta mirror leaves it at 0 which disables MIS (full contribution).
+    float bsdfSampledPdf = 0.0f;
     // When the eye ray has committed to a single wavelength band for
     // chromatic dispersion, this records which channel (0/1/2 = R/G/B) the
     // whole path is tracing. -1 means the path hasn't hit a dispersive
