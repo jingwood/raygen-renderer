@@ -508,7 +508,7 @@ SceneResourcePool::~SceneResourcePool() {
 
 Mesh* SceneResourcePool::loadMeshFromFile(const string& meshURI, Archive* archive) {
     Mesh* mesh = new Mesh();
-    
+
     if (meshURI.startsWith("sob://")
         || meshURI.startsWith("tob://")) {
         char bundleName[PATH_MAX];
