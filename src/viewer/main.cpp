@@ -535,14 +535,20 @@ int main(int argc, char** argv) {
                     int w = 0, h = 0;
                     packImageToRGBA(renderer.getRenderResult(), rgba, w, h);
 
-                    std::lock_guard<std::mutex> lk(job.mu);
-                    job.result.rgba = std::move(rgba);
-                    job.result.width = w;
-                    job.result.height = h;
-                    job.result.secs = now;
-                    job.result.isPreview = true;
-                    job.result.previewProgress = progress;
-                    job.ready = true;
+                    {
+                        std::lock_guard<std::mutex> lk(job.mu);
+                        job.result.rgba = std::move(rgba);
+                        job.result.width = w;
+                        job.result.height = h;
+                        job.result.secs = now;
+                        job.result.isPreview = true;
+                        job.result.previewProgress = progress;
+                        job.ready = true;
+                    }
+                    // Wake the main thread (which is blocked in
+                    // glfwWaitEventsTimeout) so the partial frame shows up
+                    // without waiting for the next input event.
+                    glfwPostEmptyEvent();
                 };
                 renderer.render();
                 renderer.progressCallback = nullptr;
@@ -559,26 +565,36 @@ int main(int argc, char** argv) {
                 job.running = false;
                 job.ready = true;
             }
+            glfwPostEmptyEvent();
         }
     });
 
-    // Kick an initial render so something appears on screen immediately.
-    // Every kick also refreshes the sidecar: auto-save uses "what the user
-    // just committed to render" as the source of truth. File write happens
-    // outside the mutex so a slow disk can't stall the worker handoff.
-    auto enqueue = [&](const ViewerParams& p, JobKind kind = JobKind::Full) {
-        {
-            std::lock_guard<std::mutex> lk(job.mu);
-            job.pending = p;
-            job.pendingKind = kind;
-            job.hasPending = true;
-            job.cv.notify_one();
-        }
-        saveViewerConfig(sidecarPath, p,
+    // Worker hand-off. Kept narrow (no file I/O under the mutex) so the
+    // render thread picks up the pending params as soon as it's woken.
+    auto enqueueWorker = [&](const ViewerParams& p, JobKind kind) {
+        std::lock_guard<std::mutex> lk(job.mu);
+        job.pending = p;
+        job.pendingKind = kind;
+        job.hasPending = true;
+        job.cv.notify_one();
+    };
+
+    // Persist the user-facing ViewerParams (not any preview-time override
+    // like samples=1) to the sidecar. File write happens outside the worker
+    // mutex so a slow disk can't stall the handoff.
+    auto persistSidecar = [&]() {
+        saveViewerConfig(sidecarPath, uiParams,
                          renderer.settings.resolutionWidth,
                          renderer.settings.resolutionHeight);
     };
-    enqueue(uiParams);
+
+    // Convenience: fire a full-quality kick and persist. Used for initial
+    // load and explicit user actions (Re-render button, Apply, Reload).
+    auto kickFinal = [&](JobKind kind = JobKind::Full) {
+        enqueueWorker(uiParams, kind);
+        persistSidecar();
+    };
+    kickFinal();
 
     GLuint renderTex = 0;
     int   texW = 0, texH = 0;
@@ -595,8 +611,12 @@ int main(int argc, char** argv) {
     int outputWidth  = renderer.settings.resolutionWidth;
     int outputHeight = renderer.settings.resolutionHeight;
 
-    // Preview image zoom driven by mouse-wheel over the render window.
-    float imageZoom = 1.0f;
+    // Preview image transform. `imageZoom` is a 2D scale; `imagePan` is the
+    // offset of the image centre from the canvas centre (screen pixels).
+    // Wheel-zoom preserves the image-space point under the cursor; drag on
+    // the canvas translates `imagePan`.
+    float  imageZoom = 1.0f;
+    ImVec2 imagePan  = ImVec2(0.0f, 0.0f);
 
     // Currently selected scene object (for the Property window). Lifetime is
     // the current Scene's — Reload swaps the Scene unique_ptr so we clear the
@@ -651,7 +671,12 @@ int main(int argc, char** argv) {
     };
 
     while (!glfwWindowShouldClose(window)) {
-        glfwPollEvents();
+        // Event-driven: sleep until the OS or the worker (via
+        // glfwPostEmptyEvent) gives us something to do. A short timeout
+        // while a render is in-flight lets the progress bar tick between
+        // worker snapshots; a longer one at rest keeps the viewer truly
+        // idle (no 120fps redraw burn on battery).
+        glfwWaitEventsTimeout(isRendering ? 0.05 : 0.5);
 
         // Pull any ready result onto the GL texture.
         {
@@ -733,7 +758,10 @@ int main(int argc, char** argv) {
                     dirty = true;
                 }
             }
-            dirty |= ImGui::SliderFloat("aperture",       &uiParams.aperture,      0.5f,  22.0f, "f/%.2f");
+            // aperture=0 disables DOF entirely (the renderer gates on
+            // ctx.aperture > 0), so keeping 0 reachable lets the user
+            // get pinhole-sharp output without touching depthOfField.
+            dirty |= ImGui::SliderFloat("aperture",       &uiParams.aperture,      0.0f,  22.0f, "f/%.2f");
             dirty |= ImGui::SliderInt  ("apertureBlades", &uiParams.apertureBlades, 0,    12);
             dirty |= ImGui::SliderFloat("apertureRotation", &uiParams.apertureRotation, 0.0f, 360.0f, "%.1f");
             dirty |= ImGui::SliderFloat("exposure",       &uiParams.exposure,      0.1f,  3.0f, "%.2f");
@@ -772,7 +800,7 @@ int main(int argc, char** argv) {
         if (!canKick) ImGui::BeginDisabled();
         if (ImGui::Button("Re-render (full)")) {
             lastKickedParams = uiParams;
-            enqueue(uiParams, JobKind::Full);
+            kickFinal(JobKind::Full);
             pendingDirty = false;
         }
         if (!canKick) ImGui::EndDisabled();
@@ -788,14 +816,9 @@ int main(int argc, char** argv) {
                                 nextKind == JobKind::PostOnly ? "post-only" : "full");
         }
 
-        if (!isRendering && pendingDirty) {
-            const JobKind kind =
-                onlyPostProcessChanged(lastKickedParams, uiParams)
-                    ? JobKind::PostOnly : JobKind::Full;
-            lastKickedParams = uiParams;
-            enqueue(uiParams, kind);
-            pendingDirty = false;
-        }
+        // The auto-kick decision runs at end-of-frame so it catches widget
+        // activity from every panel (Outline, Property, etc.) — not just the
+        // control panel drawn first. See below, just before ImGui::Render().
 
         ImGui::End();
 
@@ -820,7 +843,7 @@ int main(int argc, char** argv) {
             renderer.settings.resolutionHeight = outputHeight;
             renderer.setRenderSize(outputWidth, outputHeight);
             lastKickedParams = uiParams;
-            enqueue(uiParams, JobKind::Full);
+            kickFinal(JobKind::Full);
         };
 
         if (!canApply) ImGui::BeginDisabled();
@@ -887,7 +910,7 @@ int main(int argc, char** argv) {
             }
 
             lastKickedParams = uiParams;
-            enqueue(uiParams, JobKind::Full);
+            kickFinal(JobKind::Full);
         }
         if (!canFile) ImGui::EndDisabled();
 
@@ -903,18 +926,19 @@ int main(int argc, char** argv) {
         ImGui::End();
 
         // --- Render preview ---
-        ImGui::Begin("render", nullptr, ImGuiWindowFlags_HorizontalScrollbar);
+        // The image is drawn as a free-floating quad inside a fixed-size
+        // canvas (not via ImGui::Image + scrollbars). This lets wheel-zoom
+        // preserve the image-space point under the cursor, and lets left-
+        // drag translate the image — the window chrome itself doesn't move.
+        ImGui::Begin("render", nullptr,
+                     ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
         if (renderTex != 0) {
-            // Zoom via mouse wheel while the render window is hovered. 1.1x
-            // per tick gives a nicely log-ish zoom feel at any starting size.
-            if (ImGui::IsWindowHovered() && io.MouseWheel != 0.0f) {
-                imageZoom *= (io.MouseWheel > 0.0f) ? 1.1f : (1.0f / 1.1f);
-                if (imageZoom < 0.05f) imageZoom = 0.05f;
-                if (imageZoom > 16.0f) imageZoom = 16.0f;
-            }
-            ImGui::Text("zoom: %.2fx   (mouse wheel, or)", imageZoom);
+            ImGui::Text("zoom: %.2fx", imageZoom);
             ImGui::SameLine();
-            if (ImGui::SmallButton("1:1")) imageZoom = 1.0f;
+            if (ImGui::SmallButton("1:1")) {
+                imageZoom = 1.0f;
+                imagePan  = ImVec2(0.0f, 0.0f);
+            }
             ImGui::SameLine();
             if (ImGui::SmallButton("fit")) {
                 const ImVec2 avail = ImGui::GetContentRegionAvail();
@@ -922,9 +946,67 @@ int main(int argc, char** argv) {
                 const float sy = avail.y / (float)texH;
                 imageZoom = (sx < sy) ? sx : sy;
                 if (imageZoom < 0.05f) imageZoom = 0.05f;
+                imagePan = ImVec2(0.0f, 0.0f);
             }
-            ImGui::Image((ImTextureID)(intptr_t)renderTex,
-                         ImVec2((float)texW * imageZoom, (float)texH * imageZoom));
+            ImGui::SameLine();
+            ImGui::TextDisabled("(wheel = zoom, drag = pan)");
+
+            // Canvas area fills the rest of the window. An invisible button
+            // captures left/middle-click so dragging inside stays on the
+            // image (not the ImGui window).
+            const ImVec2 canvasStart = ImGui::GetCursorScreenPos();
+            const ImVec2 canvasSize  = ImGui::GetContentRegionAvail();
+            if (canvasSize.x > 0.0f && canvasSize.y > 0.0f) {
+                const ImVec2 canvasCenter(canvasStart.x + canvasSize.x * 0.5f,
+                                          canvasStart.y + canvasSize.y * 0.5f);
+
+                ImGui::InvisibleButton("##canvas", canvasSize,
+                                       ImGuiButtonFlags_MouseButtonLeft |
+                                       ImGuiButtonFlags_MouseButtonMiddle);
+                const bool canvasHovered = ImGui::IsItemHovered();
+                const bool canvasActive  = ImGui::IsItemActive();
+
+                // Wheel zoom toward mouse cursor. Derivation: keep the image-
+                // space point under the cursor fixed while scaling, i.e.
+                //   pan' = (1 - k) * (mouse - center) + k * pan
+                // where k = zoomNew / zoomOld.
+                if (canvasHovered && io.MouseWheel != 0.0f) {
+                    const float oldZoom = imageZoom;
+                    float newZoom = oldZoom * (io.MouseWheel > 0.0f ? 1.1f : (1.0f / 1.1f));
+                    if (newZoom < 0.05f) newZoom = 0.05f;
+                    if (newZoom > 16.0f) newZoom = 16.0f;
+                    if (newZoom != oldZoom) {
+                        const float k = newZoom / oldZoom;
+                        const float dmx = io.MousePos.x - canvasCenter.x;
+                        const float dmy = io.MousePos.y - canvasCenter.y;
+                        imagePan.x = (1.0f - k) * dmx + k * imagePan.x;
+                        imagePan.y = (1.0f - k) * dmy + k * imagePan.y;
+                        imageZoom = newZoom;
+                    }
+                }
+
+                // Drag-to-pan (left button, cursor over canvas).
+                if (canvasActive && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f)) {
+                    imagePan.x += io.MouseDelta.x;
+                    imagePan.y += io.MouseDelta.y;
+                }
+
+                // Clip the image to the canvas rect so it doesn't bleed into
+                // the title-bar region or neighbouring panels.
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                const ImVec2 clipMax(canvasStart.x + canvasSize.x,
+                                     canvasStart.y + canvasSize.y);
+                dl->PushClipRect(canvasStart, clipMax, true);
+
+                const ImVec2 displaySize(texW * imageZoom, texH * imageZoom);
+                const ImVec2 imgMin(canvasCenter.x - displaySize.x * 0.5f + imagePan.x,
+                                    canvasCenter.y - displaySize.y * 0.5f + imagePan.y);
+                const ImVec2 imgMax(imgMin.x + displaySize.x,
+                                    imgMin.y + displaySize.y);
+                dl->AddImage((ImTextureID)(intptr_t)renderTex, imgMin, imgMax);
+
+                dl->PopClipRect();
+            }
         } else {
             ImGui::Text("(warming up...)");
         }
@@ -1022,14 +1104,56 @@ int main(int argc, char** argv) {
         ImGui::End();
 
         // Scene edits always need a full re-trace (BVH bounds, transforms,
-        // materials all feed the primary ray). Route through the existing
-        // pendingDirty/enqueue machinery: since uiParams is unchanged,
-        // onlyPostProcessChanged() returns false naturally and the kick runs
-        // as Full — exactly what a material/transform change needs. This is
-        // one frame after the edit because this block runs *after* the kick
-        // site in the control panel.
+        // materials all feed the primary ray). Route through the shared
+        // pendingDirty machinery; uiParams is unchanged, so
+        // onlyPostProcessChanged() returns false and the kick runs as Full.
         if (sceneDirty) {
             pendingDirty = true;
+        }
+
+        // Auto-kick: the single site for slider-driven renders. Placed after
+        // every panel so it sees widget activity from any of them (control
+        // panel, Outline, Property) without a one-frame lag.
+        //
+        // Live preview: while ANY ImGui item is held (slider drag, ColorEdit
+        // picker, DragFloat3 scrub), override samples to 1 so feedback stays
+        // interactive. On release, fall through to one more kick with the
+        // user's real sample count — that's the "final" render that also
+        // gets persisted to the sidecar. The `lastKickWasPreview` gate keeps
+        // non-slider widget releases (button taps etc.) from triggering a
+        // redundant re-render when their kick already ran at full quality.
+        const bool anyActive     = ImGui::IsAnyItemActive();
+        static bool prevActive   = false;
+        static bool lastKickWasPreview = false;
+        const bool justReleased  = prevActive && !anyActive;
+        prevActive = anyActive;
+
+        const bool wantPreview = anyActive && uiParams.samples > 1;
+
+        if (!isRendering && (pendingDirty || (justReleased && lastKickWasPreview))) {
+            // Kind decision uses uiParams — the user's real intent. Feeding
+            // the preview snapshot here would let the forced samples=1 pose
+            // as "samples changed" on every drag frame, routing a bloom edit
+            // to a Full trace instead of the cheap PostOnly rebloom.
+            const JobKind kind =
+                onlyPostProcessChanged(lastKickedParams, uiParams)
+                    ? JobKind::PostOnly : JobKind::Full;
+
+            // Only Full renders care about samples; PostOnly replays bloom
+            // over the cached HDR image, so leaving samples alone there also
+            // avoids clobbering renderer.settings.samples in the rare cache-
+            // miss fallback (where PostOnly degrades into a full render()).
+            ViewerParams snapshot = uiParams;
+            const bool applyOverride = (kind == JobKind::Full) && wantPreview;
+            if (applyOverride) snapshot.samples = 1;
+
+            lastKickedParams = uiParams;
+            enqueueWorker(snapshot, kind);
+            lastKickWasPreview = applyOverride;
+            // Only persist when we're at rest — preview snapshots with
+            // forced samples=1 would otherwise overwrite the user-set value.
+            if (!anyActive) persistSidecar();
+            pendingDirty = false;
         }
 
         ImGui::Render();
