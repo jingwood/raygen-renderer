@@ -1,0 +1,42 @@
+// Minimal Phase 2 test — single transparent cube with cone-mode emission.
+// Camera looking down -Z directly at the cube center. If the procedural
+// emission is wired up correctly, this should glow visibly.
+{
+  "mainCamera": {
+    "location": [0, 0, 4],
+    "angle": [0, 0, 0],
+    "fieldOfView": 50,
+    "exposure": 1.0
+  },
+
+  "world": {
+    "Floor": {
+      "location": [0, -1.0, 0],
+      "scale": [10, 1, 10],
+      "mesh": { "type": "plane" },
+      "mat": { "color": "#444444", "diffuse": 1.0 }
+    },
+
+    "FlameVolume": {
+      "location": [-0.25, 0.1, 0],
+      "scale": [1.6, 0.8, 0.8],
+      "mesh": { "type": "cube" },
+      "mat": { "color": "#ffffff", "transparency": 1.0 },
+      "medium": {
+        "sigma_a": [0, 0, 0],
+        "sigma_s": [0, 0, 0],
+        "emissionMode": "cone",
+        "coneOrigin":   [0.5, 0.1, 0],
+        "coneAxis":     [-1, 0, 0],
+        "coneLength":   1.5,
+        "coneRadius":   0.3,
+        "coneInner":    [10, 12, 18],
+        "coneOuter":    [12, 4, 0.5],
+        "coneIntensity": 30.0,
+        "conePeakAxial": 0.15,
+        "conePeakSharpness": 4.0,
+        "coneEmissionSamples": 8
+      }
+    }
+  }
+}

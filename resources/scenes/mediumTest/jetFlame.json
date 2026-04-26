@@ -1,0 +1,65 @@
+// Phase 2 procedural emission demo: jet engine afterburner inside a thin
+// transparent bounding cube. The cube only exists so the renderer's
+// TransparencyShader swaps currentMedium to the interior on entry; all the
+// visible glow comes from the cone-mode emission profile sampled along each
+// ray.
+//
+// Scene layout (world axes, +Y up):
+//   - Engine "nozzle" (dark metal sphere) at the right side, x ≈ 0.6
+//   - Flame extends to the left along -X for ~1.5 m
+//   - Bounding cube sized to envelope the cone: x ∈ [-1.0, 0.6], y/z ±0.4
+//   - Camera looking at the side from +Z
+{
+  "mainCamera": {
+    "location": [0, 0.4, 4],
+    "angle": [-3, 0, 0],
+    "fieldOfView": 45,
+    "exposure": 0.7
+  },
+
+  "world": {
+    "Floor": {
+      "location": [0, -1.0, 0],
+      "scale": [12, 1, 12],
+      "mesh": { "type": "plane" },
+      "mat": { "color": "#222222", "diffuse": 1.0 }
+    },
+
+    "BackWall": {
+      "location": [0, 1.0, -3],
+      "scale": [12, 4, 1],
+      "mesh": { "type": "plane" },
+      "angle": [90, 0, 0],
+      "mat": { "color": "#1a1a1a", "diffuse": 1.0 }
+    },
+
+    "Nozzle": {
+      "location": [0.6, 0.4, 0],
+      "scale": [0.18, 0.18, 0.18],
+      "mesh": { "type": "sphere" },
+      "mat": { "color": "#1a1a1a", "glossy": 0.7, "metallic": 1.0, "roughness": 0.35 }
+    },
+
+    "FlameVolume": {
+      "location": [-0.2, 0.4, 0],
+      "scale": [1.6, 0.7, 0.7],
+      "mesh": { "type": "cube" },
+      "mat": { "color": "#ffffff", "transparency": 1.0 },
+      "medium": {
+        "sigma_a": [0, 0, 0],
+        "sigma_s": [0, 0, 0],
+        "emissionMode": "cone",
+        "coneOrigin":   [0.6, 0.4, 0],
+        "coneAxis":     [-1, 0, 0],
+        "coneLength":   1.6,
+        "coneRadius":   0.35,
+        "coneInner":    [4, 6, 12],
+        "coneOuter":    [10, 3, 0.4],
+        "coneIntensity": 25.0,
+        "conePeakAxial": 0.18,
+        "conePeakSharpness": 4.0,
+        "coneEmissionSamples": 8
+      }
+    }
+  }
+}

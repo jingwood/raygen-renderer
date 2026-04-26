@@ -18,6 +18,7 @@
 #include "ugm/imgcodec.h"
 #include "ucm/ansi.h"
 #include "lambert.h"
+#include "medium.h"
 #include "polygons.h"
 
 #define CUT_OFF_BACK_TRACE
@@ -152,7 +153,7 @@ void RayRenderer::clearTransformedScene() {
 
 void RayRenderer::transformScene() {
     if (this->scene == NULL) return;
-    
+
     this->triangleList.clear();
 
     for (SceneObject* obj : this->scene->getObjects()) {
@@ -160,8 +161,25 @@ void RayRenderer::transformScene() {
             this->transformObject(*this->transformStack, *obj);
         }
     }
-    
+
     this->bvh.build(this->triangleList);
+
+    // Bake any participating-medium cone params into render space (the BVH
+    // and all rays operate in viewMatrix-transformed coordinates). Authored
+    // values are world-space; a single matrix mult per medium per frame is
+    // negligible vs. the per-sample emissionAt evaluation that would
+    // otherwise need to undo the transform on every step.
+    if (this->scene->globalMedium != NULL) {
+        this->scene->globalMedium->bake(this->viewMatrix);
+    }
+    std::function<void(SceneObject*)> bakeObj = [&](SceneObject* obj) {
+        if (obj == NULL) return;
+        if (obj->interiorMedium != NULL) {
+            obj->interiorMedium->bake(this->viewMatrix);
+        }
+        for (SceneObject* child : obj->getObjects()) bakeObj(child);
+    };
+    for (SceneObject* obj : this->scene->getObjects()) bakeObj(obj);
 
     //    int count = 0;
     //    for (const auto& m : this->meshTriangles) {
@@ -899,6 +917,22 @@ color4 RayRenderer::traceEyeRay(const Ray& ray) const {
     RayTriangleIntersectionInfo interInfo;
     this->findNearestTriangle(ray, interInfo);
 
+    // Volumetric eye ray: route through tracePath so the global medium's
+    // free-flight sampling, in-scattering NEE, and emission integral run on
+    // the camera-to-first-hit segment. Skipped when no global medium is set
+    // so non-volumetric scenes keep their existing fast path verbatim.
+    const HomogeneousMedium* gm = (this->scene != NULL) ? this->scene->globalMedium : NULL;
+    if (gm != NULL && gm->isActive()) {
+        const color3 shaded = this->tracePath(ray, NULL);
+        if (interInfo.triangle != NULL || shaded != color3::zero) {
+            return color4(fmaxf(shaded.r, 0.0f),
+                          fmaxf(shaded.g, 0.0f),
+                          fmaxf(shaded.b, 0.0f),
+                          1.0f);
+        }
+        return this->settings.backColor;
+    }
+
     if (interInfo.triangle != NULL) {
         VertexInterpolation vi;
         this->calcVertexInterpolation(interInfo, &vi);
@@ -1223,21 +1257,163 @@ color3 RayRenderer::tracePath(const Ray& ray, void* shaderParam) const {
     RayTriangleIntersectionInfo info;
     this->findNearestTriangle(ray, info);
 
+    // Pick the medium currently filling the segment. Eye-ray entry has no
+    // BSDFParam yet, so fall back to the scene's global medium (fog).
+    const HomogeneousMedium* medium = NULL;
+    if (shaderParam != NULL) {
+        medium = ((const BSDFParam*)shaderParam)->currentMedium;
+    } else if (this->scene != NULL) {
+        medium = this->scene->globalMedium;
+    }
+
+    // Surface-only fast path: legacy behaviour preserved when no medium is
+    // active. Keeps the eye-ray hot loop free of the volumetric work for
+    // scenes that don't author one.
+    if (medium == NULL || !medium->isActive()) {
+        if (info.triangle != NULL) {
+            VertexInterpolation vi;
+            this->calcVertexInterpolation(info, &vi);
+            return this->shaderProvider->shade(info, ray, vi, shaderParam);
+        }
+
+        color3 env = this->sampleEnvironment(ray.dir);
+        if (shaderParam != NULL) {
+            const BSDFParam* sp = (const BSDFParam*)shaderParam;
+            if (sp->bsdfSampledPdf > 0.0f) {
+                const float envPdf = this->envmapDirectionPdf(ray.dir);
+                const float b2 = sp->bsdfSampledPdf * sp->bsdfSampledPdf;
+                const float e2 = envPdf * envPdf;
+                const float w = (b2 + e2 > 0.0f) ? b2 / (b2 + e2) : 1.0f;
+                env = env * w;
+            }
+        }
+        return env;
+    }
+
+    // Volumetric path. Free-flight distance is sampled from a single
+    // "hero" channel exponential, then per-channel σt mismatch is corrected
+    // by a spectral weight at the chosen event (scatter or surface). The
+    // medium's own emission along the segment is added analytically — no
+    // per-sample noise on uniform glow.
+    const float maxT = (info.triangle != NULL) ? info.t : RAY_MAX_DISTANCE;
+
+    const float u = randomValue();
+    const float tFlight = medium->sampleFreeFlight(u);
+
+    // Emission accumulated through the segment, regardless of which event we
+    // pick. Bounded by min(tFlight, maxT) so we don't double-count past the
+    // surface or past the scatter event.
+    const float emissionLen = (tFlight < maxT) ? tFlight : maxT;
+    // Procedural emission (Cone mode) needs a sampled integral along the
+    // segment because σe(p) varies; Constant mode falls back to the closed-
+    // form integral inside emissionIntegralAlongRay() so authoring a uniform
+    // glow stays cheap.
+    color3 mediumEmission = medium->emissionIntegralAlongRay(ray, emissionLen);
+
+    if (tFlight < maxT) {
+        // In-scattering event. Per-channel weight = Tr(t)·σs / (σt_hero·exp(-σt_hero·t)).
+        // For grey σt this collapses to the scattering albedo σs/σt; for
+        // tinted media the spectral mismatch correction lives here.
+        const float pHero = medium->freeFlightPdf(tFlight);
+        const color3 Tr = medium->transmittance(tFlight);
+        color3 scatterWeight;
+        if (pHero > 0.0f) {
+            scatterWeight = color3(medium->sigma_s_eff.r * Tr.r / pHero,
+                                   medium->sigma_s_eff.g * Tr.g / pHero,
+                                   medium->sigma_s_eff.b * Tr.b / pHero);
+        }
+
+        if (scatterWeight == color3::zero) {
+            // Pure-absorbing volume (σs = 0). The distance sample only
+            // affects emission; surface beyond the event is occluded by Tr.
+            return mediumEmission;
+        }
+
+        const vec3 scatterPos = ray.origin + ray.dir * tFlight;
+
+        // Honour the path depth budget so dense smoke can't infinite-loop on
+        // multi-scatter inside an object.
+        BSDFParam* spIn = (BSDFParam*)shaderParam;
+        int passes = (spIn != NULL) ? spIn->passes + 1 : 1;
+        if (passes > MAX_TRACE_DEPTH) {
+            return mediumEmission;
+        }
+
+        // NEE inside the medium. Reuse the surface NEE samplers to draw a
+        // direction toward an area light or the envmap; weight by the HG
+        // phase function. Phase 1 simplification: shadow-ray transmittance
+        // through the medium is omitted, slightly overestimating direct
+        // lighting in dense volumes — revisited when ray-segment Tr lands
+        // alongside nested-media tracking.
+        color3 direct = color3::zero;
+        const vec3 surfaceNormalProxy = -ray.dir;
+
+        vec3 lDir; float pdfLight = 0.0f; color3 Le;
+        if (this->sampleAreaLightForNEE(scatterPos, surfaceNormalProxy, lDir, pdfLight, Le) && pdfLight > 0.0f) {
+            const float phase = medium->phasePdf(-ray.dir, lDir);
+            direct += Le * phase * (1.0f / pdfLight);
+        }
+
+        vec3 eDir; float pdfEnv = 0.0f; color3 Li;
+        if (this->sampleEnvmapForNEE(scatterPos, surfaceNormalProxy, eDir, pdfEnv, Li) && pdfEnv > 0.0f) {
+            const float phase = medium->phasePdf(-ray.dir, eDir);
+            direct += Li * phase * (1.0f / pdfEnv);
+        }
+
+        // HG sampling is proportional to the phase value, so phase/pdf == 1
+        // and the indirect return needs no extra weight.
+        const vec3 nextDir = medium->samplePhase(ray.dir, randomValue(), randomValue());
+
+        // Volumetric scatter has no surface, but BSDFParam still needs an
+        // interInfo / vi to satisfy the signature. The non-surface branch in
+        // tracePath only reads currentMedium / passes / throughput / pdf, so
+        // a stack-local zero-init of vi is enough — we never deref triangle.
+        VertexInterpolation viDummy;
+        BSDFParam scatterParam(*const_cast<RayRenderer*>(this), info, ray,
+                               viDummy, passes, NULL);
+        scatterParam.currentMedium = medium;
+        if (spIn != NULL) {
+            scatterParam.throughput = spIn->throughput;
+            scatterParam.chromaChannel = spIn->chromaChannel;
+        }
+        scatterParam.bsdfSampledPdf = 0.0f;  // phase sample is not a BSDF MIS pair
+
+        // Russian Roulette on the volumetric path uses the same throughput
+        // criterion as the surface path so dense media don't run unbounded.
+        float rrWeight = 1.0f;
+        if (passes >= MIN_RR_DEPTH) {
+            const color3 t = scatterParam.throughput * scatterWeight;
+            float q = fmaxf(t.r, fmaxf(t.g, t.b));
+            q = fminf(RR_MAX_PROB, fmaxf(RR_MIN_PROB, q));
+            if (randomValue() >= q) {
+                return mediumEmission + scatterWeight * direct;
+            }
+            rrWeight = 1.0f / q;
+        }
+
+        const Ray nextRay = ThicknessRay(scatterPos, nextDir);
+        const color3 indirect = this->tracePath(nextRay, &scatterParam) * rrWeight;
+
+        return mediumEmission + scatterWeight * (direct + indirect);
+    }
+
+    // Surface (or env miss) event. Spectral correction = Tr(L) / p_survival(L).
+    // For grey σt this is exactly 1; only a tinted medium contributes here.
+    const float survival = medium->freeFlightSurvivalProb(maxT);
+    color3 surfaceWeight(1.0f, 1.0f, 1.0f);
+    if (survival > 0.0f) {
+        const color3 Tr = medium->transmittance(maxT);
+        surfaceWeight = color3(Tr.r / survival, Tr.g / survival, Tr.b / survival);
+    }
+
     if (info.triangle != NULL) {
         VertexInterpolation vi;
         this->calcVertexInterpolation(info, &vi);
-
-        return this->shaderProvider->shade(info, ray, vi, shaderParam);
+        const color3 surfaceShade = this->shaderProvider->shade(info, ray, vi, shaderParam);
+        return mediumEmission + surfaceWeight * surfaceShade;
     }
 
-    // Ray escaped the scene — treat the environment map as distant radiance
-    // from every direction. Falls back to zero when no envmap is set.
     color3 env = this->sampleEnvironment(ray.dir);
-
-    // If the caller advertised BSDF MIS (i.e. sampled this direction via a
-    // BSDF strategy with known solid-angle pdf), apply the power-heuristic
-    // weight so direct NEE via traceEnvmapLight / GlossyShader envmap NEE
-    // does not double-count.
     if (shaderParam != NULL) {
         const BSDFParam* sp = (const BSDFParam*)shaderParam;
         if (sp->bsdfSampledPdf > 0.0f) {
@@ -1248,7 +1424,7 @@ color3 RayRenderer::tracePath(const Ray& ray, void* shaderParam) const {
             env = env * w;
         }
     }
-    return env;
+    return mediumEmission + surfaceWeight * env;
 }
 
 void RayRenderer::findNearestTriangle(const Ray& ray, RayTriangleIntersectionInfo& info) const {
@@ -2027,6 +2203,17 @@ color3 RayBSDFShaderProvider::shade(const RayTriangleIntersectionInfo& interInfo
                                     const VertexInterpolation& vi, void* shaderParam) {
     const Material& m = interInfo.triangle->object.material;
     BSDFParam param(*this->renderer, interInfo, inray, vi);
+
+    // Seed the path's current medium so child shaders can read it (e.g.
+    // RefractionShader, which swaps to the object's interiorMedium on
+    // entry). Forward from caller when present, else fall back to the
+    // scene's global medium for first-hit eye rays.
+    if (shaderParam != NULL) {
+        param.currentMedium = ((const BSDFParam*)shaderParam)->currentMedium;
+    } else {
+        const Scene* sc = this->renderer->getScene();
+        if (sc != NULL) param.currentMedium = sc->globalMedium;
+    }
 
     if (m.emission > 0.0f) {
         const color3 emission = m.color * m.emission;

@@ -8,6 +8,8 @@
 
 #include "scene.h"
 
+#include "medium.h"
+
 #include <stdio.h>
 #include <string>
 #include <algorithm>
@@ -40,7 +42,12 @@ SceneObject::~SceneObject() {
     for (SceneObject* obj : this->objects) {
         delete obj;
     }
-    
+
+    if (this->interiorMedium != NULL) {
+        delete this->interiorMedium;
+        this->interiorMedium = NULL;
+    }
+
     //	this->objects.clear();
     
     // don't dealloc mesh since it may be shared with other objects
@@ -261,19 +268,23 @@ BoundingBox SceneObject::getBoundingBox() const {
 
 SceneObject* SceneObject::clone() const {
     SceneObject* obj = new SceneObject();
-    
+
     obj->setName(this->name);
     obj->material = this->material;
-    
+
+    if (this->interiorMedium != NULL) {
+        obj->interiorMedium = new HomogeneousMedium(*this->interiorMedium);
+    }
+
     for (Mesh* mesh : this->meshes) {
         obj->addMesh(*mesh);
     }
-    
+
     for (SceneObject* child : this->objects) {
         SceneObject* childClone = child->clone();
         obj->addObject(*childClone);
     }
-    
+
     return obj;
 }
 
@@ -309,6 +320,11 @@ Scene::~Scene() {
     }
 
     this->objects.clear();
+
+    if (this->globalMedium != NULL) {
+        delete this->globalMedium;
+        this->globalMedium = NULL;
+    }
 }
 
 void Scene::buildEnvmapCDF() {

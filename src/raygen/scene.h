@@ -21,6 +21,7 @@
 
 namespace raygen {
 
+class HomogeneousMedium;
 class SceneObject;
 
 class SceneObject
@@ -39,6 +40,12 @@ public:
 	Material material;
 	bool visible = true;
 	bool renderable = true;
+
+	// Optional participating medium that fills this object's interior. The
+	// renderer switches the path's "current medium" to this on ray entry
+	// (refraction/transparency through the surface) and back on exit. Owned
+	// by the SceneObject — nulled and freed in the destructor.
+	HomogeneousMedium* interiorMedium = NULL;
 	
 	struct {
 		BoundingBox worldBbox; // FIXME: remove this property since world position is not static
@@ -209,6 +216,10 @@ public:
 	float envCubeTotalWeight = 0.0f;
 
 	void buildEnvmapCDF();
+
+	// Scene-wide ambient medium (e.g. fog). Applied to any path segment that
+	// is not currently inside a SceneObject's interiorMedium. Owned by Scene.
+	HomogeneousMedium* globalMedium = NULL;
 
   void addObject(SceneObject& object);
 	void removeObject(SceneObject& object);

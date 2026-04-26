@@ -1,0 +1,60 @@
+// Phase 1 interior-medium test: a glass cube filled with strongly-absorbing
+// blue-green "water". Beer-Lambert tinting should produce a deep cyan core
+// where the optical path through the cube is longest, fading to neutral at
+// the thin edges. No global medium — air outside is vacuum.
+{
+  "mainCamera": {
+    "location": [0, 2.0, 4],
+    "angle": [-25, 0, 0],
+    "fieldOfView": 45,
+    "exposure": 1.0
+  },
+
+  "envmap": {
+    "texture": "../../textures/sky_sun.hdr",
+    "intensity": 1.5
+  },
+
+  "world": {
+    "Floor": {
+      "location": [0, -0.5, 0],
+      "scale": [10, 1, 10],
+      "mesh": { "type": "plane" },
+      "mat": { "color": "#cccccc", "diffuse": 1.0 }
+    },
+
+    "BackWall": {
+      "location": [0, 1.5, -3],
+      "scale": [10, 4, 1],
+      "mesh": { "type": "plane" },
+      "angle": [90, 0, 0],
+      "mat": { "color": "#bb6644", "diffuse": 1.0 }
+    },
+
+    "TopLight": {
+      "location": [0, 5, 0],
+      "scale": [3, 0.1, 3],
+      "mesh": { "type": "plane" },
+      "mat": { "emission": 30 }
+    },
+
+    "WaterCube": {
+      "location": [0, 0.5, 0],
+      "scale": [1.0, 1.0, 1.0],
+      "mesh": { "type": "cube" },
+      "mat": {
+        "color": "#ffffff",
+        "refraction": 1.0,
+        "refractionRatio": 1.33,
+        "roughness": 0.0
+      },
+      // σa with red ≫ green/blue → red is absorbed first, light comes out
+      // cyan-tinted. Tune density to taste; 2.0 is "deep ocean glass" thick.
+      "medium": {
+        "sigma_a": [1.5, 0.4, 0.2],
+        "sigma_s": [0.0, 0.0, 0.0],
+        "density": 2.0
+      }
+    }
+  }
+}

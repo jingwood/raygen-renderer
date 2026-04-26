@@ -37,6 +37,7 @@
 
 #include <memory>
 
+#include "raygen/medium.h"
 #include "raygen/rayrenderer.h"
 #include "raygen/sceneloader.h"
 #include "ugm/image.h"
@@ -73,6 +74,16 @@ struct ViewerParams {
     // Scene
     float envIntensity     = 0.3f;
     float envRotation      = 120.0f;
+    // Global participating medium (fog). When `mediumEnabled` is false the
+    // viewer leaves scene.globalMedium NULL — same code path as a non-volumetric
+    // scene. The σa/σs/σe sliders edit color3 channels directly; HG anisotropy
+    // and density mirror the JSON loader's fields.
+    bool  mediumEnabled    = false;
+    float mediumSigmaA[3]  = {0.0f, 0.0f, 0.0f};
+    float mediumSigmaS[3]  = {0.0f, 0.0f, 0.0f};
+    float mediumEmission[3] = {0.0f, 0.0f, 0.0f};
+    float mediumG          = 0.0f;
+    float mediumDensity    = 1.0f;
     // Post-process (bloom) — HDR energy-based, not LDR. Threshold is the
     // linear-radiance luma above which the excess energy becomes halo; a
     // diffuse white surface sits around 1, so threshold=1 means "only bloom
@@ -138,6 +149,19 @@ static bool onlyPostProcessChanged(const ViewerParams& a, const ViewerParams& b)
         a.aperture         == b.aperture &&
         a.apertureBlades   == b.apertureBlades &&
         a.apertureRotation == b.apertureRotation;
+    const bool medium_same =
+        a.mediumEnabled     == b.mediumEnabled &&
+        a.mediumSigmaA[0]   == b.mediumSigmaA[0] &&
+        a.mediumSigmaA[1]   == b.mediumSigmaA[1] &&
+        a.mediumSigmaA[2]   == b.mediumSigmaA[2] &&
+        a.mediumSigmaS[0]   == b.mediumSigmaS[0] &&
+        a.mediumSigmaS[1]   == b.mediumSigmaS[1] &&
+        a.mediumSigmaS[2]   == b.mediumSigmaS[2] &&
+        a.mediumEmission[0] == b.mediumEmission[0] &&
+        a.mediumEmission[1] == b.mediumEmission[1] &&
+        a.mediumEmission[2] == b.mediumEmission[2] &&
+        a.mediumG           == b.mediumG &&
+        a.mediumDensity     == b.mediumDensity;
     const bool rest_same =
         a.samples          == b.samples &&
         a.threads          == b.threads &&
@@ -146,7 +170,8 @@ static bool onlyPostProcessChanged(const ViewerParams& a, const ViewerParams& b)
         a.exposure         == b.exposure &&
         a.envIntensity     == b.envIntensity &&
         a.envRotation      == b.envRotation &&
-        cam_same;
+        cam_same &&
+        medium_same;
     return rest_same && !pp_same;
 }
 
@@ -222,6 +247,13 @@ static bool loadViewerConfig(const char* path, ViewerParams& params,
     // Scene
     obj->tryGetNumberProperty("envIntensity",     &params.envIntensity);
     obj->tryGetNumberProperty("envRotation",      &params.envRotation);
+    if (obj->hasProperty("mediumEnabled"))
+        params.mediumEnabled = obj->isBooleanPropertyTrue("mediumEnabled");
+    readVec3Into(obj, "mediumSigmaA",   params.mediumSigmaA);
+    readVec3Into(obj, "mediumSigmaS",   params.mediumSigmaS);
+    readVec3Into(obj, "mediumEmission", params.mediumEmission);
+    obj->tryGetNumberProperty("mediumG",       &params.mediumG);
+    obj->tryGetNumberProperty("mediumDensity", &params.mediumDensity);
     // Post-process
     if (obj->hasProperty("postProcess"))
         params.postProcess = obj->isBooleanPropertyTrue("postProcess");
@@ -255,6 +287,12 @@ static void saveViewerConfig(const char* path, const ViewerParams& params,
     w.writeProperty("exposure",         (double)params.exposure);
     w.writeProperty("envIntensity",     (double)params.envIntensity);
     w.writeProperty("envRotation",      (double)params.envRotation);
+    w.writeProperty("mediumEnabled",    params.mediumEnabled);
+    writeVec3(w,    "mediumSigmaA",     params.mediumSigmaA);
+    writeVec3(w,    "mediumSigmaS",     params.mediumSigmaS);
+    writeVec3(w,    "mediumEmission",   params.mediumEmission);
+    w.writeProperty("mediumG",          (double)params.mediumG);
+    w.writeProperty("mediumDensity",    (double)params.mediumDensity);
     w.writeProperty("postProcess",      params.postProcess);
     w.writeProperty("bloomThreshold",   (double)params.bloomThreshold);
     w.writeProperty("bloomStrength",    (double)params.bloomStrength);
@@ -324,6 +362,28 @@ static void applyParamsToScene(const ViewerParams& p, RayRenderer& renderer, Sce
 
     scene.envmapIntensity = p.envIntensity;
     scene.envmapRotation  = p.envRotation;
+
+    // Global medium: lazily heap-alloc on first enable, mutate in place after
+    // that so we don't churn the allocator on every slider tick. When the user
+    // disables it we keep the allocation but zero the σ values — `isActive()`
+    // gates the volumetric branch on σt_hero > 0, so the renderer falls back
+    // to the legacy fast path automatically. (Prepare() recomputes σt_hero.)
+    if (p.mediumEnabled) {
+        if (scene.globalMedium == NULL) scene.globalMedium = new HomogeneousMedium();
+        HomogeneousMedium* m = scene.globalMedium;
+        m->sigma_a  = color3(p.mediumSigmaA[0], p.mediumSigmaA[1], p.mediumSigmaA[2]);
+        m->sigma_s  = color3(p.mediumSigmaS[0], p.mediumSigmaS[1], p.mediumSigmaS[2]);
+        m->sigma_e  = color3(p.mediumEmission[0], p.mediumEmission[1], p.mediumEmission[2]);
+        m->g        = p.mediumG;
+        m->density  = p.mediumDensity;
+        m->prepare();
+    } else if (scene.globalMedium != NULL) {
+        scene.globalMedium->sigma_a = color3::zero;
+        scene.globalMedium->sigma_s = color3::zero;
+        scene.globalMedium->sigma_e = color3::zero;
+        scene.globalMedium->prepare();
+    }
+
     if (scene.mainCamera) {
         Camera& cam = *scene.mainCamera;
         cam.location         = vec3(p.camLocation[0], p.camLocation[1], p.camLocation[2]);
@@ -438,6 +498,21 @@ int main(int argc, char** argv) {
         p.bloomRadius      = renderer.settings.bloomRadius;
         p.envIntensity     = scene->envmapIntensity;
         p.envRotation      = scene->envmapRotation;
+        if (scene->globalMedium != NULL) {
+            const HomogeneousMedium* m = scene->globalMedium;
+            p.mediumEnabled    = m->isActive() || (m->sigma_e_eff != color3::zero);
+            p.mediumSigmaA[0]  = m->sigma_a.r;
+            p.mediumSigmaA[1]  = m->sigma_a.g;
+            p.mediumSigmaA[2]  = m->sigma_a.b;
+            p.mediumSigmaS[0]  = m->sigma_s.r;
+            p.mediumSigmaS[1]  = m->sigma_s.g;
+            p.mediumSigmaS[2]  = m->sigma_s.b;
+            p.mediumEmission[0] = m->sigma_e.r;
+            p.mediumEmission[1] = m->sigma_e.g;
+            p.mediumEmission[2] = m->sigma_e.b;
+            p.mediumG          = m->g;
+            p.mediumDensity    = m->density;
+        }
         if (scene->mainCamera) {
             const Camera& cam = *scene->mainCamera;
             p.camLocation[0]   = cam.location.x;
@@ -770,6 +845,21 @@ int main(int argc, char** argv) {
         if (ImGui::CollapsingHeader("Scene", ImGuiTreeNodeFlags_DefaultOpen)) {
             dirty |= ImGui::SliderFloat("envmap intensity", &uiParams.envIntensity, 0.0f, 3.0f, "%.2f");
             dirty |= ImGui::SliderFloat("envmap rotation",  &uiParams.envRotation,  0.0f, 360.0f, "%.0f");
+
+            // Global medium (fog). σa/σs/σe are per-channel inverse world-units;
+            // density is a uniform multiplier that prepare() folds into σt_hero
+            // for free-flight sampling. g is the Henyey-Greenstein anisotropy
+            // (0 = isotropic, >0 = forward-peaked clouds/fog, <0 = back-scatter).
+            ImGui::Spacing();
+            ImGui::TextDisabled("Global medium (fog)");
+            dirty |= ImGui::Checkbox("enable##medium", &uiParams.mediumEnabled);
+            if (uiParams.mediumEnabled) {
+                dirty |= ImGui::DragFloat3 ("sigma_a",  uiParams.mediumSigmaA,   0.005f, 0.0f, 10.0f, "%.4f");
+                dirty |= ImGui::DragFloat3 ("sigma_s",  uiParams.mediumSigmaS,   0.005f, 0.0f, 10.0f, "%.4f");
+                dirty |= ImGui::DragFloat3 ("emission", uiParams.mediumEmission, 0.05f,  0.0f, 100.0f, "%.3f");
+                dirty |= ImGui::SliderFloat("g (HG)",  &uiParams.mediumG,       -0.95f,  0.95f, "%.2f");
+                dirty |= ImGui::SliderFloat("density", &uiParams.mediumDensity,  0.0f,   8.0f,  "%.2f");
+            }
         }
 
         if (ImGui::CollapsingHeader("Post-process (bloom)", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -1099,6 +1189,87 @@ int main(int argc, char** argv) {
                     ImGui::TextDisabled("texture:    %s", m.texturePath.getBuffer());
                 if (!m.normalmapPath.isEmpty())
                     ImGui::TextDisabled("normal map: %s", m.normalmapPath.getBuffer());
+            }
+
+            // Interior medium — participating volume that fills the object.
+            // Enabled state is "the SceneObject owns a HomogeneousMedium",
+            // not derived from σ values: pulling density (or every σ) to 0
+            // would otherwise flip the checkbox off and hide the sliders, so
+            // the user couldn't dial it back up. Disable deletes the medium;
+            // re-enable allocates a fresh zero-init one.
+            if (ImGui::CollapsingHeader("Interior medium")) {
+                HomogeneousMedium* m = so->interiorMedium;
+                bool enabled = (m != NULL);
+                if (ImGui::Checkbox("enable##interiorMedium", &enabled)) {
+                    if (enabled && m == NULL) {
+                        so->interiorMedium = new HomogeneousMedium();
+                        so->interiorMedium->prepare();
+                    } else if (!enabled && m != NULL) {
+                        delete m;
+                        so->interiorMedium = NULL;
+                    }
+                    sceneDirty = true;
+                }
+                if (enabled && (m = so->interiorMedium) != NULL) {
+                    float sa[3] = { m->sigma_a.r, m->sigma_a.g, m->sigma_a.b };
+                    float ss[3] = { m->sigma_s.r, m->sigma_s.g, m->sigma_s.b };
+                    float se[3] = { m->sigma_e.r, m->sigma_e.g, m->sigma_e.b };
+                    bool changed = false;
+                    changed |= ImGui::DragFloat3 ("sigma_a##im",  sa, 0.01f, 0.0f, 20.0f, "%.4f");
+                    changed |= ImGui::DragFloat3 ("sigma_s##im",  ss, 0.01f, 0.0f, 20.0f, "%.4f");
+                    changed |= ImGui::SliderFloat("g (HG)##im",  &m->g,       -0.95f, 0.95f, "%.2f");
+                    changed |= ImGui::SliderFloat("density##im", &m->density,  0.0f,  8.0f,  "%.2f");
+
+                    // Emission mode picker. Constant uses the analytic σe
+                    // integral (sigma_e slider). Cone evaluates a procedural
+                    // jet-flame profile sampled along the ray — flipping the
+                    // mode hides/shows the relevant slider set so the panel
+                    // doesn't sprout dead inputs.
+                    const char* modeLabels[] = { "Constant", "Cone (jet flame)" };
+                    int modeIdx = (int)m->emissionMode;
+                    if (ImGui::Combo("emissionMode##im", &modeIdx, modeLabels, 2)) {
+                        m->emissionMode = (HomogeneousMedium::EmissionMode)modeIdx;
+                        changed = true;
+                    }
+                    if (m->emissionMode == HomogeneousMedium::EmissionMode_Constant) {
+                        changed |= ImGui::DragFloat3("emission##im", se, 0.05f, 0.0f, 100.0f, "%.3f");
+                    } else {
+                        // Cone params. coneOrigin/Axis are world-space (no
+                        // automatic transform follow yet — Phase 2.5). Inner
+                        // is the hot core, Outer the cool envelope; intensity
+                        // sets σe magnitude at the hot spot.
+                        float coAxis[3]   = { m->coneAxis.x,   m->coneAxis.y,   m->coneAxis.z };
+                        float coOrigin[3] = { m->coneOrigin.x, m->coneOrigin.y, m->coneOrigin.z };
+                        float coIn[3]     = { m->coneInner.r,  m->coneInner.g,  m->coneInner.b };
+                        float coOut[3]    = { m->coneOuter.r,  m->coneOuter.g,  m->coneOuter.b };
+                        bool coneChanged = false;
+                        coneChanged |= ImGui::DragFloat3("coneOrigin##im",   coOrigin, 0.05f, -1000.0f, 1000.0f, "%.3f");
+                        coneChanged |= ImGui::DragFloat3("coneAxis##im",     coAxis,   0.05f, -1.0f, 1.0f, "%.3f");
+                        coneChanged |= ImGui::SliderFloat("coneLength##im", &m->coneLength,   0.05f, 20.0f, "%.3f");
+                        coneChanged |= ImGui::SliderFloat("coneRadius##im", &m->coneRadius,   0.01f, 5.0f,  "%.3f");
+                        coneChanged |= ImGui::ColorEdit3 ("coneInner##im",   coIn);
+                        coneChanged |= ImGui::ColorEdit3 ("coneOuter##im",   coOut);
+                        coneChanged |= ImGui::DragFloat  ("coneIntensity##im",     &m->coneIntensity,     1.0f, 0.0f, 10000.0f, "%.1f");
+                        coneChanged |= ImGui::SliderFloat("conePeakAxial##im",     &m->conePeakAxial,     0.0f, 1.0f, "%.3f");
+                        coneChanged |= ImGui::SliderFloat("conePeakSharpness##im", &m->conePeakSharpness, 0.5f, 20.0f, "%.2f");
+                        coneChanged |= ImGui::SliderInt  ("emissionSamples##im",   &m->coneEmissionSamples, 1, 32);
+                        if (coneChanged) {
+                            m->coneAxis   = vec3(coAxis[0],   coAxis[1],   coAxis[2]);
+                            m->coneOrigin = vec3(coOrigin[0], coOrigin[1], coOrigin[2]);
+                            m->coneInner  = color3(coIn[0],   coIn[1],   coIn[2]);
+                            m->coneOuter  = color3(coOut[0],  coOut[1],  coOut[2]);
+                            changed = true;
+                        }
+                    }
+
+                    if (changed) {
+                        m->sigma_a = color3(sa[0], sa[1], sa[2]);
+                        m->sigma_s = color3(ss[0], ss[1], ss[2]);
+                        m->sigma_e = color3(se[0], se[1], se[2]);
+                        m->prepare();
+                        sceneDirty = true;
+                    }
+                }
             }
         }
         ImGui::End();

@@ -71,6 +71,7 @@
     <ClCompile Include="..\..\..\src\raygen\fbxloader.cpp" />
     <ClCompile Include="..\..\..\src\raygen\lambert.cpp" />
     <ClCompile Include="..\..\..\src\raygen\material.cpp" />
+    <ClCompile Include="..\..\..\src\raygen\medium.cpp" />
     <ClCompile Include="..\..\..\src\raygen\mesh.cpp" />
     <ClCompile Include="..\..\..\src\raygen\meshloader.cpp" />
     <ClCompile Include="..\..\..\src\raygen\objreader.cpp" />
@@ -91,6 +92,7 @@
     <ClInclude Include="..\..\..\src\raygen\fbxloader.h" />
     <ClInclude Include="..\..\..\src\raygen\lambert.h" />
     <ClInclude Include="..\..\..\src\raygen\material.h" />
+    <ClInclude Include="..\..\..\src\raygen\medium.h" />
     <ClInclude Include="..\..\..\src\raygen\mesh.h" />
     <ClInclude Include="..\..\..\src\raygen\meshloader.h" />
     <ClInclude Include="..\..\..\src\raygen\objreader.h" />

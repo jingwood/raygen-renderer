@@ -19,6 +19,8 @@
 
 namespace raygen {
 
+class HomogeneousMedium;
+
 typedef void MaterialLoadHandler(SceneObject& obj, const JSObject& matobj, void* userData);
 
 class SceneJsonLoader
@@ -45,6 +47,18 @@ private:
 	Texture* pendingEnvCubemap[6] = { NULL, NULL, NULL, NULL, NULL, NULL };
 	float pendingEnvmapIntensity = 1.0f;
 	float pendingEnvmapRotation = 0.0f;
+
+	// Scene-wide participating medium (e.g. fog) discovered at the root scope.
+	// Applied to scene.globalMedium at the end of load(). Heap-owned here
+	// until handed over.
+	HomogeneousMedium* pendingGlobalMedium = NULL;
+
+	// Parses a JSON medium block in the form
+	//   { sigma_a: [r,g,b], sigma_s: [r,g,b], emission?: [r,g,b],
+	//     g?: float, density?: float }
+	// and returns a heap-allocated HomogeneousMedium with prepare() called.
+	// Caller takes ownership. Returns NULL on a structurally invalid block.
+	static HomogeneousMedium* readMedium(const JSObject& obj);
 	
 	Material* findMaterialByName(const string& name) {
 		for (long int i = this->loadingStack.size() - 1; i >= 0; i--) {

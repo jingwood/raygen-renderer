@@ -14,6 +14,7 @@
 
 namespace raygen {
 
+class HomogeneousMedium;
 class RayRenderer;
 
 class BSDFParam
@@ -43,6 +44,14 @@ public:
     // material yet — the next RefractionShader hit will pick the channel
     // and propagate it downstream so every interface refracts consistently.
     int chromaChannel = -1;
+
+    // Participating medium the ray is currently travelling through. NULL =
+    // vacuum (no σ, no scattering — same as the legacy non-volumetric path).
+    // Defaults to vacuum at construction; tracePath seeds it from
+    // scene.globalMedium for the eye ray and RefractionShader swaps it on
+    // entry/exit of an object's interiorMedium. Pointer-only — lifetime is
+    // owned by the Scene / SceneObject.
+    const HomogeneousMedium* currentMedium = NULL;
 
 	BSDFParam(RayRenderer& renderer, const RayTriangleIntersectionInfo& interInfo,
               const Ray& inray, const VertexInterpolation& vi,

@@ -1,0 +1,52 @@
+// Phase 1 participating-media smoke test: a glowing emitter inside a
+// scene-wide grey fog. Light should fade with distance and produce a soft
+// halo around the bright sphere as the medium scatters it back to camera.
+{
+  "mainCamera": {
+    "location": [0, 1.2, 5],
+    "angle": [-5, 0, 0],
+    "fieldOfView": 50,
+    "exposure": 1.0
+  },
+
+  // sigma_a/sigma_s in 1/world-units. With density 1 and σt~0.3 this gives
+  // ~95% transmittance over 1m, ~5% over 10m — visible haze without making
+  // the scene invisible. g≈0.5 = forward-scattering (like real fog).
+  "medium": {
+    "sigma_a": [0.05, 0.05, 0.05],
+    "sigma_s": [0.25, 0.25, 0.30],
+    "g": 0,
+    "density": 1.0
+  },
+
+  "world": {
+    "Floor": {
+      "location": [0, -0.5, 0],
+      "scale": [12, 1, 12],
+      "mesh": { "type": "plane" },
+      "mat": { "color": "#444444", "diffuse": 1.0 }
+    },
+
+    "BackWall": {
+      "location": [0, 1.5, -8],
+      "scale": [12, 4, 1],
+      "mesh": { "type": "plane" },
+      "angle": [90, 0, 0],
+      "mat": { "color": "#666666", "diffuse": 1.0 }
+    },
+
+    "Lamp": {
+      "location": [0, 1.0, -2],
+      "scale": [0.25, 0.25, 0.25],
+      "mesh": { "type": "sphere" },
+      "mat": { "color": "#fff0cc", "emission": 60 }
+    },
+
+    "FarLamp": {
+      "location": [-3, 1.0, -6],
+      "scale": [0.2, 0.2, 0.2],
+      "mesh": { "type": "sphere" },
+      "mat": { "color": "#ccdcff", "emission": 80 }
+    }
+  }
+}

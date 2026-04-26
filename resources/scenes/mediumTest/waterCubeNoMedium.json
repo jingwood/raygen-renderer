@@ -1,0 +1,37 @@
+// Sanity-check companion to waterCube.json — same geometry, no medium.
+// Used to confirm the cube refraction path renders at all before judging
+// the medium-on result.
+{
+  "mainCamera": {
+    "location": [0, 1.0, 4],
+    "angle": [-8, 0, 0],
+    "fieldOfView": 45,
+    "exposure": 1.0
+  },
+
+  "envmap": {
+    "texture": "../../textures/sky_sun.hdr",
+    "intensity": 1.5
+  },
+
+  "world": {
+    "Floor": {
+      "location": [0, -0.5, 0],
+      "scale": [10, 1, 10],
+      "mesh": { "type": "plane" },
+      "mat": { "color": "#888888", "diffuse": 1.0 }
+    },
+
+    "WaterCube": {
+      "location": [0, 0.5, 0],
+      "scale": [1.0, 1.0, 1.0],
+      "mesh": { "type": "cube" },
+      "mat": {
+        "color": "#ffffff",
+        "refraction": 1.0,
+        "refractionRatio": 1.33,
+        "roughness": 0.0
+      }
+    }
+  }
+}

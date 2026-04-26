@@ -7,6 +7,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 #include "bsdf.h"
+#include "medium.h"
 #include "rayrenderer.h"
 #include "ugm/color.h"
 
@@ -362,16 +363,40 @@ color3 RefractionShader::shade(BSDFParam& param) {
 
     const color3 savedT = param.throughput;
     const float savedPdf = param.bsdfSampledPdf;
+    const HomogeneousMedium* savedMedium = param.currentMedium;
     param.throughput *= m.color;
     // Refraction picks via a stochastic delta Fresnel split — both branches
     // are effectively delta lobes. The next hit should get full contribution
     // with no BSDF-side MIS pair.
     param.bsdfSampledPdf = 0.0f;
 
+    // Swap the path's current medium when the ray actually crossed the
+    // interface (the refract branch — reflection bounces back on the same
+    // side). Reflection flips dot(dir, normal); refraction preserves its
+    // sign, so the product with dot(inDir, normal) stays positive only on
+    // the refract branch. Phase 1 does no nesting: exiting an object
+    // always returns to the scene's global medium, so two adjacent water
+    // cubes can't currently share their interior — revisited when the
+    // medium-stack lands.
+    const float dotIn = dot(inDir, normal);
+    const float dotOut = dot(dir, normal);
+    const bool refracted = dotIn * dotOut > 0.0f;
+    if (refracted) {
+        const bool entering = dotIn < 0.0f;
+        if (entering) {
+            const HomogeneousMedium* interior = obj.interiorMedium;
+            if (interior != NULL) param.currentMedium = interior;
+        } else {
+            const Scene* sc = renderer.getScene();
+            param.currentMedium = (sc != NULL) ? sc->globalMedium : NULL;
+        }
+    }
+
     const color3f color = renderer.tracePath(ThicknessRay(interInfo.hit, dir), (void*)&param);
 
     param.throughput = savedT;
     param.bsdfSampledPdf = savedPdf;
+    param.currentMedium = savedMedium;
 
     return color * m.color * chanMask;
 }
@@ -412,11 +437,29 @@ color3 TransparencyShader::shade(BSDFParam& param) {
     const Material& m = obj.material;
 
     const color3 savedT = param.throughput;
+    const HomogeneousMedium* savedMedium = param.currentMedium;
     param.throughput *= m.transparency;
+
+    // Transparency is a straight-through pass, but it still crosses an object
+    // boundary — so the participating-medium state needs to flip just like in
+    // RefractionShader. Without this, putting a flame inside a transparent
+    // bounding cube wouldn't activate the interior medium (Phase 1 only
+    // swapped on refraction). Reflection isn't possible on this branch since
+    // the ray direction is preserved; we always take the "through" side.
+    const float dotIn = dot(param.inray.dir, param.vi.normal);
+    const bool entering = dotIn < 0.0f;
+    if (entering) {
+        const HomogeneousMedium* interior = obj.interiorMedium;
+        if (interior != NULL) param.currentMedium = interior;
+    } else {
+        const Scene* sc = renderer.getScene();
+        param.currentMedium = (sc != NULL) ? sc->globalMedium : NULL;
+    }
 
     const color3 color = renderer.tracePath(ThicknessRay(interInfo.hit, param.inray.dir), (void*)&param);
 
     param.throughput = savedT;
+    param.currentMedium = savedMedium;
 
     return color * m.transparency;
 }

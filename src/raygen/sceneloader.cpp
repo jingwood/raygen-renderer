@@ -15,6 +15,7 @@
 #include "ucm/strutil.h"
 #include "ucm/file.h"
 #include "ugm/imgcodec.h"
+#include "medium.h"
 #include "meshloader.h"
 #include "fbxloader.h"
 #include "objreader.h"
@@ -32,6 +33,10 @@ SceneJsonLoader::SceneJsonLoader(SceneResourcePool* resPool) {
 }
 
 SceneJsonLoader::~SceneJsonLoader() {
+    if (this->pendingGlobalMedium != NULL) {
+        delete this->pendingGlobalMedium;
+        this->pendingGlobalMedium = NULL;
+    }
 }
 
 void SceneJsonLoader::setBasePath(const string& basePath) {
@@ -192,6 +197,64 @@ bool SceneJsonLoader::tryParseColorString(const string& str, color4& color) {
 	}
 	
 	return false;
+}
+
+HomogeneousMedium* SceneJsonLoader::readMedium(const JSObject& obj) {
+    HomogeneousMedium* m = new HomogeneousMedium();
+
+    // sigma_a / sigma_s default to zero; emission is optional. Reusing the
+    // vec3 helper keeps both array and {x,y,z} object forms accepted, plus
+    // it handles missing keys gracefully (no write).
+    vec3 v;
+    if (SceneJsonLoader::tryReadVec3Property(obj, "sigma_a", &v)) {
+        m->sigma_a = color3(v.x, v.y, v.z);
+    }
+    if (SceneJsonLoader::tryReadVec3Property(obj, "sigma_s", &v)) {
+        m->sigma_s = color3(v.x, v.y, v.z);
+    }
+    if (SceneJsonLoader::tryReadVec3Property(obj, "emission", &v)) {
+        m->sigma_e = color3(v.x, v.y, v.z);
+    }
+    obj.tryGetNumberProperty("g", &m->g);
+    obj.tryGetNumberProperty("density", &m->density);
+
+    // Phase 2: emissive cone (jet flame / afterburner). Optional — leaving
+    // emissionMode out keeps the Constant behaviour and the cone fields are
+    // ignored. coneAxis defaults to -Z so a flame authored at the origin
+    // points away from the camera in the typical test setup.
+    const string* modeStr = obj.getStringProperty("emissionMode");
+    if (modeStr != NULL && *modeStr == "cone") {
+        m->emissionMode = HomogeneousMedium::EmissionMode_Cone;
+    }
+    if (SceneJsonLoader::tryReadVec3Property(obj, "coneAxis", &v)) {
+        m->coneAxis = v;
+    }
+    if (SceneJsonLoader::tryReadVec3Property(obj, "coneOrigin", &v)) {
+        m->coneOrigin = v;
+    }
+    obj.tryGetNumberProperty("coneLength",        &m->coneLength);
+    obj.tryGetNumberProperty("coneRadius",        &m->coneRadius);
+    if (SceneJsonLoader::tryReadVec3Property(obj, "coneInner", &v)) {
+        m->coneInner = color3(v.x, v.y, v.z);
+    }
+    if (SceneJsonLoader::tryReadVec3Property(obj, "coneOuter", &v)) {
+        m->coneOuter = color3(v.x, v.y, v.z);
+    }
+    obj.tryGetNumberProperty("coneIntensity",     &m->coneIntensity);
+    obj.tryGetNumberProperty("conePeakAxial",     &m->conePeakAxial);
+    obj.tryGetNumberProperty("conePeakSharpness", &m->conePeakSharpness);
+    obj.tryGetNumberProperty("coneEmissionSamples", &m->coneEmissionSamples);
+
+    m->prepare();
+
+    // No active σ AND no emission AND not a cone — caller almost certainly
+    // authored a typo. Drop the medium rather than spend cycles on a no-op
+    // every ray. isActive() now covers cone-only emissive volumes.
+    if (!m->isActive()) {
+        delete m;
+        return NULL;
+    }
+    return m;
 }
 
 bool SceneJsonLoader::tryReadVec3Property(const JSObject& obj, const char* name, vec3* v) {
@@ -514,6 +577,29 @@ void SceneJsonLoader::readSceneObject(SceneObject& obj, const JSObject& jsobj, A
 		else if (key == "_generateLightmap") {
 			obj._generateLightmap = true;
 		}
+		else if (key == "medium") {
+			// readSceneObject pushes a LoadingStack frame at entry, so the root
+			// invocation sees size()==1 while nested children see >=2. That
+			// discriminates "scene-level medium → global fog" from "object
+			// medium → interior tint / smoke pocket". Object-name is set by
+			// the parent *after* this call returns, so it can't disambiguate.
+			if (val.type == JSType::JSType_Object && val.object != NULL) {
+				HomogeneousMedium* m = SceneJsonLoader::readMedium(*val.object);
+				if (m != NULL) {
+					if (this->loadingStack.size() == 1) {
+						if (this->pendingGlobalMedium != NULL) {
+							delete this->pendingGlobalMedium;
+						}
+						this->pendingGlobalMedium = m;
+					} else {
+						if (obj.interiorMedium != NULL) {
+							delete obj.interiorMedium;
+						}
+						obj.interiorMedium = m;
+					}
+				}
+			}
+		}
 		else if (key == "envmap") {
 			// Accept either a bare path string or an object with {texture,
 			// intensity, rotation}. The loaded texture is attached to the
@@ -653,6 +739,12 @@ void SceneJsonLoader::load(const string& jsonPath, Scene& scene) {
 		scene.envmapIntensity = this->pendingEnvmapIntensity;
 		scene.envmapRotation = this->pendingEnvmapRotation;
 		for (int i = 0; i < 6; i++) scene.envCubemapFaces[i] = this->pendingEnvCubemap[i];
+
+		if (this->pendingGlobalMedium != NULL) {
+			if (scene.globalMedium != NULL) delete scene.globalMedium;
+			scene.globalMedium = this->pendingGlobalMedium;
+			this->pendingGlobalMedium = NULL;
+		}
 
 		rootObj->objects.clear();
 		delete rootObj;
