@@ -1297,30 +1297,54 @@ color3 RayRenderer::tracePath(const Ray& ray, void* shaderParam) const {
     // per-sample noise on uniform glow.
     const float maxT = (info.triangle != NULL) ? info.t : RAY_MAX_DISTANCE;
 
-    const float u = randomValue();
-    const float tFlight = medium->sampleFreeFlight(u);
+    // Heterogeneous (Phase 3): walk delta-tracking steps until a real
+    // collision or the segment ends. Density-modulated σ values mean the
+    // closed-form free-flight from Phase 1 is no longer correct — delta
+    // tracking is exact under a single hero-channel σt_max bound.
+    // Homogeneous (Phase 1/2) keeps the analytical exponential sampler.
+    bool scattered = false;
+    float tFlight = 0.0f;
+    float densityAtScatter = 1.0f;
+    if (medium->isHeterogeneous()) {
+        scattered = medium->sampleDeltaTracking(ray, maxT, tFlight, densityAtScatter);
+        if (!scattered) tFlight = maxT;  // no real collision before surface
+    } else {
+        tFlight = medium->sampleFreeFlight(randomValue());
+        scattered = (tFlight < maxT);
+    }
 
     // Emission accumulated through the segment, regardless of which event we
     // pick. Bounded by min(tFlight, maxT) so we don't double-count past the
     // surface or past the scatter event.
-    const float emissionLen = (tFlight < maxT) ? tFlight : maxT;
+    const float emissionLen = scattered ? tFlight : maxT;
     // Procedural emission (Cone mode) needs a sampled integral along the
     // segment because σe(p) varies; Constant mode falls back to the closed-
     // form integral inside emissionIntegralAlongRay() so authoring a uniform
     // glow stays cheap.
     color3 mediumEmission = medium->emissionIntegralAlongRay(ray, emissionLen);
 
-    if (tFlight < maxT) {
-        // In-scattering event. Per-channel weight = Tr(t)·σs / (σt_hero·exp(-σt_hero·t)).
-        // For grey σt this collapses to the scattering albedo σs/σt; for
-        // tinted media the spectral mismatch correction lives here.
-        const float pHero = medium->freeFlightPdf(tFlight);
-        const color3 Tr = medium->transmittance(tFlight);
+    if (scattered) {
+        // In-scattering event. Two sampler regimes:
+        //   Homogeneous (analytical): weight = Tr(t)·σs / (σt_hero·exp(-σt_hero·t)).
+        //                             For grey σt this collapses to the
+        //                             scattering albedo σs/σt; tinted media
+        //                             carry a per-channel mismatch term.
+        //   Heterogeneous (delta tracking): weight = σs(p)/σt_max_hero. The
+        //                             exponential decay is captured implicitly
+        //                             by the rejection process — no Tr factor.
         color3 scatterWeight;
-        if (pHero > 0.0f) {
-            scatterWeight = color3(medium->sigma_s_eff.r * Tr.r / pHero,
-                                   medium->sigma_s_eff.g * Tr.g / pHero,
-                                   medium->sigma_s_eff.b * Tr.b / pHero);
+        if (medium->isHeterogeneous()) {
+            const float invHero = (medium->sigma_t_max_hero > 0.0f) ? (1.0f / medium->sigma_t_max_hero) : 0.0f;
+            const color3 sS = medium->sigma_s_eff * densityAtScatter;
+            scatterWeight = color3(sS.r * invHero, sS.g * invHero, sS.b * invHero);
+        } else {
+            const float pHero = medium->freeFlightPdf(tFlight);
+            const color3 Tr = medium->transmittance(tFlight);
+            if (pHero > 0.0f) {
+                scatterWeight = color3(medium->sigma_s_eff.r * Tr.r / pHero,
+                                       medium->sigma_s_eff.g * Tr.g / pHero,
+                                       medium->sigma_s_eff.b * Tr.b / pHero);
+            }
         }
 
         if (scatterWeight == color3::zero) {
@@ -1397,13 +1421,22 @@ color3 RayRenderer::tracePath(const Ray& ray, void* shaderParam) const {
         return mediumEmission + scatterWeight * (direct + indirect);
     }
 
-    // Surface (or env miss) event. Spectral correction = Tr(L) / p_survival(L).
-    // For grey σt this is exactly 1; only a tinted medium contributes here.
-    const float survival = medium->freeFlightSurvivalProb(maxT);
+    // Surface (or env miss) event. Two sampler regimes:
+    //   Homogeneous: spectral correction = Tr(L) / p_survival(L). For grey σt
+    //                this is exactly 1; only a tinted medium contributes here.
+    //   Heterogeneous: the delta-tracking rejection loop already captured the
+    //                  effective transmittance via reaching the surface
+    //                  without an accept; downstream surface contribution is
+    //                  passed through with weight 1. (Phase 3 simplification —
+    //                  per-channel ratio-tracking would refine this for
+    //                  strongly absorbing heterogeneous media.)
     color3 surfaceWeight(1.0f, 1.0f, 1.0f);
-    if (survival > 0.0f) {
-        const color3 Tr = medium->transmittance(maxT);
-        surfaceWeight = color3(Tr.r / survival, Tr.g / survival, Tr.b / survival);
+    if (!medium->isHeterogeneous()) {
+        const float survival = medium->freeFlightSurvivalProb(maxT);
+        if (survival > 0.0f) {
+            const color3 Tr = medium->transmittance(maxT);
+            surfaceWeight = color3(Tr.r / survival, Tr.g / survival, Tr.b / survival);
+        }
     }
 
     if (info.triangle != NULL) {

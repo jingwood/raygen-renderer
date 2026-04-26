@@ -25,6 +25,19 @@ void HomogeneousMedium::prepare() {
     // tracePath, so any positive scalar works — average minimises variance
     // when σt is roughly grey, which covers fog/smoke/clouds.
     this->sigma_t_hero = (this->sigma_t.r + this->sigma_t.g + this->sigma_t.b) * (1.0f / 3.0f);
+
+    // Delta-tracking upper bound for free-flight sampling in heterogeneous
+    // mode. fBm in [0,1] gives noiseGain*(noiseAmplitude*1 + noiseBias)
+    // worst-case; clamp to a sane positive value. Overestimating just makes
+    // delta tracking take more null-collision steps — never biased.
+    if (this->densityField == DensityField_FBmNoise) {
+        const float peak = fmaxf(0.0f, this->noiseAmplitude * 1.0f + this->noiseBias);
+        this->sigma_t_max      = this->sigma_t * peak;
+        this->sigma_t_max_hero = this->sigma_t_hero * peak;
+    } else {
+        this->sigma_t_max      = this->sigma_t;
+        this->sigma_t_max_hero = this->sigma_t_hero;
+    }
     // Cache the normalised cone axis so emissionAt doesn't normalise per
     // sample. Falls back to -Z when the user gave a degenerate axis.
     const float axisLen2 = this->coneAxis.x * this->coneAxis.x
@@ -78,9 +91,80 @@ color3 HomogeneousMedium::emissionAlongRay(float d) const {
                   this->sigma_e_eff.b * emissionWeightChannel(this->sigma_t.b, d));
 }
 
+namespace {
+// 32-bit integer hash → uniform [0,1) float. Standard Wang-style mix; cheap
+// and good enough for value noise that never gets statistically inspected.
+inline float hash3(int x, int y, int z) {
+    uint32_t h = (uint32_t)x * 374761393u
+               + (uint32_t)y * 668265263u
+               + (uint32_t)z * 2147483647u;
+    h = (h ^ (h >> 13)) * 1274126177u;
+    h ^= h >> 16;
+    return (float)(h & 0x00FFFFFFu) / (float)0x01000000u;
+}
+
+inline float smoothstep01(float x) {
+    return x * x * (3.0f - 2.0f * x);
+}
+
+// 3D value noise with trilinear smoothstep interpolation. Returns [0, 1].
+inline float valueNoise3D(float x, float y, float z) {
+    const int xi = (int)floorf(x), yi = (int)floorf(y), zi = (int)floorf(z);
+    const float xf = smoothstep01(x - (float)xi);
+    const float yf = smoothstep01(y - (float)yi);
+    const float zf = smoothstep01(z - (float)zi);
+    // 8-corner sample.
+    const float c000 = hash3(xi,     yi,     zi    );
+    const float c100 = hash3(xi + 1, yi,     zi    );
+    const float c010 = hash3(xi,     yi + 1, zi    );
+    const float c110 = hash3(xi + 1, yi + 1, zi    );
+    const float c001 = hash3(xi,     yi,     zi + 1);
+    const float c101 = hash3(xi + 1, yi,     zi + 1);
+    const float c011 = hash3(xi,     yi + 1, zi + 1);
+    const float c111 = hash3(xi + 1, yi + 1, zi + 1);
+    const float x00 = c000 * (1.0f - xf) + c100 * xf;
+    const float x10 = c010 * (1.0f - xf) + c110 * xf;
+    const float x01 = c001 * (1.0f - xf) + c101 * xf;
+    const float x11 = c011 * (1.0f - xf) + c111 * xf;
+    const float y0  = x00 * (1.0f - yf) + x10 * yf;
+    const float y1  = x01 * (1.0f - yf) + x11 * yf;
+    return y0 * (1.0f - zf) + y1 * zf;
+}
+}
+
+float HomogeneousMedium::densityAt(const vec3& p) const {
+    if (this->densityField == DensityField_None) return 1.0f;
+    // Anchor and scale into "noise space" once. Octave loop accumulates
+    // halved-amplitude / lacunarity-scaled copies for cloudlike detail.
+    float fx = (p.x - this->noiseOffset.x) * this->noiseFrequency;
+    float fy = (p.y - this->noiseOffset.y) * this->noiseFrequency;
+    float fz = (p.z - this->noiseOffset.z) * this->noiseFrequency;
+    float amp = 1.0f;
+    float total = 0.0f;
+    float ampSum = 0.0f;
+    const int oct = (this->noiseOctaves > 0) ? this->noiseOctaves : 1;
+    for (int i = 0; i < oct; i++) {
+        total  += amp * valueNoise3D(fx, fy, fz);
+        ampSum += amp;
+        amp    *= this->noiseGain;
+        fx     *= this->noiseLacunarity;
+        fy     *= this->noiseLacunarity;
+        fz     *= this->noiseLacunarity;
+    }
+    // Normalise into [0,1] regardless of octave/gain choices, then bias and
+    // scale. Negative output is clamped to 0 — that's how noiseBias < 0
+    // carves empty pockets ("wisps").
+    const float n = (ampSum > 0.0f) ? (total / ampSum) : 0.0f;
+    const float v = this->noiseAmplitude * n + this->noiseBias;
+    return fmaxf(0.0f, v);
+}
+
 color3 HomogeneousMedium::emissionAt(const vec3& p) const {
+    color3 base;
     if (this->emissionMode == EmissionMode_Constant) {
-        return this->sigma_e_eff;
+        base = this->sigma_e_eff;
+        if (this->densityField == DensityField_None) return base;
+        return base * this->densityAt(p);
     }
     // Cone profile. Axial coordinate runs along coneAxisR from coneOriginR
     // (render-space cache populated by bake() once per frame so we don't pay
@@ -121,8 +205,51 @@ color3 HomogeneousMedium::emissionAt(const vec3& p) const {
     // so the emission magnitude tracks the colour shift — cooler edge ⇒
     // dimmer too, not just orange-on-blue artifacts at the boundary.
     const color3 col = this->coneInner * t + this->coneOuter * (1.0f - t);
-    const float scale = t * this->coneIntensity * fmaxf(0.0f, this->density);
+    float scale = t * this->coneIntensity * fmaxf(0.0f, this->density);
+    // Density field modulates the cone amplitude, breaking the smooth
+    // analytical profile into wisps and turbulence. Multiplied at the σe
+    // level so it composes cleanly with the emission integral.
+    if (this->densityField != DensityField_None) {
+        scale *= this->densityAt(p);
+    }
     return col * scale;
+}
+
+bool HomogeneousMedium::sampleDeltaTracking(const Ray& ray, float maxT,
+                                            float& outT, float& outDensity) const {
+    if (this->sigma_t_max_hero <= 0.0f || maxT <= 0.0f) return false;
+    // peak is the upper bound used to derive σt_max from σt; rejection
+    // probability is density/peak ∈ [0,1].
+    const float peak = (this->sigma_t_hero > 0.0f)
+        ? (this->sigma_t_max_hero / this->sigma_t_hero)
+        : 1.0f;
+    if (peak <= 0.0f) return false;
+
+    float t = 0.0f;
+    // Cap iterations defensively against pathological all-null walks (very
+    // sparse density at high σt_max). 64 is generous — typical fog/cloud
+    // walks accept inside ~3 steps at average density.
+    for (int i = 0; i < 64; i++) {
+        const float xi = randomValue();
+        const float xiClamped = fminf(0.9999999f, fmaxf(0.0f, xi));
+        const float dt = -logf(1.0f - xiClamped) / this->sigma_t_max_hero;
+        t += dt;
+        if (t >= maxT) return false;
+        const vec3 p(ray.origin.x + ray.dir.x * t,
+                     ray.origin.y + ray.dir.y * t,
+                     ray.origin.z + ray.dir.z * t);
+        const float d = this->densityAt(p);
+        // Accept probability is d/peak. Density above peak (shouldn't happen
+        // by construction, but the noise bias can push it) just always
+        // accepts — never biased, just throws away the upper-bound margin.
+        const float pAccept = (peak > 0.0f) ? (d / peak) : 1.0f;
+        if (randomValue() < pAccept) {
+            outT = t;
+            outDensity = d;
+            return true;
+        }
+    }
+    return false;
 }
 
 color3 HomogeneousMedium::emissionIntegralAlongRay(const Ray& ray, float maxT) const {

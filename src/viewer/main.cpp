@@ -1262,6 +1262,33 @@ int main(int argc, char** argv) {
                         }
                     }
 
+                    // Phase 3: density field. fBm noise modulates σa/σs/σe
+                    // at each ray point — turns uniform fog into wispy
+                    // clouds, smooth flames into turbulent ones. Authoring
+                    // tip: noiseBias=-0.2 carves empty pockets ("wisps");
+                    // noiseFrequency sets the world-space scale of detail.
+                    const char* dfLabels[] = { "None", "fBm noise" };
+                    int dfIdx = (int)m->densityField;
+                    if (ImGui::Combo("densityField##im", &dfIdx, dfLabels, 2)) {
+                        m->densityField = (HomogeneousMedium::DensityFieldMode)dfIdx;
+                        changed = true;
+                    }
+                    if (m->densityField == HomogeneousMedium::DensityField_FBmNoise) {
+                        float noff[3] = { m->noiseOffset.x, m->noiseOffset.y, m->noiseOffset.z };
+                        bool nChanged = false;
+                        nChanged |= ImGui::SliderFloat("noiseFrequency##im",  &m->noiseFrequency,  0.05f, 16.0f, "%.3f");
+                        nChanged |= ImGui::SliderInt  ("noiseOctaves##im",    &m->noiseOctaves,    1, 6);
+                        nChanged |= ImGui::SliderFloat("noiseGain##im",       &m->noiseGain,       0.0f, 1.0f, "%.3f");
+                        nChanged |= ImGui::SliderFloat("noiseLacunarity##im", &m->noiseLacunarity, 1.0f, 4.0f, "%.3f");
+                        nChanged |= ImGui::SliderFloat("noiseAmplitude##im",  &m->noiseAmplitude,  0.0f, 4.0f, "%.3f");
+                        nChanged |= ImGui::SliderFloat("noiseBias##im",       &m->noiseBias,      -1.0f, 1.0f, "%.3f");
+                        nChanged |= ImGui::DragFloat3 ("noiseOffset##im",     noff, 0.05f, -1000.0f, 1000.0f, "%.3f");
+                        if (nChanged) {
+                            m->noiseOffset = vec3(noff[0], noff[1], noff[2]);
+                            changed = true;
+                        }
+                    }
+
                     if (changed) {
                         m->sigma_a = color3(sa[0], sa[1], sa[2]);
                         m->sigma_s = color3(ss[0], ss[1], ss[2]);

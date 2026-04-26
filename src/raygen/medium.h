@@ -41,6 +41,17 @@ public:
         EmissionMode_Cone     = 1,
     };
 
+    // None: σ values are spatially uniform — Phase 1 / Phase 2 behaviour.
+    // FBmNoise: σ values are multiplied by a fractal-Brownian-motion field
+    //           sampled at each ray point. Turns uniform fog into wispy
+    //           clouds, smooth flames into turbulent ones. Free-flight then
+    //           uses delta tracking (σt_max bound) instead of the
+    //           closed-form exponential.
+    enum DensityFieldMode {
+        DensityField_None     = 0,
+        DensityField_FBmNoise = 1,
+    };
+
     // Per-channel coefficients in the radiative transfer equation.
     color3 sigma_a = color3::zero;   // absorption
     color3 sigma_s = color3::zero;   // scattering
@@ -74,6 +85,28 @@ public:
     float  conePeakAxial = 0.15f;
     // Sharpness of the axial gaussian. Higher = tighter hot spot.
     float  conePeakSharpness = 5.0f;
+
+    // --- Phase 3: heterogeneous density field ------------------------------
+    // FBmNoise multiplies σa/σs/σe at every sample point by a scalar
+    // fractal-Brownian-motion noise drawn from a hash-based 3D value-noise
+    // basis. Frequency sets the world-space scale of the smallest octave;
+    // octaves stack progressively halved-amplitude / lacunarity-scaled
+    // copies for cloudlike detail. noiseGain biases the [0,1] output and
+    // noiseBias offsets it before clamping — set noiseBias < 0 to carve
+    // empty pockets ("wisps"), > 0 to fill in ambient density.
+    DensityFieldMode densityField = DensityField_None;
+    float  noiseFrequency = 1.0f;       // octave-0 frequency (cycles / world unit)
+    int    noiseOctaves   = 4;          // 1..6 typical
+    float  noiseGain      = 0.5f;       // amplitude ratio between octaves
+    float  noiseLacunarity = 2.0f;      // frequency ratio between octaves
+    float  noiseAmplitude = 1.0f;       // overall multiplier on the fBm output
+    float  noiseBias      = 0.0f;       // additive offset before clamping
+    vec3   noiseOffset    = vec3::zero; // world-space anchor for the noise field
+    // σt upper bound used by delta tracking. Computed by prepare() from the
+    // homogeneous σt and the fBm peak (noiseAmplitude*(1)+noiseBias clamped).
+    // Conservative — overestimating only adds null-collision steps, not bias.
+    color3 sigma_t_max     = color3::zero;
+    float  sigma_t_max_hero = 0.0f;
 
     // Cached derivatives. Recompute via prepare() after any field change so
     // the renderer's hot path doesn't re-add per ray.
@@ -125,6 +158,36 @@ public:
     // the cone-evaluated emission for Cone. Density and coneIntensity are
     // baked into the result so callers don't reapply them.
     color3 emissionAt(const vec3& p) const;
+
+    // Returns the fBm density modulator at p (render-space), or 1.0 when
+    // densityField is None — caller multiplies σ values by this scalar.
+    float densityAt(const vec3& p) const;
+
+    // Heterogeneous-aware variants. Caller passes the homogeneous baseline σ;
+    // these multiply by densityAt(p). Cheap inlines so the renderer can
+    // branch on densityField mode at the hot path.
+    inline color3 sigmaTAt(const vec3& p) const {
+        return (this->densityField == DensityField_None) ? this->sigma_t : this->sigma_t * this->densityAt(p);
+    }
+    inline color3 sigmaSAt(const vec3& p) const {
+        return (this->densityField == DensityField_None) ? this->sigma_s_eff : this->sigma_s_eff * this->densityAt(p);
+    }
+
+    inline bool isHeterogeneous() const { return this->densityField != DensityField_None; }
+
+    // Delta-tracking free-flight for heterogeneous media. Walks exponential
+    // steps at the σt_max_hero rate; at each candidate point, accepts as a
+    // real collision with probability density(p)/peak. On accept, returns
+    // outT = step distance, outDensity = density at the accept point, and
+    // the caller treats it as a scatter/absorb event. On no-accept after
+    // walking past maxT, returns false and the caller does a surface event.
+    // Phase 3 simplification: per-channel transmittance to the surface on
+    // the no-accept branch is left at 1 (slightly overestimates light
+    // through absorbing-dominant heterogeneous media; cloud / fog look
+    // correct because their transmittance is dominated by scattering decay
+    // already integrated through the rejection loop).
+    bool sampleDeltaTracking(const Ray& ray, float maxT,
+                             float& outT, float& outDensity) const;
 
     // ∫₀^maxT Tr(s)·σe(p(s)) ds — stratified Monte Carlo when in Cone mode,
     // closed-form when in Constant mode. Caller passes the ray so we can

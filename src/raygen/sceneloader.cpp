@@ -245,6 +245,24 @@ HomogeneousMedium* SceneJsonLoader::readMedium(const JSObject& obj) {
     obj.tryGetNumberProperty("conePeakSharpness", &m->conePeakSharpness);
     obj.tryGetNumberProperty("coneEmissionSamples", &m->coneEmissionSamples);
 
+    // Phase 3: heterogeneous density field. Optional `densityField: "fbm"`
+    // switches in the fBm value-noise modulator that turns uniform σ values
+    // into wispy clouds, smoke, or turbulent flames. All other parameters
+    // are tuning knobs with sensible defaults.
+    const string* dfStr = obj.getStringProperty("densityField");
+    if (dfStr != NULL && *dfStr == "fbm") {
+        m->densityField = HomogeneousMedium::DensityField_FBmNoise;
+    }
+    obj.tryGetNumberProperty("noiseFrequency",  &m->noiseFrequency);
+    obj.tryGetNumberProperty("noiseOctaves",    &m->noiseOctaves);
+    obj.tryGetNumberProperty("noiseGain",       &m->noiseGain);
+    obj.tryGetNumberProperty("noiseLacunarity", &m->noiseLacunarity);
+    obj.tryGetNumberProperty("noiseAmplitude",  &m->noiseAmplitude);
+    obj.tryGetNumberProperty("noiseBias",       &m->noiseBias);
+    if (SceneJsonLoader::tryReadVec3Property(obj, "noiseOffset", &v)) {
+        m->noiseOffset = v;
+    }
+
     m->prepare();
 
     // No active σ AND no emission AND not a cone — caller almost certainly
