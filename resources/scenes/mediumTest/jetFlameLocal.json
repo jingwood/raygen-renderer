@@ -1,0 +1,51 @@
+// Phase 2.5 demo: cone params in OBJECT-LOCAL space via coneFollowObject.
+// FlameVolume is moved to (1.5, 0.4, 0) and the cone params stay relative
+// to the object — moving the cube in the viewer (or editing `location`
+// here) carries the flame with it. Compare with jetFlame.json which uses
+// world-space cone params.
+{
+  "mainCamera": {
+    "location": [1.0, 0.4, 4],
+    "angle": [-3, 0, 0],
+    "fieldOfView": 50,
+    "exposure": 0.7
+  },
+
+  "envmap": {
+    "texture": "../../textures/sky_sun.hdr",
+    "intensity": 0.15
+  },
+
+  "world": {
+    "Floor": {
+      "location": [0, -1.0, 0],
+      "scale": [12, 1, 12],
+      "mesh": { "type": "plane" },
+      "mat": { "color": "#222222", "diffuse": 1.0 }
+    },
+
+    "FlameVolume": {
+      "location": [1.5, 0.4, 0],
+      "scale": [1.6, 0.7, 0.7],
+      "mesh": { "type": "cube" },
+      "mat": { "color": "#ffffff", "transparency": 1.0 },
+      "medium": {
+        "sigma_a": [0, 0, 0],
+        "sigma_s": [0, 0, 0],
+        "emissionMode": "cone",
+        "coneFollowObject": true,
+        // Object-local: nozzle on the right face of the cube, axis along -X.
+        "coneOrigin":   [0.5, 0, 0],
+        "coneAxis":     [-1, 0, 0],
+        "coneLength":   1.6,
+        "coneRadius":   0.35,
+        "coneInner":    [4, 6, 12],
+        "coneOuter":    [10, 3, 0.4],
+        "coneIntensity": 30.0,
+        "conePeakAxial": 0.18,
+        "conePeakSharpness": 4.0,
+        "coneEmissionSamples": 8
+      }
+    }
+  }
+}

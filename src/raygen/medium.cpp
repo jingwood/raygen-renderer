@@ -53,15 +53,20 @@ void HomogeneousMedium::prepare() {
     this->coneAxisR   = this->coneAxisN;
 }
 
-void HomogeneousMedium::bake(const Matrix4& viewMatrix) {
+void HomogeneousMedium::bake(const Matrix4& viewMatrix, const Matrix4& modelMatrix) {
     if (this->emissionMode != EmissionMode_Cone) return;
-    // Treat coneOrigin as a point (w=1), coneAxis as a direction (w=0). The
-    // codebase uses row-vector × matrix multiplication (vec4 op*(Matrix4) is
-    // defined that way in ugm), so mirror the same convention here.
+    // Compose the transform stack the same way transformObject does for
+    // vertex positions: viewMatrix * modelMatrix when the cone follows the
+    // object (object-local → view), or just viewMatrix when authored params
+    // are world-space (legacy / JSON-authored scenes).
+    Matrix4 fullT = viewMatrix;
+    if (this->coneFollowObject) {
+        fullT = viewMatrix * modelMatrix;
+    }
     const vec4 originW(this->coneOrigin.x, this->coneOrigin.y, this->coneOrigin.z, 1.0f);
     const vec4 axisW  (this->coneAxisN.x,  this->coneAxisN.y,  this->coneAxisN.z,  0.0f);
-    const vec4 originV = originW * viewMatrix;
-    const vec4 axisV   = axisW   * viewMatrix;
+    const vec4 originV = originW * fullT;
+    const vec4 axisV   = axisW   * fullT;
     this->coneOriginR = vec3(originV.x, originV.y, originV.z);
     const float al2 = axisV.x*axisV.x + axisV.y*axisV.y + axisV.z*axisV.z;
     this->coneAxisR  = (al2 > 1e-12f)

@@ -1203,6 +1203,11 @@ int main(int argc, char** argv) {
                 if (ImGui::Checkbox("enable##interiorMedium", &enabled)) {
                     if (enabled && m == NULL) {
                         so->interiorMedium = new HomogeneousMedium();
+                        // Default newly-created media to follow the object so
+                        // dragging the bounding mesh in the Property panel
+                        // also moves the flame. Existing JSON-loaded media
+                        // keep whatever the file authored.
+                        so->interiorMedium->coneFollowObject = true;
                         so->interiorMedium->prepare();
                     } else if (!enabled && m != NULL) {
                         delete m;
@@ -1234,15 +1239,20 @@ int main(int argc, char** argv) {
                     if (m->emissionMode == HomogeneousMedium::EmissionMode_Constant) {
                         changed |= ImGui::DragFloat3("emission##im", se, 0.05f, 0.0f, 100.0f, "%.3f");
                     } else {
-                        // Cone params. coneOrigin/Axis are world-space (no
-                        // automatic transform follow yet — Phase 2.5). Inner
-                        // is the hot core, Outer the cool envelope; intensity
-                        // sets σe magnitude at the hot spot.
+                        // Cone params. With coneFollowObject ON (the default
+                        // for newly-created media in the viewer), coneOrigin
+                        // and coneAxis are interpreted in the SceneObject's
+                        // *local* space — moving the bounding mesh moves the
+                        // flame. Toggle it off if you authored world-space
+                        // params in JSON and want to keep that behaviour.
+                        bool coneChanged = false;
+                        coneChanged |= ImGui::Checkbox("followObject##im", &m->coneFollowObject);
+                        ImGui::SameLine();
+                        ImGui::TextDisabled(m->coneFollowObject ? "(object-local)" : "(world-space)");
                         float coAxis[3]   = { m->coneAxis.x,   m->coneAxis.y,   m->coneAxis.z };
                         float coOrigin[3] = { m->coneOrigin.x, m->coneOrigin.y, m->coneOrigin.z };
                         float coIn[3]     = { m->coneInner.r,  m->coneInner.g,  m->coneInner.b };
                         float coOut[3]    = { m->coneOuter.r,  m->coneOuter.g,  m->coneOuter.b };
-                        bool coneChanged = false;
                         coneChanged |= ImGui::DragFloat3("coneOrigin##im",   coOrigin, 0.05f, -1000.0f, 1000.0f, "%.3f");
                         coneChanged |= ImGui::DragFloat3("coneAxis##im",     coAxis,   0.05f, -1.0f, 1.0f, "%.3f");
                         coneChanged |= ImGui::SliderFloat("coneLength##im", &m->coneLength,   0.05f, 20.0f, "%.3f");

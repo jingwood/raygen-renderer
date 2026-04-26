@@ -85,6 +85,13 @@ public:
     float  conePeakAxial = 0.15f;
     // Sharpness of the axial gaussian. Higher = tighter hot spot.
     float  conePeakSharpness = 5.0f;
+    // When true, coneOrigin / coneAxis are interpreted in the owning
+    // SceneObject's *local* space and bake() applies the object's world
+    // transform on top of viewMatrix — moving the SceneObject moves the
+    // flame with it. When false (default for backward compat with existing
+    // JSON scenes), coneOrigin / coneAxis are world-space and the flame
+    // stays put even if the bounding mesh is moved.
+    bool   coneFollowObject = false;
 
     // --- Phase 3: heterogeneous density field ------------------------------
     // FBmNoise multiplies σa/σs/σe at every sample point by a scalar
@@ -130,12 +137,14 @@ public:
 
     void prepare();
 
-    // Bake authored (world-space) cone params into the renderer's view space
-    // by applying the supplied 4×4 column-major transform (viewMatrix is the
-    // typical caller). Origin is treated as a point (w=1), axis as a
-    // direction (w=0) and renormalised. No-op when the cone profile isn't in
-    // use. Call once per frame before tracePath touches the medium.
-    void bake(const Matrix4& viewMatrix);
+    // Bake authored cone params into the renderer's view space. When
+    // `coneFollowObject` is true, applies modelMatrix first (object-local
+    // origin/axis follow the SceneObject); otherwise modelMatrix is
+    // ignored and the authored params are treated as world-space. Origin
+    // is a point (w=1), axis a direction (w=0) and renormalised. No-op
+    // when the cone profile isn't in use. Call once per frame before
+    // tracePath touches the medium.
+    void bake(const Matrix4& viewMatrix, const Matrix4& modelMatrix);
 
     // The volumetric branch of tracePath fires when this returns true. A pure-
     // emission cone (σt=0) needs to be considered active too — otherwise the

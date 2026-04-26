@@ -171,7 +171,9 @@ void RayRenderer::transformScene() {
     // negligible vs. the per-sample emissionAt evaluation that would
     // otherwise need to undo the transform on every step.
     if (this->scene->globalMedium != NULL) {
-        this->scene->globalMedium->bake(this->viewMatrix);
+        // No owning object — globalMedium can't follow anything; pass identity.
+        Matrix4 ident; ident.loadIdentity();
+        this->scene->globalMedium->bake(this->viewMatrix, ident);
     }
     // Emissive-volume registration (Phase 4 NEE light list). Anything with
     // interiorMedium that has cone intensity > 0 (procedural) or non-zero
@@ -180,7 +182,12 @@ void RayRenderer::transformScene() {
     std::function<void(SceneObject*)> bakeObj = [&](SceneObject* obj) {
         if (obj == NULL) return;
         if (obj->interiorMedium != NULL) {
-            obj->interiorMedium->bake(this->viewMatrix);
+            // Object's full world transform — used by bake() only when the
+            // medium opted into coneFollowObject. Cheaply rebuilt here from
+            // the SceneObject's location/angle/scale chain.
+            Matrix4 modelMatrix; modelMatrix.loadIdentity();
+            obj->getWorldTransform(&modelMatrix);
+            obj->interiorMedium->bake(this->viewMatrix, modelMatrix);
             const HomogeneousMedium* m = obj->interiorMedium;
             const bool emissiveCone = (m->emissionMode == HomogeneousMedium::EmissionMode_Cone)
                                       && (m->coneIntensity > 0.0f);

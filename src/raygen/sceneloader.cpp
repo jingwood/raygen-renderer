@@ -244,6 +244,9 @@ HomogeneousMedium* SceneJsonLoader::readMedium(const JSObject& obj) {
     obj.tryGetNumberProperty("conePeakAxial",     &m->conePeakAxial);
     obj.tryGetNumberProperty("conePeakSharpness", &m->conePeakSharpness);
     obj.tryGetNumberProperty("coneEmissionSamples", &m->coneEmissionSamples);
+    if (obj.hasProperty("coneFollowObject")) {
+        m->coneFollowObject = obj.isBooleanPropertyTrue("coneFollowObject");
+    }
 
     // Phase 3: heterogeneous density field. Optional `densityField: "fbm"`
     // switches in the fBm value-noise modulator that turns uniform σ values
