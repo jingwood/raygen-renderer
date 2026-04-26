@@ -149,6 +149,7 @@ void RayRenderer::clearTransformedScene() {
     this->transformedMeshes.clear();
     this->areaLightSources.clear();
     this->pointLightSources.clear();
+    this->emissiveVolumeSources.clear();
 }
 
 void RayRenderer::transformScene() {
@@ -172,10 +173,25 @@ void RayRenderer::transformScene() {
     if (this->scene->globalMedium != NULL) {
         this->scene->globalMedium->bake(this->viewMatrix);
     }
+    // Emissive-volume registration (Phase 4 NEE light list). Anything with
+    // interiorMedium that has cone intensity > 0 (procedural) or non-zero
+    // sigma_e_eff (constant) becomes a sampleable light. Pointers borrow
+    // the SceneObject's medium — Scene/SceneObject own the lifetime.
     std::function<void(SceneObject*)> bakeObj = [&](SceneObject* obj) {
         if (obj == NULL) return;
         if (obj->interiorMedium != NULL) {
             obj->interiorMedium->bake(this->viewMatrix);
+            const HomogeneousMedium* m = obj->interiorMedium;
+            const bool emissiveCone = (m->emissionMode == HomogeneousMedium::EmissionMode_Cone)
+                                      && (m->coneIntensity > 0.0f);
+            const bool emissiveConst = (m->emissionMode == HomogeneousMedium::EmissionMode_Constant)
+                                       && (m->sigma_e_eff != color3::zero);
+            if (emissiveCone || emissiveConst) {
+                EmissiveVolumeSource ev;
+                ev.object = obj;
+                ev.medium = m;
+                this->emissiveVolumeSources.push_back(ev);
+            }
         }
         for (SceneObject* child : obj->getObjects()) bakeObj(child);
     };
@@ -1384,6 +1400,19 @@ color3 RayRenderer::tracePath(const Ray& ray, void* shaderParam) const {
             direct += Li * phase * (1.0f / pdfEnv);
         }
 
+        // Phase 4: volumetric-emitter NEE for in-scattering. The sampler
+        // accepts any direction at a scatter site (we pass surfaceNormalProxy
+        // = -ray.dir which it treats as "no rejection"); the equiangular
+        // estimator gives a sharp draw on a flame's cone axis even through
+        // dense smoke, where BSDF-style indirect bounces practically never
+        // hit the right line.
+        vec3 vDir; float vDist; float vPdf = 0.0f; color3 vLe;
+        if (this->sampleVolumeLightForNEE(scatterPos, surfaceNormalProxy,
+                                          vDir, vDist, vPdf, vLe) && vPdf > 0.0f) {
+            const float phase = medium->phasePdf(-ray.dir, vDir);
+            direct += vLe * phase * (1.0f / vPdf);
+        }
+
         // HG sampling is proportional to the phase value, so phase/pdf == 1
         // and the indirect return needs no extra weight.
         const vec3 nextDir = medium->samplePhase(ray.dir, randomValue(), randomValue());
@@ -1658,6 +1687,144 @@ bool RayRenderer::sampleEnvmapForNEE(const vec3& hit, const vec3& surfaceNormal,
     outDir = envDir;
     outPdfEnv = envPdf;
     outLi = this->sampleEnvironment(envDir);
+    return true;
+}
+
+bool RayRenderer::sampleVolumeLightForNEE(const vec3& hit, const vec3& surfaceNormal,
+                                          vec3& outDir, float& outDist,
+                                          float& outPdf, color3& outLe) const {
+    const int N = (int)this->emissiveVolumeSources.size();
+    if (N <= 0) return false;
+
+    // Uniform-pick a registered emissive volume. With N > 1 the per-volume
+    // pdf factor 1/N is folded into outPdf below so the caller doesn't have
+    // to know the scene's volume count.
+    const int idx = rand() % N;
+    const EmissiveVolumeSource& ev = this->emissiveVolumeSources[idx];
+    const HomogeneousMedium* m = ev.medium;
+    if (m == NULL) return false;
+
+    // Build the line segment we're sampling against. For Cone-mode media,
+    // it's the cone axis from origin to origin+axis*length (in render space,
+    // already baked). For Constant-mode media we approximate the volume as
+    // a degenerate point at the SceneObject's world location transformed —
+    // not great but Constant-mode emitters are rare and Phase 5 territory
+    // (proper volume bounding box sampling).
+    vec3 segA, segB;
+    if (m->emissionMode == HomogeneousMedium::EmissionMode_Cone) {
+        segA = m->coneOriginR;
+        segB = m->coneOriginR + m->coneAxisR * m->coneLength;
+    } else {
+        // Fall back: take object location through the view matrix as a
+        // single point. With a zero-length segment, equiangular collapses
+        // to a single direction sample — acts like a point light.
+        const vec3 loc = ev.object->location;
+        const vec4 lw(loc.x, loc.y, loc.z, 1.0f);
+        const vec4 lv = lw * this->viewMatrix;
+        segA = vec3(lv.x, lv.y, lv.z);
+        segB = segA;
+    }
+
+    // Equiangular line sampling (Kulla & Fajardo 2012, "Importance Sampling
+    // Techniques for Path Tracing in Participating Media"). Project hit→seg
+    // axis to find the closest point on the (infinite) line, then
+    // parameterise the visible segment by angle from `hit`. Sampling θ
+    // uniformly within [θA, θB] gives p(t) = D / ((θB-θA)·(D² + t²)) where
+    // D is the perpendicular distance and t is the signed offset along the
+    // axis from the closest-point. PDF in solid angle then reads as
+    // cosθ-cancelled when we convert via 1/r² later, so we just need pdfDir
+    // = pdf_t · (r²/cosθ_along_axis) — simpler to track pdf in distance and
+    // convert to solid angle at return.
+    const vec3 segDir = segB - segA;
+    const float segLen = segDir.length();
+    vec3 axis;
+    if (segLen > 1e-6f) {
+        axis = segDir * (1.0f / segLen);
+    } else {
+        axis = vec3(0.0f, 0.0f, -1.0f);  // unused when segLen == 0
+    }
+
+    // tA, tB = parametric bounds of the segment, signed offsets from the
+    // foot of perpendicular dropped from `hit`.
+    const vec3 toA = segA - hit;
+    const float a_along = dot(toA, axis);
+    const vec3 perp = toA - axis * a_along;
+    const float D = perp.length();
+    if (!(D > 1e-5f) && segLen <= 1e-6f) return false;  // hit is exactly on a degenerate light
+
+    const float tA = a_along;
+    const float tB = a_along + segLen;
+    const float thetaA = atanf(tA / fmaxf(D, 1e-5f));
+    const float thetaB = atanf(tB / fmaxf(D, 1e-5f));
+    if (!(fabsf(thetaB - thetaA) > 1e-6f) && segLen > 1e-6f) return false;
+
+    // Sample θ uniformly, convert to t via inverse cdf.
+    const float u = randomValue();
+    const float theta = thetaA + u * (thetaB - thetaA);
+    const float tSamp = D * tanf(theta);
+    const vec3 sampPoint = (segLen > 1e-6f)
+        ? (segA + axis * (tSamp - a_along))
+        : segA;
+
+    // Distance pdf for this sampler:
+    //   p(t) = D / ((θB - θA) · (D² + t²))
+    // Convert to solid-angle pdf (per Kulla & Fajardo): p_ω = p(t) · r² / 1
+    // because we're sampling a 1-D line, not a surface — the geometric
+    // factor for a line element is r/D × dt = ds (arc length), and
+    // p_ω = p(t) · r² simplifies on the line geometry.
+    const vec3 toSamp = sampPoint - hit;
+    const float r2 = toSamp.length2();
+    const float r  = sqrtf(r2);
+    if (!(r > 1e-5f)) return false;
+    const vec3 dir = toSamp * (1.0f / r);
+
+    // We don't pre-reject behind the shading hemisphere here — the caller
+    // multiplies by the BRDF·cosθ (surface) or phase function (volume) and
+    // those drop to zero on their own for invalid geometry. Letting through
+    // marginal directions costs one shadow ray; rejecting here would mask
+    // legitimate near-grazing illumination on glossy lobes.
+    (void)surfaceNormal;
+
+    // Shadow ray: any opaque non-emissive triangle between hit and the
+    // sampled point occludes. Transparent (the volume's own bounding mesh)
+    // and refractive get skipped — we want the light to "shine through"
+    // those even though the hit point may be next to one. maxt clipped just
+    // before the sampled point.
+    const Ray shadowRay = ThicknessRay(hit, toSamp);
+    const float maxt = 0.99999f;
+    const bool blocked = this->bvh.intersectAny(shadowRay, maxt, [](const RenderMeshTriangle* rt) {
+        const auto& mat = rt->object.material;
+        if (mat.emission > 0.0f) return false;
+        return mat.transparency < 0.01f && mat.refraction <= 0.1f;
+    });
+    if (blocked) return false;
+
+    // σe at the sampled point. For Cone, this includes the inner→outer
+    // gradient and the density-field modulator. For Constant it's
+    // sigma_e_eff (uniform inside the bounding mesh). Apply the medium's
+    // own transmittance from the sampled point back to `hit` along the
+    // shadow ray — for emissive-only media (σt=0) this is 1, so the
+    // common case stays cheap.
+    color3 sigmaE = m->emissionAt(sampPoint);
+    if (sigmaE == color3::zero) return false;
+    if (m->sigma_t_hero > 0.0f) {
+        // Approximate self-attenuation through the medium. Underestimate is
+        // OK (lights look slightly brighter than they should for very thick
+        // smoke); a ratio-tracking estimator across the segment is the
+        // proper Phase 5 refinement.
+        const color3 Tr = m->transmittance(r);
+        sigmaE = color3(sigmaE.r * Tr.r, sigmaE.g * Tr.g, sigmaE.b * Tr.b);
+    }
+
+    const float pdfT = D / (fmaxf(1e-6f, fabsf(thetaB - thetaA)) * (D * D + tSamp * tSamp));
+    // Convert distance-pdf to solid-angle pdf and fold in the volume-pick
+    // probability so callers can MIS against this exact value.
+    const float pdfOmega = pdfT * r2 * (float)N;
+
+    outDir  = dir;
+    outDist = r;
+    outPdf  = pdfOmega;
+    outLe   = sigmaE;
     return true;
 }
 

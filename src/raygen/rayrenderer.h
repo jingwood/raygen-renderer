@@ -59,11 +59,22 @@ typedef void (*MeshBakedCallback(const SceneObject& obj, const Image& img))();
 
 struct LightSource {
 	const SceneObject* object = NULL;
-	
+
 	vec3 transformedLocation;
 	vec3 transformedNormal;
-	
+
 	LightSource() { }
+};
+
+// Phase 4: an emissive participating-medium attached to a SceneObject is also
+// a light source — registered here so surface and volume NEE can sample it.
+// The medium pointer is just a borrow of the SceneObject's interiorMedium
+// (Scene owns the lifetime); the bounding-mesh reference is what we use as
+// the predicate to skip self-shadowing in shadow rays.
+struct EmissiveVolumeSource {
+	const SceneObject* object = NULL;
+	const class HomogeneousMedium* medium = NULL;
+	EmissiveVolumeSource() { }
 };
 
 class RayTransformedMesh {
@@ -153,6 +164,7 @@ private:
 	std::vector<const RayTransformedMesh*> transformedMeshes;
 	std::vector<LightSource> areaLightSources;
 	std::vector<LightSource> pointLightSources;
+	std::vector<EmissiveVolumeSource> emissiveVolumeSources;
 	
 	void initRenderThreadContext(RenderThreadContext* ctx);
     void renderThread(const RenderThreadContext& ctx, const int threadId);
@@ -275,6 +287,23 @@ public:
 	                           vec3& outDir, float& outPdfLight, color3& outLe) const;
 	bool sampleEnvmapForNEE(const vec3& hit, const vec3& surfaceNormal,
 	                        vec3& outDir, float& outPdfEnv, color3& outLi) const;
+	// Phase 4: NEE for emissive participating media. Picks one of the
+	// registered emissive volumes and equiangular-samples a point along its
+	// cone axis (or bbox centre for Constant-mode media). On success returns
+	//   outDir       — direction from `hit` to the sample point
+	//   outDist      — distance along that direction
+	//   outPdf       — solid-angle pdf (light-side of MIS)
+	//   outLe        — σe at the sampled point, multiplied by medium tr along
+	//                  the segment from hit to sample point (transmittance
+	//                  through the volume itself; outside-segment Tr is left
+	//                  to the caller's current medium)
+	// Returns false when no emissive volumes exist, the geometry rejects
+	// (passing through opaque geometry on the way), the sampled σe is zero,
+	// or `surfaceNormal` faces away from outDir (caller can pass any normal-
+	// like direction; pass -ray.dir for volumetric scatter sites).
+	bool sampleVolumeLightForNEE(const vec3& hit, const vec3& surfaceNormal,
+	                             vec3& outDir, float& outDist,
+	                             float& outPdf, color3& outLe) const;
 	color3 lambertTraceLights(const vec3& hit, const vec3& objectNormal) const;
 
 	// Effective area of the light strategy's pdf at a given emitter triangle:

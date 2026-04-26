@@ -71,6 +71,20 @@ color3 DiffuseShader::shade(BSDFParam& param) {
                   + renderer.traceLight(interInfo.hit, param.vi.normal)
                   + renderer.traceEnvmapLight(interInfo.hit, param.vi.normal, param.bsdfSampledPdf);
 
+    // Phase 4: NEE against emissive participating media. Equiangular line
+    // sampling gives a 1/r²-weighted draw on the cone axis, then we evaluate
+    // σe at the sample point (already medium-self-attenuated) and add the
+    // Lambertian direct term L = (albedo/π) · Le · cosθ / pdfω. albedo is
+    // applied at return so we just multiply by cosθ/(π·pdf) here.
+    {
+        vec3 vDir; float vDist; float vPdf = 0.0f; color3 vLe;
+        if (renderer.sampleVolumeLightForNEE(interInfo.hit, param.vi.normal,
+                                              vDir, vDist, vPdf, vLe) && vPdf > 0.0f) {
+            const float cosL = fmaxf(0.0f, dot(vDir, param.vi.normal));
+            color += vLe * (cosL * (float)(1.0 / M_PI) / vPdf);
+        }
+    }
+
     param.throughput = savedT;
     param.bsdfSampledPdf = savedBsdfPdf;
 
@@ -267,6 +281,21 @@ color3 GlossyShader::shade(BSDFParam& param) {
                 const float pb2 = pdfBsdf * pdfBsdf;
                 const float wEnv = pe2 / (pe2 + pb2);
                 direct += Li * fCos * (wEnv / pdfEnv);
+            }
+        }
+    }
+
+    // Phase 4: volumetric-emitter NEE. Equiangular line sampling produces
+    // a 1/r²-weighted draw on the cone axis. We don't pair this with a BSDF
+    // strategy (a glossy lobe is unlikely to randomly hit the line) so MIS
+    // weight is 1 — slight overestimate is bounded by the firefly clamp.
+    {
+        vec3 vDir; float vDist; float vPdf = 0.0f; color3 vLe;
+        if (renderer.sampleVolumeLightForNEE(interInfo.hit, normal,
+                                              vDir, vDist, vPdf, vLe) && vPdf > 0.0f) {
+            color3 fCos; float pdfBsdf = 0.0f;
+            if (evalGlossy(vDir, fCos, pdfBsdf)) {
+                direct += vLe * fCos * (1.0f / vPdf);
             }
         }
     }
