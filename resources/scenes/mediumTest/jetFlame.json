@@ -17,20 +17,21 @@
     "exposure": 0.7
   },
 
+  // Envmap fills the background where eye rays exit the (transparent)
+  // FlameVolume bounding cube. Without this, the dark BackWall behind the
+  // cube made the flame's bounding box look like an opaque black rectangle.
+  // Setting intensity low keeps the flame the dominant light contributor.
+  "envmap": {
+    "texture": "../../textures/sky_sun.hdr",
+    "intensity": 0.15
+  },
+
   "world": {
     "Floor": {
       "location": [0, -1.0, 0],
       "scale": [12, 1, 12],
       "mesh": { "type": "plane" },
       "mat": { "color": "#222222", "diffuse": 1.0 }
-    },
-
-    "BackWall": {
-      "location": [0, 1.0, -3],
-      "scale": [12, 4, 1],
-      "mesh": { "type": "plane" },
-      "angle": [90, 0, 0],
-      "mat": { "color": "#1a1a1a", "diffuse": 1.0 }
     },
 
     "Nozzle": {
