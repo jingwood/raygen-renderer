@@ -41,7 +41,13 @@ void deriveSceneDir(const char* scenePath, char* outDir, size_t outDirCap) {
 
 void drawFilePanel(const FilePanelCtx& ctx) {
     ImGui::Begin("File");
-    ImGui::TextWrapped("scene: %s", ctx.scenePath);
+
+    const bool hasScene = (ctx.scenePath != nullptr && ctx.scenePath[0] != '\0');
+    if (hasScene) {
+        ImGui::TextWrapped("scene: %s", ctx.scenePath);
+    } else {
+        ImGui::TextDisabled("scene: (none — use Load Scene...)");
+    }
 
     // Reload + Load both touch the Scene unique_ptr, which the worker thread
     // captures by reference at the start of each job — only safe to swap
@@ -60,9 +66,13 @@ void drawFilePanel(const FilePanelCtx& ctx) {
         }
     }
     ImGui::SameLine();
+    // Reload only makes sense when we have a current scenePath; greying it
+    // out also matches user expectation ("nothing to reload yet").
+    if (!hasScene) ImGui::BeginDisabled();
     if (ImGui::Button("Reload scene")) {
         ctx.onReloadScene();
     }
+    if (!hasScene) ImGui::EndDisabled();
 
     if (!canFile) ImGui::EndDisabled();
 

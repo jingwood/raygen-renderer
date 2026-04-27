@@ -313,14 +313,12 @@ static void applyParamsToScene(const ViewerParams& p, RayRenderer& renderer, Sce
 }
 
 int main(int argc, char** argv) {
-    if (argc < 2) {
-        fprintf(stderr, "usage: %s <scene.json>\n", argv[0]);
-        return 1;
-    }
-    // Mutable buffer so the Load Scene dialog can replace the path at
-    // runtime. Initial-load and Reload paths read from the same buffer.
+    // Scene argument is optional now that the File panel has a Load Scene
+    // dialog: when omitted we boot with an empty Scene and the user picks
+    // one at runtime. scenePath stays a 1024-byte mutable buffer either way
+    // so the dialog can write into it without reallocating.
     char scenePath[1024] = {0};
-    {
+    if (argc >= 2 && argv[1] != nullptr) {
         const char* a = argv[1];
         size_t n = std::strlen(a);
         if (n >= sizeof(scenePath)) n = sizeof(scenePath) - 1;
@@ -401,8 +399,9 @@ int main(int argc, char** argv) {
     // unique_ptr lets us swap the Scene object on reload without disturbing
     // the worker's capture - the worker dereferences `*scene` each job, so a
     // pointer-swap from the main thread (while the worker is idle) is safe.
+    // Empty scene when no path was given on the CLI: the user will Load one.
     auto scene = std::make_unique<Scene>();
-    {
+    if (scenePath[0] != '\0') {
         RendererSceneLoader loader;
         loader.load(renderer, scene.get(), scenePath);
     }
@@ -459,30 +458,36 @@ int main(int argc, char** argv) {
 
     // Build a default output path next to the scene.json: replace the
     // extension with "-out.jpg" so hitting Save with no edits still produces
-    // something sensible.
+    // something sensible. With no scene yet, fall back to a generic name in
+    // the CWD; Load Scene will rewrite it once the user picks a file.
     char outputPath[512] = {0};
-    {
+    if (scenePath[0] != '\0') {
         const char* dot = strrchr(scenePath, '.');
         size_t baseLen = dot ? (size_t)(dot - scenePath) : strlen(scenePath);
         if (baseLen > sizeof(outputPath) - 16) baseLen = sizeof(outputPath) - 16;
         memcpy(outputPath, scenePath, baseLen);
         memcpy(outputPath + baseLen, "-out.jpg", 9);
+    } else {
+        std::memcpy(outputPath, "untitled-out.jpg", 17);
     }
 
     // Sidecar "<scene>.viewer.json": auto-loaded here (scene-seeded values
     // act as fallbacks for missing keys) and auto-saved on every render kick
     // further down. Lets us persist slider state across sessions without
     // touching scene.json (which preserves JSONC comments and author intent).
+    // Empty when no scene yet — persistSidecar/Load skip both ends.
     char sidecarPath[512] = {0};
-    computeSidecarPath(scenePath, sidecarPath, sizeof(sidecarPath));
-    int sidecarOutW = renderer.settings.resolutionWidth;
-    int sidecarOutH = renderer.settings.resolutionHeight;
-    const bool sidecarLoaded =
-        loadViewerConfig(sidecarPath, uiParams, sidecarOutW, sidecarOutH);
-    if (sidecarLoaded) {
-        renderer.settings.resolutionWidth  = sidecarOutW;
-        renderer.settings.resolutionHeight = sidecarOutH;
-        renderer.setRenderSize(sidecarOutW, sidecarOutH);
+    if (scenePath[0] != '\0') {
+        computeSidecarPath(scenePath, sidecarPath, sizeof(sidecarPath));
+        int sidecarOutW = renderer.settings.resolutionWidth;
+        int sidecarOutH = renderer.settings.resolutionHeight;
+        const bool sidecarLoaded =
+            loadViewerConfig(sidecarPath, uiParams, sidecarOutW, sidecarOutH);
+        if (sidecarLoaded) {
+            renderer.settings.resolutionWidth  = sidecarOutW;
+            renderer.settings.resolutionHeight = sidecarOutH;
+            renderer.setRenderSize(sidecarOutW, sidecarOutH);
+        }
     }
 
     RenderJob job;
@@ -580,8 +585,11 @@ int main(int argc, char** argv) {
 
     // Persist the user-facing ViewerParams (not any preview-time override
     // like samples=1) to the sidecar. File write happens outside the worker
-    // mutex so a slow disk can't stall the handoff.
+    // mutex so a slow disk can't stall the handoff. With no scene loaded,
+    // sidecarPath is empty and we'd be writing to "viewer.json" in the CWD —
+    // skip until a scene actually backs the slider state.
     auto persistSidecar = [&]() {
+        if (sidecarPath[0] == '\0') return;
         saveViewerConfig(sidecarPath, uiParams,
                          renderer.settings.resolutionWidth,
                          renderer.settings.resolutionHeight);
@@ -593,12 +601,17 @@ int main(int argc, char** argv) {
         enqueueWorker(uiParams, kind);
         persistSidecar();
     };
-    kickFinal();
+    // Skip the initial render when no scene was given — the user kicks one
+    // by choosing Load Scene. Avoids tracing an empty BVH on startup just
+    // to produce a black frame.
+    if (scenePath[0] != '\0') kickFinal();
 
     GLuint renderTex = 0;
     int   texW = 0, texH = 0;
     double lastRenderSec = 0.0;
-    bool  isRendering = true;
+    // True only while the worker is busy — initialized from whether we
+    // actually kicked the initial render above.
+    bool  isRendering = (scenePath[0] != '\0');
     JobKind currentJobKind = JobKind::Full;
     float previewProgress = 0.0f;
     bool  lastUploadWasPreview = false;
