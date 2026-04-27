@@ -1008,9 +1008,17 @@ int main(int argc, char** argv) {
         const bool canSave = !isRendering && renderTex != 0 && outputPath[0] != 0;
         if (!canSave) ImGui::BeginDisabled();
         if (ImGui::Button("Save render")) {
-            // Grab the latest finished frame straight out of the renderer;
-            // saveImage handles JPEG/PNG based on extension.
-            saveImage(renderer.getRenderResult(), ucm::string(outputPath));
+            // .hdr → linear-radiance HDR buffer (float, no tonemap).
+            // Anything else → tonemapped LDR preview. saveImage routes by
+            // extension via getImageFormatByExtension.
+            ucm::string outPath(outputPath);
+            ImageCodecFormat outFmt = ImageCodecFormat::ICF_AUTO;
+            getImageFormatByExtension(outPath, &outFmt);
+            if (outFmt == ImageCodecFormat::ICF_HDR) {
+                saveImage(renderer.getHdrResult(), outPath);
+            } else {
+                saveImage(renderer.getRenderResult(), outPath);
+            }
         }
         if (!canSave) ImGui::EndDisabled();
         ImGui::End();
