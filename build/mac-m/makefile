@@ -41,7 +41,7 @@ GLFW_PREFIX ?= /opt/homebrew/opt/glfw
 IMGUI_DIR=../../inc/imgui
 VIEWER_BIN=raygen-viewer
 VIEWER_SRC=../../src/viewer/main.cpp
-VIEWER_INC=-I../../src -I../../../cpp-common-class/src -I../../../cpp-graphics-math/src \
+VIEWER_INC=-I../../src -I../../src/viewer -I../../../cpp-common-class/src -I../../../cpp-graphics-math/src \
            -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends -I$(GLFW_PREFIX)/include
 # macOS deprecated the OpenGL framework in 10.14 but still ships it; silence
 # the ~300 deprecation warnings from viewer and imgui_impl_opengl3 sources.
@@ -51,7 +51,8 @@ VIEWER_LIB=-L$(GLFW_PREFIX)/lib -lglfw \
 
 IMGUI_CORE_OBJS=imgui.o imgui_draw.o imgui_tables.o imgui_widgets.o imgui_demo.o
 IMGUI_BACKEND_OBJS=imgui_impl_glfw.o imgui_impl_opengl3.o
-VIEWER_OBJS=viewer_main.o $(IMGUI_CORE_OBJS) $(IMGUI_BACKEND_OBJS)
+VIEWER_PANEL_OBJS=viewer_medium_editor.o
+VIEWER_OBJS=viewer_main.o $(VIEWER_PANEL_OBJS) $(IMGUI_CORE_OBJS) $(IMGUI_BACKEND_OBJS)
 
 viewer: $(VIEWER_BIN)
 
@@ -61,6 +62,9 @@ $(VIEWER_BIN): $(DEV_BIN) $(VIEWER_OBJS)
 
 viewer_main.o: $(VIEWER_SRC)
 	$(CX) $(VIEWER_DEFS) $(VIEWER_INC) -c $(VIEWER_SRC) -o viewer_main.o
+
+viewer_medium_editor.o: ../../src/viewer/MediumEditor.cpp ../../src/viewer/MediumEditor.h
+	$(CX) $(VIEWER_DEFS) $(VIEWER_INC) -c ../../src/viewer/MediumEditor.cpp -o viewer_medium_editor.o
 
 $(IMGUI_CORE_OBJS): %.o: $(IMGUI_DIR)/%.cpp
 	$(CX) -I$(IMGUI_DIR) -c $< -o $@
