@@ -85,6 +85,8 @@
     <ClInclude Include="..\..\..\src\viewer\MainPanel.h" />
     <ClCompile Include="..\..\..\src\viewer\MediumEditor.cpp" />
     <ClInclude Include="..\..\..\src\viewer\MediumEditor.h" />
+    <ClCompile Include="..\..\..\src\viewer\OutlinePanel.cpp" />
+    <ClInclude Include="..\..\..\src\viewer\OutlinePanel.h" />
     <ClCompile Include="..\..\..\src\viewer\PropertyPanel.cpp" />
     <ClInclude Include="..\..\..\src\viewer\PropertyPanel.h" />
     <ClCompile Include="..\..\..\src\viewer\ViewerTypes.cpp" />

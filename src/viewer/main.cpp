@@ -45,6 +45,7 @@
 #include "FilePanel.h"
 #include "MainPanel.h"
 #include "MediumEditor.h"
+#include "OutlinePanel.h"
 #include "PropertyPanel.h"
 #include "ViewerTypes.h"
 #include "ugm/image.h"
@@ -642,46 +643,6 @@ int main(int argc, char** argv) {
     // control-panel scope so the Outline/Property code below can drive it.
     bool pendingDirty = false;
 
-    // Recursive draw for the Outline tree. Any mutation of visibility or
-    // material happens directly on the SceneObject — ImGui edit widgets return
-    // true whenever the user dragged, which drives `dirty`. The tree is drawn
-    // every frame so new children (post-Reload) appear automatically.
-    std::function<void(SceneObject*, bool&)> drawObjectNode;
-    drawObjectNode = [&](SceneObject* obj, bool& outDirty) {
-        if (!obj) return;
-        const auto& children = obj->getObjects();
-        const bool leaf = children.empty();
-
-        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow |
-                                   ImGuiTreeNodeFlags_OpenOnDoubleClick |
-                                   ImGuiTreeNodeFlags_SpanAvailWidth;
-        if (leaf) flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
-        if (obj == selectedObj) flags |= ImGuiTreeNodeFlags_Selected;
-
-        // Visibility checkbox on the left; ##<addr> keeps IDs unique even when
-        // two siblings share a display name.
-        ImGui::PushID((void*)obj);
-        bool visible = obj->visible;
-        if (ImGui::Checkbox("##vis", &visible)) {
-            obj->visible = visible;
-            outDirty = true;
-        }
-        ImGui::SameLine();
-
-        const char* label = obj->getName().isEmpty() ? "(unnamed)"
-                                                     : obj->getName().getBuffer();
-        bool opened = ImGui::TreeNodeEx((void*)obj, flags, "%s", label);
-        if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
-            selectedObj = obj;
-        }
-        ImGui::PopID();
-
-        if (opened && !leaf) {
-            for (SceneObject* child : children) drawObjectNode(child, outDirty);
-            ImGui::TreePop();
-        }
-    };
-
     while (!glfwWindowShouldClose(window)) {
         // Event-driven: sleep until the OS or the worker (via
         // glfwPostEmptyEvent) gives us something to do. A short timeout
@@ -945,14 +906,11 @@ int main(int argc, char** argv) {
         // briefly mix old/new channels on a dragging slider, but aligned 32-
         // bit float writes are atomic so there's no corruption — only a few
         // transient pixels that the next render cleans up.
+        // --- Outline + Property windows (live in OutlinePanel.cpp /
+        // PropertyPanel.cpp). Outline owns the selection cursor; Property
+        // reads it.
         bool sceneDirty = false;
-        ImGui::Begin("Outline");
-        for (SceneObject* root : scene->getObjects()) {
-            drawObjectNode(root, sceneDirty);
-        }
-        ImGui::End();
-
-        // --- Property window (lives in PropertyPanel.cpp) ---
+        sceneDirty |= viewer::drawOutlinePanel(*scene, selectedObj);
         sceneDirty |= viewer::drawPropertyPanel(selectedObj);
 
         // Scene edits always need a full re-trace (BVH bounds, transforms,
