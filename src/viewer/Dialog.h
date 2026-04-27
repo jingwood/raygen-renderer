@@ -1,0 +1,30 @@
+///////////////////////////////////////////////////////////////////////////////
+//  Raygen Viewer — native file-picker shim.
+//
+//  ImGui has no built-in file dialog. Rather than pull a third-party widget
+//  into the build we delegate to the OS's standard Open dialog (GetOpenFileName
+//  on Windows; macOS / Linux currently stubs out and returns false until a
+//  Cocoa / GTK implementation lands).
+///////////////////////////////////////////////////////////////////////////////
+
+#ifndef __viewer_dialog_h__
+#define __viewer_dialog_h__
+
+#include <cstddef>
+
+namespace raygen {
+namespace viewer {
+
+// Opens an "Open scene" dialog filtered to .json. Returns true on selection
+// and writes a NUL-terminated path into `out` (truncated to `outCap-1`
+// bytes). Returns false if the user cancelled, on platforms with no
+// implementation, or if `out` is null.
+//
+// `initialDir` (may be null) seeds the dialog's working directory; we don't
+// change the process CWD even if the user navigates elsewhere.
+bool openSceneFileDialog(char* out, size_t outCap, const char* initialDir);
+
+}  // namespace viewer
+}  // namespace raygen
+
+#endif

@@ -19,6 +19,7 @@
 #include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <functional>
 #include <mutex>
 #include <thread>
@@ -41,6 +42,7 @@
 #include "raygen/rayrenderer.h"
 #include "raygen/sceneloader.h"
 
+#include "FilePanel.h"
 #include "MainPanel.h"
 #include "MediumEditor.h"
 #include "PropertyPanel.h"
@@ -315,7 +317,16 @@ int main(int argc, char** argv) {
         fprintf(stderr, "usage: %s <scene.json>\n", argv[0]);
         return 1;
     }
-    const char* scenePath = argv[1];
+    // Mutable buffer so the Load Scene dialog can replace the path at
+    // runtime. Initial-load and Reload paths read from the same buffer.
+    char scenePath[1024] = {0};
+    {
+        const char* a = argv[1];
+        size_t n = std::strlen(a);
+        if (n >= sizeof(scenePath)) n = sizeof(scenePath) - 1;
+        std::memcpy(scenePath, a, n);
+        scenePath[n] = '\0';
+    }
 
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit()) return 1;
@@ -759,12 +770,12 @@ int main(int argc, char** argv) {
         if (!canPreset) ImGui::EndDisabled();
         ImGui::End();
 
-        // --- File window (save / reload) ---
-        ImGui::Begin("File");
-        ImGui::TextWrapped("scene: %s", scenePath);
-        const bool canFile = !isRendering;
-        if (!canFile) ImGui::BeginDisabled();
-        if (ImGui::Button("Reload scene")) {
+        // --- File window (lives in FilePanel.cpp) ---
+        // Reload uses the *current* scenePath. Load updates scenePath (and
+        // sidecar / default output path) before running the same flow.
+        // Both touch the Scene unique_ptr, so the panel disables them while
+        // the worker is rendering.
+        auto reloadCurrentScene = [&]() {
             // Drop the old Scene (destructor releases meshes) and re-parse
             // the JSON into a fresh one. Worker sees the new *scene on the
             // next job because it dereferences the unique_ptr each time.
@@ -777,43 +788,53 @@ int main(int argc, char** argv) {
             renderer.setScene(fresh.get());
             scene = std::move(fresh);
 
-            // Re-seed from scene then overlay the sidecar, so Reload behaves
-            // symmetrically with initial load: user tweaks win, scene defaults
-            // fill in the rest.
+            // Re-seed from scene then overlay the sidecar, so reload behaves
+            // symmetrically with initial load: user tweaks win, scene
+            // defaults fill in the rest.
             seedUiParamsFromScene(uiParams);
-            int reloadOutW = renderer.settings.resolutionWidth;
-            int reloadOutH = renderer.settings.resolutionHeight;
-            if (loadViewerConfig(sidecarPath, uiParams, reloadOutW, reloadOutH)) {
-                renderer.settings.resolutionWidth  = reloadOutW;
-                renderer.settings.resolutionHeight = reloadOutH;
-                renderer.setRenderSize(reloadOutW, reloadOutH);
-                outputWidth  = reloadOutW;
-                outputHeight = reloadOutH;
+            int outW = renderer.settings.resolutionWidth;
+            int outH = renderer.settings.resolutionHeight;
+            if (loadViewerConfig(sidecarPath, uiParams, outW, outH)) {
+                renderer.settings.resolutionWidth  = outW;
+                renderer.settings.resolutionHeight = outH;
+                renderer.setRenderSize(outW, outH);
+                outputWidth  = outW;
+                outputHeight = outH;
             }
 
             lastKickedParams = uiParams;
             kickFinal(JobKind::Full);
-        }
-        if (!canFile) ImGui::EndDisabled();
+        };
+        auto loadNewScene = [&](const char* newPath) {
+            // Replace scenePath, recompute the sidecar location, and reset
+            // the default output path to "<basename>-out.jpg" — user-edited
+            // output paths from the previous scene shouldn't carry over.
+            size_t n = std::strlen(newPath);
+            if (n >= sizeof(scenePath)) n = sizeof(scenePath) - 1;
+            std::memcpy(scenePath, newPath, n);
+            scenePath[n] = '\0';
 
-        ImGui::InputText("output path", outputPath, sizeof(outputPath));
-        const bool canSave = !isRendering && renderTex != 0 && outputPath[0] != 0;
-        if (!canSave) ImGui::BeginDisabled();
-        if (ImGui::Button("Save render")) {
-            // .hdr → linear-radiance HDR buffer (float, no tonemap).
-            // Anything else → tonemapped LDR preview. saveImage routes by
-            // extension via getImageFormatByExtension.
-            ucm::string outPath(outputPath);
-            ImageCodecFormat outFmt = ImageCodecFormat::ICF_AUTO;
-            getImageFormatByExtension(outPath, &outFmt);
-            if (outFmt == ImageCodecFormat::ICF_HDR) {
-                saveImage(renderer.getHdrResult(), outPath);
-            } else {
-                saveImage(renderer.getRenderResult(), outPath);
-            }
-        }
-        if (!canSave) ImGui::EndDisabled();
-        ImGui::End();
+            computeSidecarPath(scenePath, sidecarPath, sizeof(sidecarPath));
+
+            const char* dot = std::strrchr(scenePath, '.');
+            size_t baseLen = dot ? (size_t)(dot - scenePath) : std::strlen(scenePath);
+            if (baseLen > sizeof(outputPath) - 16) baseLen = sizeof(outputPath) - 16;
+            std::memcpy(outputPath, scenePath, baseLen);
+            std::memcpy(outputPath + baseLen, "-out.jpg", 9);
+
+            reloadCurrentScene();
+        };
+
+        viewer::FilePanelCtx fpCtx;
+        fpCtx.scenePath      = scenePath;
+        fpCtx.outputPath     = outputPath;
+        fpCtx.outputPathCap  = sizeof(outputPath);
+        fpCtx.isRendering    = isRendering;
+        fpCtx.hasRender      = (renderTex != 0);
+        fpCtx.renderer       = &renderer;
+        fpCtx.onReloadScene  = reloadCurrentScene;
+        fpCtx.onLoadScene    = loadNewScene;
+        viewer::drawFilePanel(fpCtx);
 
         // --- Render preview ---
         // The image is drawn as a free-floating quad inside a fixed-size

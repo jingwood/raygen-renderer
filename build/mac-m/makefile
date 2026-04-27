@@ -51,7 +51,7 @@ VIEWER_LIB=-L$(GLFW_PREFIX)/lib -lglfw \
 
 IMGUI_CORE_OBJS=imgui.o imgui_draw.o imgui_tables.o imgui_widgets.o imgui_demo.o
 IMGUI_BACKEND_OBJS=imgui_impl_glfw.o imgui_impl_opengl3.o
-VIEWER_PANEL_OBJS=viewer_main_panel.o viewer_medium_editor.o viewer_property_panel.o viewer_types.o
+VIEWER_PANEL_OBJS=viewer_dialog.o viewer_file_panel.o viewer_main_panel.o viewer_medium_editor.o viewer_property_panel.o viewer_types.o
 VIEWER_OBJS=viewer_main.o $(VIEWER_PANEL_OBJS) $(IMGUI_CORE_OBJS) $(IMGUI_BACKEND_OBJS)
 
 viewer: $(VIEWER_BIN)
@@ -62,6 +62,12 @@ $(VIEWER_BIN): $(DEV_BIN) $(VIEWER_OBJS)
 
 viewer_main.o: $(VIEWER_SRC)
 	$(CX) $(VIEWER_DEFS) $(VIEWER_INC) -c $(VIEWER_SRC) -o viewer_main.o
+
+viewer_dialog.o: ../../src/viewer/Dialog.cpp ../../src/viewer/Dialog.h
+	$(CX) $(VIEWER_DEFS) $(VIEWER_INC) -c ../../src/viewer/Dialog.cpp -o viewer_dialog.o
+
+viewer_file_panel.o: ../../src/viewer/FilePanel.cpp ../../src/viewer/FilePanel.h ../../src/viewer/Dialog.h
+	$(CX) $(VIEWER_DEFS) $(VIEWER_INC) -c ../../src/viewer/FilePanel.cpp -o viewer_file_panel.o
 
 viewer_main_panel.o: ../../src/viewer/MainPanel.cpp ../../src/viewer/MainPanel.h ../../src/viewer/ViewerTypes.h
 	$(CX) $(VIEWER_DEFS) $(VIEWER_INC) -c ../../src/viewer/MainPanel.cpp -o viewer_main_panel.o
