@@ -12,7 +12,13 @@
 #include "ugm/types3d.h"
 #include "scene.h"
 
-#define SURFACE_THICKNESS 0.00001f
+// Self-intersection guard distance pushed into ThicknessRay along ray.dir
+// before tracing. 1e-5 is too small for meter-scale assets when shadow rays
+// graze the surface (ray.dir nearly tangent → effective offset collapses to
+// zero), producing black streaks on grazing-angle NEE samples. 1e-4 buys
+// enough margin for typical meter-scale meshes without making the surface
+// noticeably "thick".
+#define SURFACE_THICKNESS 0.0001f
 #define MAX_RAY_DISTANCE 999.9f
 
 namespace raygen {
