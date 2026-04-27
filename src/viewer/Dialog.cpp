@@ -14,6 +14,12 @@
 namespace raygen {
 namespace viewer {
 
+#ifdef __APPLE__
+// Implemented in Dialog_mac.mm — NSOpenPanel needs Objective-C++ which we
+// don't want to leak into this file (Windows builds don't compile .mm).
+bool openSceneFileDialog_mac(char* out, size_t outCap, const char* initialDir);
+#endif
+
 bool openSceneFileDialog(char* out, size_t outCap, const char* initialDir) {
     if (out == nullptr || outCap == 0) return false;
     out[0] = '\0';
@@ -38,11 +44,13 @@ bool openSceneFileDialog(char* out, size_t outCap, const char* initialDir) {
     // on CWD staying put.
     ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
     return GetOpenFileNameA(&ofn) != 0;
+#elif defined(__APPLE__)
+    return openSceneFileDialog_mac(out, outCap, initialDir);
 #else
     (void)initialDir;
-    // TODO: NSOpenPanel on macOS, GTK FileChooser / zenity on Linux. Until
-    // then the Load Scene button is no-op outside Windows; the user can
-    // still launch with a scene argv and use Reload.
+    // TODO: GTK FileChooser / zenity on Linux. Until then the Load Scene
+    // button is no-op on Linux; the user can still launch with a scene
+    // argv and use Reload.
     return false;
 #endif
 }

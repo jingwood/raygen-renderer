@@ -47,11 +47,12 @@ VIEWER_INC=-I../../src -I../../src/viewer -I../../../cpp-common-class/src -I../.
 # the ~300 deprecation warnings from viewer and imgui_impl_opengl3 sources.
 VIEWER_DEFS=-DGL_SILENCE_DEPRECATION
 VIEWER_LIB=-L$(GLFW_PREFIX)/lib -lglfw \
-           -framework Cocoa -framework OpenGL -framework IOKit -framework CoreVideo -framework CoreFoundation
+           -framework Cocoa -framework AppKit -framework UniformTypeIdentifiers \
+           -framework OpenGL -framework IOKit -framework CoreVideo -framework CoreFoundation
 
 IMGUI_CORE_OBJS=imgui.o imgui_draw.o imgui_tables.o imgui_widgets.o imgui_demo.o
 IMGUI_BACKEND_OBJS=imgui_impl_glfw.o imgui_impl_opengl3.o
-VIEWER_PANEL_OBJS=viewer_dialog.o viewer_file_panel.o viewer_main_panel.o viewer_medium_editor.o viewer_outline_panel.o viewer_property_panel.o viewer_types.o
+VIEWER_PANEL_OBJS=viewer_dialog.o viewer_dialog_mac.o viewer_file_panel.o viewer_main_panel.o viewer_medium_editor.o viewer_outline_panel.o viewer_property_panel.o viewer_types.o
 VIEWER_OBJS=viewer_main.o $(VIEWER_PANEL_OBJS) $(IMGUI_CORE_OBJS) $(IMGUI_BACKEND_OBJS)
 
 viewer: $(VIEWER_BIN)
@@ -65,6 +66,12 @@ viewer_main.o: $(VIEWER_SRC)
 
 viewer_dialog.o: ../../src/viewer/Dialog.cpp ../../src/viewer/Dialog.h
 	$(CX) $(VIEWER_DEFS) $(VIEWER_INC) -c ../../src/viewer/Dialog.cpp -o viewer_dialog.o
+
+# NSOpenPanel — Objective-C++. -fobjc-arc gives us automatic reference counting
+# for the local Cocoa objects without leaking Obj-C details into the rest of
+# the viewer. Cocoa needs ARC explicit since we're not in an Xcode project.
+viewer_dialog_mac.o: ../../src/viewer/Dialog_mac.mm
+	$(CX) $(VIEWER_DEFS) $(VIEWER_INC) -fobjc-arc -c ../../src/viewer/Dialog_mac.mm -o viewer_dialog_mac.o
 
 viewer_file_panel.o: ../../src/viewer/FilePanel.cpp ../../src/viewer/FilePanel.h ../../src/viewer/Dialog.h
 	$(CX) $(VIEWER_DEFS) $(VIEWER_INC) -c ../../src/viewer/FilePanel.cpp -o viewer_file_panel.o
