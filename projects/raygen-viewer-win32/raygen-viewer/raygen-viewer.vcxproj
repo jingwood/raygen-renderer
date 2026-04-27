@@ -77,8 +77,12 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\..\..\src\viewer\main.cpp" />
+    <ClCompile Include="..\..\..\src\viewer\MainPanel.cpp" />
+    <ClInclude Include="..\..\..\src\viewer\MainPanel.h" />
     <ClCompile Include="..\..\..\src\viewer\MediumEditor.cpp" />
     <ClInclude Include="..\..\..\src\viewer\MediumEditor.h" />
+    <ClCompile Include="..\..\..\src\viewer\ViewerTypes.cpp" />
+    <ClInclude Include="..\..\..\src\viewer\ViewerTypes.h" />
     <ClCompile Include="..\..\..\inc\imgui\imgui.cpp" />
     <ClCompile Include="..\..\..\inc\imgui\imgui_draw.cpp" />
     <ClCompile Include="..\..\..\inc\imgui\imgui_tables.cpp" />

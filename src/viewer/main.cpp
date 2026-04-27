@@ -41,7 +41,9 @@
 #include "raygen/rayrenderer.h"
 #include "raygen/sceneloader.h"
 
+#include "MainPanel.h"
 #include "MediumEditor.h"
+#include "ViewerTypes.h"
 #include "ugm/image.h"
 #include "ugm/imgcodec.h"
 #include "ucm/file.h"
@@ -52,50 +54,9 @@
 
 using namespace raygen;
 using namespace ugm;
-
-// -- Tunable parameters driven by the UI. All plain old data so the worker
-// thread can snapshot them under a mutex without any lifetime concerns.
-// Output resolution will move to a dedicated Output panel later; for now it's
-// hard-coded so the preview stays snappy.
-struct ViewerParams {
-    int   samples          = 4;
-    int   threads          = 7;
-    // Quality / denoise
-    bool  denoise          = true;
-    float denoiseIntensity = 1.0f;
-    // Camera (mainCamera). Angles in degrees; aperture is an f-stop-like
-    // value (smaller = wider blur); apertureBlades=0 is a round iris.
-    float camLocation[3]   = {0.0f, 0.0f, 0.0f};
-    float camAngle[3]      = {0.0f, 0.0f, 0.0f};
-    float fieldOfView      = 45.0f;
-    float depthOfField     = 0.0f;
-    float aperture         = 1.8f;
-    int   apertureBlades   = 0;
-    float apertureRotation = 0.0f;
-    float exposure         = 1.0f;
-    // Scene
-    float envIntensity     = 0.3f;
-    float envRotation      = 120.0f;
-    // Global participating medium (fog). When `mediumEnabled` is false the
-    // viewer leaves scene.globalMedium NULL — same code path as a non-volumetric
-    // scene. The σa/σs/σe sliders edit color3 channels directly; HG anisotropy
-    // and density mirror the JSON loader's fields.
-    bool  mediumEnabled    = false;
-    float mediumSigmaA[3]  = {0.0f, 0.0f, 0.0f};
-    float mediumSigmaS[3]  = {0.0f, 0.0f, 0.0f};
-    float mediumEmission[3] = {0.0f, 0.0f, 0.0f};
-    float mediumG          = 0.0f;
-    float mediumDensity    = 1.0f;
-    // Post-process (bloom) — HDR energy-based, not LDR. Threshold is the
-    // linear-radiance luma above which the excess energy becomes halo; a
-    // diffuse white surface sits around 1, so threshold=1 means "only bloom
-    // things brighter than white" (emitters, sun hits, specular highlights).
-    bool  postProcess      = false;
-    float bloomThreshold   = 1.0f;
-    float bloomStrength    = 1.0f;
-    float bloomCurve       = 1.0f;
-    float bloomRadius      = 0.03f;
-};
+using raygen::viewer::ViewerParams;
+using raygen::viewer::JobKind;
+using raygen::viewer::onlyPostProcessChanged;
 
 // Result handed from the worker back to the main thread. A boolean ready flag
 // lives in the parent RenderJob; this struct just owns the pixels.
@@ -107,10 +68,6 @@ struct RenderResult {
     bool  isPreview = false;           // true for mid-render snapshots
     float previewProgress = 0.0f;      // 0..1, final upload writes 1.0
 };
-
-// Full = trace + denoise + bloom. PostOnly = bloom over the cached pre-bloom
-// image (skips ray tracing entirely, takes a few ms).
-enum class JobKind { Full, PostOnly };
 
 // Render job state machine:
 //   Idle: worker is asleep. Main thread sets `pending` + notifies to start.
@@ -129,53 +86,6 @@ struct RenderJob {
     bool quit       = false;
     RenderResult result;
 };
-
-// Return true if the only thing that changed between `a` and `b` is a
-// post-process parameter; the bloom pass can be re-run without retracing.
-static bool onlyPostProcessChanged(const ViewerParams& a, const ViewerParams& b) {
-    const bool pp_same =
-        a.postProcess     == b.postProcess &&
-        a.bloomThreshold  == b.bloomThreshold &&
-        a.bloomStrength   == b.bloomStrength &&
-        a.bloomCurve      == b.bloomCurve &&
-        a.bloomRadius     == b.bloomRadius;
-    const bool cam_same =
-        a.camLocation[0]   == b.camLocation[0] &&
-        a.camLocation[1]   == b.camLocation[1] &&
-        a.camLocation[2]   == b.camLocation[2] &&
-        a.camAngle[0]      == b.camAngle[0] &&
-        a.camAngle[1]      == b.camAngle[1] &&
-        a.camAngle[2]      == b.camAngle[2] &&
-        a.fieldOfView      == b.fieldOfView &&
-        a.depthOfField     == b.depthOfField &&
-        a.aperture         == b.aperture &&
-        a.apertureBlades   == b.apertureBlades &&
-        a.apertureRotation == b.apertureRotation;
-    const bool medium_same =
-        a.mediumEnabled     == b.mediumEnabled &&
-        a.mediumSigmaA[0]   == b.mediumSigmaA[0] &&
-        a.mediumSigmaA[1]   == b.mediumSigmaA[1] &&
-        a.mediumSigmaA[2]   == b.mediumSigmaA[2] &&
-        a.mediumSigmaS[0]   == b.mediumSigmaS[0] &&
-        a.mediumSigmaS[1]   == b.mediumSigmaS[1] &&
-        a.mediumSigmaS[2]   == b.mediumSigmaS[2] &&
-        a.mediumEmission[0] == b.mediumEmission[0] &&
-        a.mediumEmission[1] == b.mediumEmission[1] &&
-        a.mediumEmission[2] == b.mediumEmission[2] &&
-        a.mediumG           == b.mediumG &&
-        a.mediumDensity     == b.mediumDensity;
-    const bool rest_same =
-        a.samples          == b.samples &&
-        a.threads          == b.threads &&
-        a.denoise          == b.denoise &&
-        a.denoiseIntensity == b.denoiseIntensity &&
-        a.exposure         == b.exposure &&
-        a.envIntensity     == b.envIntensity &&
-        a.envRotation      == b.envRotation &&
-        cam_same &&
-        medium_same;
-    return rest_same && !pp_same;
-}
 
 // Sidecar companion file: "<scene>.viewer.json" next to the scene JSON.
 // Strips the last extension inside the basename and appends ".viewer.json";
@@ -778,141 +688,20 @@ int main(int argc, char** argv) {
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        // --- Control panel ---
-        ImGui::Begin("raygen viewer");
-        ImGui::Text("scene: %s", scenePath);
-        ImGui::Text("FPS: %.1f   last render: %.2f s", io.Framerate, lastRenderSec);
-        if (isRendering) {
-            if (currentJobKind == JobKind::PostOnly) {
-                ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "status: post-processing...");
-                ImGui::ProgressBar(1.0f, ImVec2(-1, 4), "bloom");
-            } else {
-                ImGui::TextColored(ImVec4(0.9f, 0.8f, 0.3f, 1.0f),
-                                   "status: tracing  %3.0f%%", previewProgress * 100.0f);
-                ImGui::SameLine();
-                // Cooperative cancel: the renderer checks cancelRequested at
-                // every row boundary. Clicking x here returns within a few ms.
-                if (ImGui::SmallButton("x##cancel")) {
-                    renderer.cancelRequested = true;
-                }
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("cancel this render");
-                ImGui::ProgressBar(previewProgress, ImVec2(-1, 4));
-            }
-        } else {
-            ImGui::TextColored(ImVec4(0.5f, 0.9f, 0.5f, 1.0f), "status: ready");
-            ImGui::ProgressBar(1.0f, ImVec2(-1, 4));
-        }
-
-        bool dirty = false;
-
-        if (ImGui::CollapsingHeader("Quality", ImGuiTreeNodeFlags_DefaultOpen)) {
-            dirty |= ImGui::SliderInt("samples", &uiParams.samples, 1, 1000);
-            dirty |= ImGui::SliderInt("threads", &uiParams.threads, 1, 32);
-            dirty |= ImGui::Checkbox ("denoise", &uiParams.denoise);
-            if (uiParams.denoise) {
-                dirty |= ImGui::SliderFloat("denoise intensity", &uiParams.denoiseIntensity, 0.0f, 1.0f, "%.2f");
-            }
-        }
-
-        if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen)) {
-            // Drag widgets for position/rotation so a big scene (e.g. far-away
-            // mesh) and a small scene (tabletop) both feel natural; units are
-            // world-space metres for location, degrees for angle.
-            dirty |= ImGui::DragFloat3("location",         uiParams.camLocation,  0.05f, -1000.0f, 1000.0f, "%.3f");
-            dirty |= ImGui::DragFloat3("angle",            uiParams.camAngle,     0.5f,  -360.0f, 360.0f,   "%.2f");
-            dirty |= ImGui::SliderFloat("fieldOfView",    &uiParams.fieldOfView,  10.0f,  120.0f,           "%.1f");
-            dirty |= ImGui::SliderFloat("depthOfField",   &uiParams.depthOfField,  0.0f,  50.0f,            "%.2f");
-            // Show a hint when the scene pinned focus to an object: the
-            // renderer overwrites depthOfField each frame from that object's
-            // bbox, so the slider's value won't stick until it's cleared.
-            if (scene->mainCamera && !scene->mainCamera->focusOnObjectName.isEmpty()) {
-                ImGui::SameLine();
-                ImGui::TextDisabled("(focus lock: %s)",
-                                    scene->mainCamera->focusOnObjectName.getBuffer());
-                ImGui::SameLine();
-                if (ImGui::SmallButton("clear##focus")) {
-                    scene->mainCamera->focusOnObjectName.clear();
-                    dirty = true;
-                }
-            }
-            // aperture=0 disables DOF entirely (the renderer gates on
-            // ctx.aperture > 0), so keeping 0 reachable lets the user
-            // get pinhole-sharp output without touching depthOfField.
-            dirty |= ImGui::SliderFloat("aperture",       &uiParams.aperture,      0.0f,  22.0f, "f/%.2f");
-            dirty |= ImGui::SliderInt  ("apertureBlades", &uiParams.apertureBlades, 0,    12);
-            dirty |= ImGui::SliderFloat("apertureRotation", &uiParams.apertureRotation, 0.0f, 360.0f, "%.1f");
-            dirty |= ImGui::SliderFloat("exposure",       &uiParams.exposure,      0.1f,  3.0f, "%.2f");
-        }
-
-        if (ImGui::CollapsingHeader("Scene", ImGuiTreeNodeFlags_DefaultOpen)) {
-            dirty |= ImGui::SliderFloat("envmap intensity", &uiParams.envIntensity, 0.0f, 3.0f, "%.2f");
-            dirty |= ImGui::SliderFloat("envmap rotation",  &uiParams.envRotation,  0.0f, 360.0f, "%.0f");
-
-            // Global medium (fog). σa/σs/σe are per-channel inverse world-units;
-            // density is a uniform multiplier that prepare() folds into σt_hero
-            // for free-flight sampling. g is the Henyey-Greenstein anisotropy
-            // (0 = isotropic, >0 = forward-peaked clouds/fog, <0 = back-scatter).
-            ImGui::Spacing();
-            ImGui::TextDisabled("Global medium (fog)");
-            dirty |= ImGui::Checkbox("enable##medium", &uiParams.mediumEnabled);
-            if (uiParams.mediumEnabled) {
-                dirty |= ImGui::DragFloat3 ("sigma_a",  uiParams.mediumSigmaA,   0.005f, 0.0f, 10.0f, "%.4f");
-                dirty |= ImGui::DragFloat3 ("sigma_s",  uiParams.mediumSigmaS,   0.005f, 0.0f, 10.0f, "%.4f");
-                dirty |= ImGui::DragFloat3 ("emission", uiParams.mediumEmission, 0.05f,  0.0f, 100.0f, "%.3f");
-                dirty |= ImGui::SliderFloat("g (HG)",  &uiParams.mediumG,       -0.95f,  0.95f, "%.2f");
-                dirty |= ImGui::SliderFloat("density", &uiParams.mediumDensity,  0.0f,   8.0f,  "%.2f");
-            }
-        }
-
-        if (ImGui::CollapsingHeader("Post-process (bloom)", ImGuiTreeNodeFlags_DefaultOpen)) {
-            dirty |= ImGui::Checkbox("enable##pp", &uiParams.postProcess);
-            if (uiParams.postProcess) {
-                dirty |= ImGui::SliderFloat("bloom threshold", &uiParams.bloomThreshold, 0.0f,  2.0f, "%.2f");
-                dirty |= ImGui::SliderFloat("bloom strength",  &uiParams.bloomStrength,  0.0f,  5.0f,  "%.2f");
-                dirty |= ImGui::SliderFloat("bloom curve",     &uiParams.bloomCurve,     1.0f,  4.0f,  "%.2f");
-                dirty |= ImGui::SliderFloat("bloom radius",    &uiParams.bloomRadius,    0.0f,  0.15f, "%.3f");
-            }
-            ImGui::TextDisabled("TODO: post-process-only re-run once the core\n"
-                                "caches a pre-PP image");
-        }
-
-        ImGui::Separator();
-        const bool canKick = !isRendering;
-
-        // Intent tracking: `pendingDirty` (declared above in fn scope) is
-        // set whenever sliders move while we can't kick, and the single kick
-        // site below fires at most once per frame. The previous code fired
-        // both an immediate kick *and* the pending kick in the same frame
-        // after a PostOnly finished, which left the second kick comparing
-        // lastKickedParams (just updated) against itself, reporting "no bloom
-        // diff", and falling back to JobKind::Full - a full re-trace with
-        // fresh noise.
-        if (dirty) pendingDirty = true;
-
-        if (!canKick) ImGui::BeginDisabled();
-        if (ImGui::Button("Re-render (full)")) {
-            lastKickedParams = uiParams;
-            kickFinal(JobKind::Full);
-            pendingDirty = false;
-        }
-        if (!canKick) ImGui::EndDisabled();
-
-        // Preview what the next auto-kick will do, so the user can tell at
-        // a glance which kind is queued.
-        if (pendingDirty) {
-            const JobKind nextKind =
-                onlyPostProcessChanged(lastKickedParams, uiParams)
-                    ? JobKind::PostOnly : JobKind::Full;
-            ImGui::SameLine();
-            ImGui::TextDisabled("(next: %s)",
-                                nextKind == JobKind::PostOnly ? "post-only" : "full");
-        }
-
-        // The auto-kick decision runs at end-of-frame so it catches widget
-        // activity from every panel (Outline, Property, etc.) — not just the
-        // control panel drawn first. See below, just before ImGui::Render().
-
-        ImGui::End();
+        // --- Control panel (lives in MainPanel.cpp) ---
+        viewer::MainPanelCtx mpCtx;
+        mpCtx.params           = &uiParams;
+        mpCtx.lastKickedParams = &lastKickedParams;
+        mpCtx.pendingDirty     = &pendingDirty;
+        mpCtx.mainCamera       = scene->mainCamera;
+        mpCtx.renderer         = &renderer;
+        mpCtx.scenePath        = scenePath;
+        mpCtx.fps              = io.Framerate;
+        mpCtx.lastRenderSec    = (float)lastRenderSec;
+        mpCtx.isRendering      = isRendering;
+        mpCtx.currentJobKind   = currentJobKind;
+        mpCtx.previewProgress  = previewProgress;
+        viewer::drawMainPanel(mpCtx, kickFinal);
 
         // --- Output resolution window ---
         ImGui::Begin("Output");
