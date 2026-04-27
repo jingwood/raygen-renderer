@@ -210,7 +210,8 @@ int main(int argc, const char * argv[]) {
 							 "Copyright (c) 2016-2024 Jingwood, unvell Inc., All rights reserved.\n\n");
 				printf("usage: ./raygen <cmd> <scene.json> [parameters...]\n"
 							 "e.g.   ./raygen render ../../resources/scenes/cubeRoom/cubeRoom.json\n"
-                             "       ./raygen render -enaa false myScene.json   # disable antialias\n\n");
+                             "       ./raygen render -enaa false myScene.json   # disable antialias\n"
+                             "       ./raygen render scene.json -o out.hdr      # linear-radiance HDR (RGBE)\n\n");
 				printf("  -r | --resolution                    specify resolution of result image\n"
 							 "  -s | --samples                       number of ray tracing samples\n"
 							 "  -c | --cores | --threads             number of threads/cores to render parallelly\n"
@@ -379,8 +380,15 @@ int main(int argc, const char * argv[]) {
 
 	sw.stop();
 	
-	const Image& renderImage = renderer.getRenderResult();
-	saveImage(renderImage, outputImageFile);
+	// .hdr extension → save the linear-radiance HDR buffer (float, no
+	// tonemap, no clamp). Anything else falls through to the LDR preview.
+	ImageCodecFormat outFormat = ImageCodecFormat::ICF_AUTO;
+	getImageFormatByExtension(outputImageFile, &outFormat);
+	if (outFormat == ImageCodecFormat::ICF_HDR) {
+		saveImage(renderer.getHdrResult(), outputImageFile);
+	} else {
+		saveImage(renderer.getRenderResult(), outputImageFile);
+	}
 	
 	static string _time_str_done;
 	formatFriendlyDate(sw.getElapsedSeconds(), _time_str_done);

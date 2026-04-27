@@ -333,6 +333,13 @@ public:
         return this->renderingImage;
     }
 
+    // Linear-radiance HDR buffer (post-bloom, pre-tonemap). Float per channel,
+    // un-clamped — bright emitters keep values >> 1.0. Save via writeHDR /
+    // saveImage(...".hdr") to feed external compositors or HDR displays.
+    inline const Image& getHdrResult() const {
+        return this->hdrImage;
+    }
+
 	void clearRenderResult();
 
 	// Re-runs post-process (bloom) on the cached pre-bloom image, skipping
