@@ -34,6 +34,17 @@ public:
     SphereMesh(float radius = 1, int stacks = 16, int slices = 32);
 };
 
+// Truncated cone (frustum) along the Z axis, centered at origin from
+// z = -0.5 to z = +0.5 so it composes with `scale: [w, h, length]` the
+// same way CubeMesh does. radiusStart is the radius at z = +0.5 (the
+// object-local "forward" disk), radiusEnd is the radius at z = -0.5
+// (the rearward disk). Either radius may be 0 for a true cone tip;
+// in that case the corresponding cap is omitted.
+class ConeMesh : public Mesh {
+public:
+    ConeMesh(float radiusStart = 0.5f, float radiusEnd = 0.5f, int slices = 32);
+};
+
 }
 
 #endif /* polygons3d_h */

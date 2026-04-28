@@ -6,6 +6,8 @@
 //  (c) 2016-2020 Jingwood, unvell.com, all rights reserved.
 ///////////////////////////////////////////////////////////////////////////////
 
+#include <utility>
+
 #include "polygons.h"
 
 namespace raygen {
@@ -178,5 +180,118 @@ SphereMesh::SphereMesh(float radius, int stacks, int slices) {
     this->hasNormal = true;
     this->hasTexcoord = true;
 }
-    
+
+ConeMesh::ConeMesh(float radiusStart, float radiusEnd, int slices) {
+    this->hasNormal = true;
+    this->hasTexcoord = true;
+    this->hasTangentSpaceBasis = false;
+
+    if (slices < 3) slices = 3;
+
+    // radiusStart sits at z = +0.5 (object-local "forward"), radiusEnd at
+    // z = -0.5. Swap into the internal (small-z, large-z) build order so
+    // existing cap winding / slant-normal math stays valid.
+    std::swap(radiusStart, radiusEnd);
+
+    const float zStart = -0.5f;
+    const float zEnd   =  0.5f;
+    const float height = zEnd - zStart;
+
+    // Slant-side normal lives in the (radial, z) plane. radial component
+    // is +1 (outward), z component is the slope dr/dz inverted in sign so
+    // it points outward along the slant. Normalize once; rotate per-slice.
+    const float slope     = (radiusStart - radiusEnd) / height;
+    const float invLen    = 1.0f / sqrtf(1.0f + slope * slope);
+    const float radialN   = invLen;
+    const float axialN    = slope * invLen;
+
+    const bool capStart = radiusStart > 0.0f;
+    const bool capEnd   = radiusEnd   > 0.0f;
+
+    const int sideTri = slices * 2;
+    const int capTri  = (capStart ? slices : 0) + (capEnd ? slices : 0);
+    const int vCount  = (sideTri + capTri) * 3;
+
+    this->init(vCount);
+
+    int idx = 0;
+
+    // Side wall: two triangles per slice spanning start ring to end ring.
+    for (int i = 0; i < slices; ++i) {
+        const float t0 = (float)i       / slices;
+        const float t1 = (float)(i + 1) / slices;
+        const float a0 = t0 * 2.0f * M_PI;
+        const float a1 = t1 * 2.0f * M_PI;
+        const float c0 = cosf(a0), s0 = sinf(a0);
+        const float c1 = cosf(a1), s1 = sinf(a1);
+
+        const vec3 vS0(c0 * radiusStart, s0 * radiusStart, zStart);
+        const vec3 vS1(c1 * radiusStart, s1 * radiusStart, zStart);
+        const vec3 vE0(c0 * radiusEnd,   s0 * radiusEnd,   zEnd);
+        const vec3 vE1(c1 * radiusEnd,   s1 * radiusEnd,   zEnd);
+
+        const vec3 n0(c0 * radialN, s0 * radialN, axialN);
+        const vec3 n1(c1 * radialN, s1 * radialN, axialN);
+
+        // Triangle 1: vS0 -> vE0 -> vE1
+        this->vertices[idx]  = vS0; this->normals[idx] = n0;
+        this->texcoords[idx] = vec2(t0, 0); ++idx;
+        this->vertices[idx]  = vE0; this->normals[idx] = n0;
+        this->texcoords[idx] = vec2(t0, 1); ++idx;
+        this->vertices[idx]  = vE1; this->normals[idx] = n1;
+        this->texcoords[idx] = vec2(t1, 1); ++idx;
+
+        // Triangle 2: vS0 -> vE1 -> vS1
+        this->vertices[idx]  = vS0; this->normals[idx] = n0;
+        this->texcoords[idx] = vec2(t0, 0); ++idx;
+        this->vertices[idx]  = vE1; this->normals[idx] = n1;
+        this->texcoords[idx] = vec2(t1, 1); ++idx;
+        this->vertices[idx]  = vS1; this->normals[idx] = n1;
+        this->texcoords[idx] = vec2(t1, 0); ++idx;
+    }
+
+    // Start cap (z = -0.5, normal -Z). Wound CW from outside.
+    if (capStart) {
+        const vec3 n(0, 0, -1);
+        for (int i = 0; i < slices; ++i) {
+            const float a0 = (float)i       / slices * 2.0f * M_PI;
+            const float a1 = (float)(i + 1) / slices * 2.0f * M_PI;
+            const float c0 = cosf(a0), s0 = sinf(a0);
+            const float c1 = cosf(a1), s1 = sinf(a1);
+
+            this->vertices[idx]  = vec3(0, 0, zStart); this->normals[idx] = n;
+            this->texcoords[idx] = vec2(0.5f, 0.5f); ++idx;
+            this->vertices[idx]  = vec3(c1 * radiusStart, s1 * radiusStart, zStart);
+            this->normals[idx]   = n;
+            this->texcoords[idx] = vec2(0.5f + 0.5f * c1, 0.5f + 0.5f * s1); ++idx;
+            this->vertices[idx]  = vec3(c0 * radiusStart, s0 * radiusStart, zStart);
+            this->normals[idx]   = n;
+            this->texcoords[idx] = vec2(0.5f + 0.5f * c0, 0.5f + 0.5f * s0); ++idx;
+        }
+    }
+
+    // End cap (z = +0.5, normal +Z).
+    if (capEnd) {
+        const vec3 n(0, 0, 1);
+        for (int i = 0; i < slices; ++i) {
+            const float a0 = (float)i       / slices * 2.0f * M_PI;
+            const float a1 = (float)(i + 1) / slices * 2.0f * M_PI;
+            const float c0 = cosf(a0), s0 = sinf(a0);
+            const float c1 = cosf(a1), s1 = sinf(a1);
+
+            this->vertices[idx]  = vec3(0, 0, zEnd); this->normals[idx] = n;
+            this->texcoords[idx] = vec2(0.5f, 0.5f); ++idx;
+            this->vertices[idx]  = vec3(c0 * radiusEnd, s0 * radiusEnd, zEnd);
+            this->normals[idx]   = n;
+            this->texcoords[idx] = vec2(0.5f + 0.5f * c0, 0.5f + 0.5f * s0); ++idx;
+            this->vertices[idx]  = vec3(c1 * radiusEnd, s1 * radiusEnd, zEnd);
+            this->normals[idx]   = n;
+            this->texcoords[idx] = vec2(0.5f + 0.5f * c1, 0.5f + 0.5f * s1); ++idx;
+        }
+    }
+
+    this->calcTangentBasis();
+    this->calcBoundingBox();
+}
+
 }

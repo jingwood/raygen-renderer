@@ -583,14 +583,22 @@ void SceneJsonLoader::readSceneObject(SceneObject& obj, const JSObject& jsobj, A
 				} else if (*meshType == "cube") {
 					obj.addMesh(*new CubeMesh());
                 } else if (*meshType == "sphere") {
-                    
+
                     float radius = 1, stacks = 16, slices = 32;
                     val.object->tryGetNumberProperty("radius", &radius);
                     val.object->tryGetNumberProperty("stacks", &stacks);
                     val.object->tryGetNumberProperty("slices", &slices);
-                    
+
                     auto* sphere = new SphereMesh(radius, stacks, slices);
                     obj.addMesh(*sphere);
+                } else if (*meshType == "cone") {
+
+                    float radiusStart = 0.5f, radiusEnd = 0.5f, slices = 32;
+                    val.object->tryGetNumberProperty("radiusStart", &radiusStart);
+                    val.object->tryGetNumberProperty("radiusEnd", &radiusEnd);
+                    val.object->tryGetNumberProperty("slices", &slices);
+
+                    obj.addMesh(*new ConeMesh(radiusStart, radiusEnd, (int)slices));
                 }
 			}
 		}
