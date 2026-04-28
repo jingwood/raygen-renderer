@@ -287,16 +287,21 @@ def main(argv=None) -> int:
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--output", "-o", default="terrain.obj",
                    help="output .obj path (default: terrain.obj)")
-    p.add_argument("--size", nargs=2, type=float, default=[200.0, 200.0],
+    p.add_argument("--size", nargs=2, type=float, default=[20.0, 20.0],
                    metavar=("X", "Z"),
-                   help="terrain extent in world units (default: 200 200)")
-    p.add_argument("--res", nargs=2, type=int, default=[256, 256],
+                   help="terrain extent in mesh-local units (default: 20 20). "
+                        "Match Blender's convention of authoring small meshes "
+                        "and scaling them up in the scene JSON — raygen's "
+                        "MAX_RAY_DISTANCE caps geometry that's hundreds of "
+                        "units across, and floating-point precision degrades "
+                        "for grazing rays on very flat large meshes.")
+    p.add_argument("--res", nargs=2, type=int, default=[192, 192],
                    metavar=("NX", "NZ"),
-                   help="grid resolution; vertex count is (NX+1)·(NZ+1) (default: 256 256)")
-    p.add_argument("--amplitude", "-a", type=float, default=8.0,
-                   help="max elevation amplitude in world units (default: 8.0)")
-    p.add_argument("--frequency", "-f", type=float, default=0.012,
-                   help="base noise frequency in cycles/world-unit (default: 0.012)")
+                   help="grid resolution; vertex count is NX·NZ (default: 192 192)")
+    p.add_argument("--amplitude", "-a", type=float, default=1.2,
+                   help="max elevation amplitude in mesh-local units (default: 1.2)")
+    p.add_argument("--frequency", "-f", type=float, default=0.12,
+                   help="base noise frequency in cycles/mesh-unit (default: 0.12)")
     p.add_argument("--octaves", type=int, default=6,
                    help="fBm octaves (default: 6)")
     p.add_argument("--gain", type=float, default=0.5,

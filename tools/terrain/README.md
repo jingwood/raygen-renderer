@@ -19,28 +19,37 @@ without per-frame cost.
 ## Quickstart
 
 ```sh
-# 200 m × 200 m island, 256×256 grid, 8 m amplitude.
+# 20 × 20 mesh-local units, 192×192 grid, 1.2 amp. Scale up in the JSON.
 python3 tools/terrain/terrain_gen.py --output /tmp/island.obj
 ```
 
-Then in scene JSON:
+Then in scene JSON — match Blender's convention of authoring small meshes
+and scaling them in the parent SceneObject:
 
 ```jsonc
 "Terrain": {
     "location": [0, 0, 0],
+    "scale":    [3, 3, 3],
     "mesh": "/tmp/island.obj",
     "mat": { "color": "#5e6447", "diffuse": 0.85, "roughness": 0.6 }
 }
 ```
 
+> **Why small mesh + JSON scale, not large mesh?** raygen has a global
+> `MAX_RAY_DISTANCE = 999.9` BVH-traversal cap (in `raycommon.h`), and
+> grazing rays on very large flat meshes lose floating-point precision in
+> the slab/triangle math — terrains hundreds of units across don't render
+> reliably. Authoring in the 10-unit range and scaling up in the scene
+> matches what the Blender exporter does.
+
 ## Useful flags
 
 | flag | what it does |
 |---|---|
-| `--size X Z` | terrain extent in metres (default 200×200) |
-| `--res NX NZ` | grid resolution (default 256×256 → ~130k tris) |
-| `--amplitude A` | max elevation in metres (default 8) |
-| `--frequency F` | base noise frequency, cycles/m (default 0.012) |
+| `--size X Z` | terrain extent in mesh-local units (default 20×20) |
+| `--res NX NZ` | grid resolution (default 192×192 → ~73k tris) |
+| `--amplitude A` | max elevation in mesh-local units (default 1.2) |
+| `--frequency F` | base noise frequency, cycles/unit (default 0.12) |
 | `--octaves N` | fBm octaves (default 6) |
 | `--ridges` | swap fBm for ridged-multifractal (sharp peaks) |
 | `--seed N` | re-roll the noise lattice |
@@ -78,13 +87,15 @@ recipe is:
 
 ```sh
 python3 tools/terrain/terrain_gen.py \
-    --size 400 400 --res 512 512 \
-    --amplitude 18 --ridges \
-    --seabed -3 --falloff 0.15 \
+    --size 20 20 --res 256 256 \
+    --amplitude 2.5 --ridges \
+    --seabed -0.4 --falloff 0.15 \
     --output /tmp/coast.obj
 ```
 
-`--seabed -3` flat-floors the underwater portion (so a transparent water
-plane isn't cluttered by needless underwater detail), and `--falloff
-0.15` tapers the outer 15% so the rectangle blends into a surrounding
-ocean plane instead of ending in a vertical cliff.
+`--seabed -0.4` flat-floors the underwater portion (so a transparent
+water plane isn't cluttered by needless underwater detail), and
+`--falloff 0.15` tapers the outer 15% so the rectangle blends into a
+surrounding ocean plane instead of ending in a vertical cliff. Scale
+up in the scene's `"Terrain"` SceneObject (e.g. `"scale": [10, 10,
+10]`) for a 200×200-unit island world-space footprint.

@@ -231,22 +231,29 @@ def main(argv=None) -> int:
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--output", "-o", default="water.obj",
                    help="output .obj path (default: water.obj)")
-    p.add_argument("--size", nargs=2, type=float, default=[200.0, 200.0],
+    p.add_argument("--size", nargs=2, type=float, default=[20.0, 20.0],
                    metavar=("X", "Z"),
-                   help="water-plane extent in metres (default: 200 200)")
-    p.add_argument("--res", nargs=2, type=int, default=[256, 256],
+                   help="water-plane extent in mesh-local units (default: 20 "
+                        "20). Match Blender's convention of authoring small "
+                        "meshes and scaling them up in the scene JSON — "
+                        "raygen's MAX_RAY_DISTANCE caps geometry hundreds of "
+                        "units across, and grazing rays on very flat large "
+                        "meshes lose floating-point precision.")
+    p.add_argument("--res", nargs=2, type=int, default=[192, 192],
                    metavar=("NX", "NZ"),
-                   help="grid resolution (default: 256 256). Higher = sharper "
+                   help="grid resolution (default: 192 192). Higher = sharper "
                         "crests; below ~0.5 vertices per wavelength the wave "
                         "aliases into low-frequency noise.")
     p.add_argument("--waves", "-n", type=int, default=4,
                    help="number of summed Gerstner waves (default: 4). 3-6 "
                         "covers most practical sea states.")
-    p.add_argument("--base-wavelength", type=float, default=12.0,
-                   help="longest wave's wavelength in metres (default: 12)")
-    p.add_argument("--base-amplitude", type=float, default=0.35,
-                   help="longest wave's amplitude in metres (default: 0.35). "
-                        "This is the half-height; peak-to-trough is 2× this.")
+    p.add_argument("--base-wavelength", type=float, default=2.0,
+                   help="longest wave's wavelength in mesh-local units "
+                        "(default: 2.0). With the 20-unit default --size that "
+                        "means ten waves across the sheet.")
+    p.add_argument("--base-amplitude", type=float, default=0.05,
+                   help="longest wave's amplitude in mesh-local units "
+                        "(default: 0.05). Half-height; peak-to-trough is 2×.")
     p.add_argument("--lambda-falloff", type=float, default=0.62,
                    help="ratio between successive wavelengths (default: 0.62). "
                         "0.5 = each wave is half the previous; >0.65 keeps more "
