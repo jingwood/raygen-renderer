@@ -1,24 +1,26 @@
-// Ocean-prep scene: ridged terrain partially submerged under a static
-// mirror-water plane at Y=0. Water uses the refraction lobe + interior
-// medium so Schlick-Fresnel handles the reflection-vs-refraction split
-// at the surface and Beer-Lambert tints anything seen through the water
+// Ocean-prep scene: ridged terrain partially submerged under a Gerstner-
+// displaced water mesh. Water uses the refraction lobe + interior medium
+// so Schlick-Fresnel handles the reflection-vs-refraction split at the
+// surface, and Beer-Lambert tints anything seen through the water
 // (the terrain seabed) cyan-greenish as path length grows.
 //
-// This is the "dead-calm" pass — no waves yet. The next iteration adds
-// Gerstner displacement to a finer-grained water mesh; until then,
-// roughness on the water surface fakes a small wind-driven jitter so
-// the reflections aren't a perfect mirror.
-//
-// Re-bake the terrain with:
+// Re-bake assets with:
 //   python3 tools/terrain/terrain_gen.py \
 //       --output resources/scenes/oceanTest/coast.obj \
 //       --size 400 400 --res 384 384 --amplitude 18 --ridges \
 //       --seabed -3 --falloff 0.12 --seed 5
+//   python3 tools/terrain/wave_gen.py \
+//       --output resources/scenes/oceanTest/sea.obj \
+//       --size 600 600 --res 256 256 --waves 5 \
+//       --base-wavelength 14 --base-amplitude 0.4 \
+//       --steepness 0.5 --direction-spread 35 --seed 3
+// Pick a different --seed for a different sea state, or shift --phase
+// to advance "time" without re-rolling the spectrum.
 {
   "mainCamera": {
-    "location": [0, 6, 60],
-    "angle":    [-4, 0, 0],
-    "fieldOfView": 45,
+    "location": [0, 12, 35],
+    "angle":    [-22, 0, 0],
+    "fieldOfView": 50,
     "exposure": 0.9
   },
 
@@ -35,19 +37,19 @@
       "mat":      { "color": "#6a6447", "diffuse": 0.9, "glossy": 0.05, "roughness": 0.6 }
     },
 
-    // Water plane at Y=0. Spans much wider than the terrain so the
-    // horizon stays clean and underwater rays going outward don't exit
-    // through a missing edge. Roughness 0.04 fakes a faint wind chop;
-    // bump to 0 for a perfect-mirror dead calm.
+    // Gerstner-displaced sea. The mesh extends ±600 m in each
+    // direction so the horizon line stays clean and underwater rays
+    // going outward don't exit through a missing edge. Roughness 0.0
+    // — the displacement carries the surface detail, no extra
+    // microfacet jitter needed.
     "Ocean": {
       "location": [0, 0, 0],
-      "scale":    [1200, 1, 1200],
-      "mesh":     { "type": "plane" },
+      "mesh":     "sea.obj",
       "mat": {
         "color":           "#ffffff",
         "refraction":      1.0,
         "refractionRatio": 1.33,
-        "roughness":       0.04
+        "roughness":       0.0
       },
       // Beer-Lambert per-channel σ_a in 1/m. Red absorbs ~10× faster
       // than blue in clean seawater, which is why deep water reads
