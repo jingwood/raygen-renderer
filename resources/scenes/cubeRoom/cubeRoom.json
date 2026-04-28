@@ -5,67 +5,69 @@
 		"exposure": 1,
 		"fieldOfView": 70
 	},
-	"top-light": {
-		"location": [0, 2.95, 0],
-		"angle": [180, 0, 0],
-		"scale": [1.5, 1, 1.5],
-		"mesh": { "type": "plane" },
-		"mat": { "color": "#fffff0", "emission": 10 }
-	},
-	"ceiling": {
-		"location": [ 0, 3, 0 ],
-		"angle": [180, 0, 0],
-		"scale": [6, 1, 6],
-		"mesh": { "type": "plane" },
-		"mat": { "color": "#cccccc", "diffuse": 0.8, "glossy": 0, "roughness": 0 }
-	},
-	"floor": {
-		"location": [ 0, -3, 0 ],
-		"angle": [0, 0, 0],
-		"scale": [6, 1, 6],
-		"mesh": { "type": "plane" },
-		"mat": { "color": "#cccccc", "diffuse": 1, "glossy": 0.7, "metallic": 1, "roughness": 0.5 }
-	},
-	"left-wall": {
-		"location": [ -3, 0, 0 ],
-		"angle": [0, 0, -90],
-		"scale": [6, 1, 6],
-		"mesh": { "type": "plane" },
-		"mat": { "color": "#ff5555", "diffuse": 0.8, "glossy": 0, "roughness": 0 }
-	},
-	"right-wall": {
-		"location": [ 3, 0, 0 ],
-		"angle": [ 0, 0, 90],
-		"scale": [6, 1, 6],
-		"mesh": { "type": "plane" },
-		"mat": { "color": "#55ff55", "diffuse": 0.8, "glossy": 0, "roughness": 0 }
-	},
-	"back-wall": {
-		"location": [ 0, 0, -3 ],
-		"angle": [ 90, 0, 0],
-		"scale": [6, 1, 6],
-		"mesh": { "type": "plane" },
-		"mat": { "color": "#cccccc", "diffuse": 0.8, "glossy": 0, "roughness": 0 }
-	},
-	// "front-wall": {
-	// 	"location": [ 0, 0, 3 ],
-	// 	"angle": [ -90, 0, 0],
-	// 	"scale": [6, 1, 6],
-	// 	"mesh": { "type": "plane" },
-	// 	"mat": { "color": "#cccccc", "diffuse": 0.8, "glossy": 0, "roughness": 0 }
-	// },
-	 "cube-big": {
-	 	"location": [ -1.3, -1, -1.0 ],
-	 	"scale": [1.7, 4, 1.7],
-	 	"angle": [ 0, 40, 0],
-	 	"mesh": { "type": "cube" },
-	   	"mat": { "color": "#ffffff", "diffuse": 0.8, "glossy": 0, "roughness": 0 }
-	 },
-	 "cube-small": {
-	 	"location": [ 1.5, -2.25, -0.5 ],
-	 	"scale": [1.5, 1.5, 1.5],
-	 	"angle": [ 0, -40, 0],
-	 	"mesh": { "type": "cube" },
-	 	"mat": { "color": "#ffffff", "diffuse": 0.8, "glossy": 0, "roughness": 0 }
-	 }
+  "world": {
+    "top-light": {
+      "location": [0, 2.95, 0],
+      "angle": [180, 0, 0],
+      "scale": [1.5, 1, 1.5],
+      "mesh": { "type": "plane" },
+      "mat": { "color": "#fffff0", "emission": 10 }
+    },
+    "ceiling": {
+      "location": [ 0, 3, 0 ],
+      "angle": [180, 0, 0],
+      "scale": [6, 1, 6],
+      "mesh": { "type": "plane" },
+      "mat": { "color": "#cccccc", "diffuse": 0.8, "glossy": 0, "roughness": 0 }
+    },
+    "floor": {
+      "location": [ 0, -3, 0 ],
+      "angle": [0, 0, 0],
+      "scale": [6, 1, 6],
+      "mesh": { "type": "plane" },
+      "mat": { "color": "#cccccc", "diffuse": 1, "glossy": 0.7, "metallic": 1, "roughness": 0.5 }
+    },
+    "left-wall": {
+      "location": [ -3, 0, 0 ],
+      "angle": [0, 0, -90],
+      "scale": [6, 1, 6],
+      "mesh": { "type": "plane" },
+      "mat": { "color": "#ff5555", "diffuse": 0.8, "glossy": 0, "roughness": 0 }
+    },
+    "right-wall": {
+      "location": [ 3, 0, 0 ],
+      "angle": [ 0, 0, 90],
+      "scale": [6, 1, 6],
+      "mesh": { "type": "plane" },
+      "mat": { "color": "#55ff55", "diffuse": 0.8, "glossy": 0, "roughness": 0 }
+    },
+    "back-wall": {
+      "location": [ 0, 0, -3 ],
+      "angle": [ 90, 0, 0],
+      "scale": [6, 1, 6],
+      "mesh": { "type": "plane" },
+      "mat": { "color": "#cccccc", "diffuse": 0.8, "glossy": 0, "roughness": 0 }
+    },
+    // "front-wall": {
+    // 	"location": [ 0, 0, 3 ],
+    // 	"angle": [ -90, 0, 0],
+    // 	"scale": [6, 1, 6],
+    // 	"mesh": { "type": "plane" },
+    // 	"mat": { "color": "#cccccc", "diffuse": 0.8, "glossy": 0, "roughness": 0 }
+    // },
+    "cube-big": {
+      "location": [ -1.3, -1, -1.0 ],
+      "scale": [1.7, 4, 1.7],
+      "angle": [ 0, 40, 0],
+      "mesh": { "type": "cube" },
+        "mat": { "color": "#ffffff", "diffuse": 0.8, "glossy": 0, "roughness": 0 }
+    },
+    "cube-small": {
+      "location": [ 1.5, -2.25, -0.5 ],
+      "scale": [1.5, 1.5, 1.5],
+      "angle": [ 0, -40, 0],
+      "mesh": { "type": "cube" },
+      "mat": { "color": "#ffffff", "diffuse": 0.8, "glossy": 0, "roughness": 0 }
+    }
+  }
 }
