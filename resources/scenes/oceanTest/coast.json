@@ -1,17 +1,23 @@
-// Ocean-prep scene: ridged terrain extending under the implicit Y=0
-// water line. No water surface yet — this scene exists to validate the
-// terrain generator and serve as a starting point for the next phase
-// (water plane + reflective/refractive shading).
+// Ocean-prep scene: ridged terrain partially submerged under a static
+// mirror-water plane at Y=0. Water uses the refraction lobe + interior
+// medium so Schlick-Fresnel handles the reflection-vs-refraction split
+// at the surface and Beer-Lambert tints anything seen through the water
+// (the terrain seabed) cyan-greenish as path length grows.
 //
-// Re-bake the mesh with:
+// This is the "dead-calm" pass — no waves yet. The next iteration adds
+// Gerstner displacement to a finer-grained water mesh; until then,
+// roughness on the water surface fakes a small wind-driven jitter so
+// the reflections aren't a perfect mirror.
+//
+// Re-bake the terrain with:
 //   python3 tools/terrain/terrain_gen.py \
 //       --output resources/scenes/oceanTest/coast.obj \
 //       --size 400 400 --res 384 384 --amplitude 18 --ridges \
 //       --seabed -3 --falloff 0.12 --seed 5
 {
   "mainCamera": {
-    "location": [0, 4, 80],
-    "angle":    [-3, 0, 0],
+    "location": [0, 6, 60],
+    "angle":    [-4, 0, 0],
     "fieldOfView": 45,
     "exposure": 0.9
   },
@@ -27,6 +33,31 @@
       "location": [0, 0, 0],
       "mesh":     "coast.obj",
       "mat":      { "color": "#6a6447", "diffuse": 0.9, "glossy": 0.05, "roughness": 0.6 }
+    },
+
+    // Water plane at Y=0. Spans much wider than the terrain so the
+    // horizon stays clean and underwater rays going outward don't exit
+    // through a missing edge. Roughness 0.04 fakes a faint wind chop;
+    // bump to 0 for a perfect-mirror dead calm.
+    "Ocean": {
+      "location": [0, 0, 0],
+      "scale":    [1200, 1, 1200],
+      "mesh":     { "type": "plane" },
+      "mat": {
+        "color":           "#ffffff",
+        "refraction":      1.0,
+        "refractionRatio": 1.33,
+        "roughness":       0.04
+      },
+      // Beer-Lambert per-channel σ_a in 1/m. Red absorbs ~10× faster
+      // than blue in clean seawater, which is why deep water reads
+      // teal-blue. density scales the trio uniformly so the colour
+      // ratio stays constant when you "deepen" the water.
+      "medium": {
+        "sigma_a": [0.45, 0.08, 0.03],
+        "sigma_s": [0.02, 0.02, 0.02],
+        "density": 1.0
+      }
     }
   }
 }
