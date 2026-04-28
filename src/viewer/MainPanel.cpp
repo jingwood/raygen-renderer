@@ -102,7 +102,7 @@ bool drawCameraSection(ViewerParams& p, Camera* mainCamera) {
 bool drawSceneSection(ViewerParams& p) {
     if (!ImGui::CollapsingHeader("Scene", ImGuiTreeNodeFlags_DefaultOpen)) return false;
     bool dirty = false;
-    dirty |= ImGui::SliderFloat("envmap intensity", &p.envIntensity, 0.0f, 3.0f,   "%.2f");
+    dirty |= ImGui::SliderFloat("envmap intensity", &p.envIntensity, 0.0f, 10.0f,   "%.2f");
     dirty |= ImGui::SliderFloat("envmap rotation",  &p.envRotation,  0.0f, 360.0f, "%.0f");
 
     // Global medium (fog). σa/σs/σe are per-channel inverse world-units;
@@ -127,7 +127,7 @@ bool drawPostProcessSection(ViewerParams& p) {
     bool dirty = false;
     dirty |= ImGui::Checkbox("enable##pp", &p.postProcess);
     if (p.postProcess) {
-        dirty |= ImGui::SliderFloat("bloom threshold", &p.bloomThreshold, 0.0f,  2.0f,  "%.2f");
+        dirty |= ImGui::SliderFloat("bloom threshold", &p.bloomThreshold, 0.0f,  10.0f,  "%.2f");
         dirty |= ImGui::SliderFloat("bloom strength",  &p.bloomStrength,  0.0f,  5.0f,  "%.2f");
         dirty |= ImGui::SliderFloat("bloom curve",     &p.bloomCurve,     1.0f,  4.0f,  "%.2f");
         dirty |= ImGui::SliderFloat("bloom radius",    &p.bloomRadius,    0.0f,  0.15f, "%.3f");
