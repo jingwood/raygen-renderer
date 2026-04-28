@@ -40,13 +40,16 @@ bool onlyPostProcessChanged(const ViewerParams& a, const ViewerParams& b) {
         a.mediumG           == b.mediumG &&
         a.mediumDensity     == b.mediumDensity;
     const bool rest_same =
-        a.samples          == b.samples &&
-        a.threads          == b.threads &&
-        a.denoise          == b.denoise &&
-        a.denoiseIntensity == b.denoiseIntensity &&
-        a.exposure         == b.exposure &&
-        a.envIntensity     == b.envIntensity &&
-        a.envRotation      == b.envRotation &&
+        a.samples            == b.samples &&
+        a.threads            == b.threads &&
+        a.denoise            == b.denoise &&
+        a.denoiseIntensity   == b.denoiseIntensity &&
+        a.adaptiveSampling   == b.adaptiveSampling &&
+        a.adaptiveBaseSamples == b.adaptiveBaseSamples &&
+        a.adaptiveThreshold  == b.adaptiveThreshold &&
+        a.exposure           == b.exposure &&
+        a.envIntensity       == b.envIntensity &&
+        a.envRotation        == b.envRotation &&
         cam_same &&
         medium_same;
     return rest_same && !pp_same;

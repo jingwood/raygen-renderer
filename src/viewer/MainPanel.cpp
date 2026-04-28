@@ -55,6 +55,15 @@ bool drawQualitySection(ViewerParams& p) {
     if (p.denoise) {
         dirty |= ImGui::SliderFloat("denoise intensity", &p.denoiseIntensity, 0.0f, 1.0f, "%.2f");
     }
+    // Adaptive sampler. `samples` becomes a cap rather than a fixed count;
+    // converged tiles stop early. `base` is the per-pass step (smaller =
+    // finer noise resolution but more pass overhead); `threshold` is the
+    // relative SEM at which a tile is considered converged.
+    dirty |= ImGui::Checkbox ("adaptive sampling", &p.adaptiveSampling);
+    if (p.adaptiveSampling) {
+        dirty |= ImGui::SliderInt  ("adaptive base",      &p.adaptiveBaseSamples, 1,    32);
+        dirty |= ImGui::SliderFloat("adaptive threshold", &p.adaptiveThreshold,   0.001f, 0.1f, "%.3f");
+    }
     return dirty;
 }
 

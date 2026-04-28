@@ -151,6 +151,10 @@ static bool loadViewerConfig(const char* path, ViewerParams& params,
     if (obj->hasProperty("denoise"))
         params.denoise = obj->isBooleanPropertyTrue("denoise");
     obj->tryGetNumberProperty("denoiseIntensity", &params.denoiseIntensity);
+    if (obj->hasProperty("adaptiveSampling"))
+        params.adaptiveSampling = obj->isBooleanPropertyTrue("adaptiveSampling");
+    obj->tryGetNumberProperty("adaptiveBaseSamples", &params.adaptiveBaseSamples);
+    obj->tryGetNumberProperty("adaptiveThreshold",   &params.adaptiveThreshold);
     // Camera
     readVec3Into(obj, "location", params.camLocation);
     readVec3Into(obj, "angle",    params.camAngle);
@@ -189,10 +193,13 @@ static void saveViewerConfig(const char* path, const ViewerParams& params,
                              int outputWidth, int outputHeight) {
     ucm::JSONWriter w;
     w.beginObject();
-    w.writeProperty("samples",          (int)params.samples);
-    w.writeProperty("threads",          (int)params.threads);
-    w.writeProperty("denoise",          params.denoise);
-    w.writeProperty("denoiseIntensity", (double)params.denoiseIntensity);
+    w.writeProperty("samples",            (int)params.samples);
+    w.writeProperty("threads",            (int)params.threads);
+    w.writeProperty("denoise",            params.denoise);
+    w.writeProperty("denoiseIntensity",   (double)params.denoiseIntensity);
+    w.writeProperty("adaptiveSampling",   params.adaptiveSampling);
+    w.writeProperty("adaptiveBaseSamples", (int)params.adaptiveBaseSamples);
+    w.writeProperty("adaptiveThreshold",  (double)params.adaptiveThreshold);
     writeVec3(w,     "location",        params.camLocation);
     writeVec3(w,     "angle",           params.camAngle);
     w.writeProperty("fieldOfView",      (double)params.fieldOfView);
@@ -270,6 +277,9 @@ static void applyParamsToScene(const ViewerParams& p, RayRenderer& renderer, Sce
     s.threads                   = p.threads;
     s.enableDenoise             = p.denoise;
     s.denoiseIntensity          = p.denoiseIntensity;
+    s.enableAdaptiveSampling    = p.adaptiveSampling;
+    s.adaptiveBaseSamples       = p.adaptiveBaseSamples;
+    s.adaptiveThreshold         = p.adaptiveThreshold;
     s.enableRenderingPostProcess = p.postProcess;
     s.bloomThreshold            = p.bloomThreshold;
     s.bloomStrength             = p.bloomStrength;
@@ -415,6 +425,9 @@ int main(int argc, char** argv) {
         p.threads          = renderer.settings.threads;
         p.denoise          = renderer.settings.enableDenoise;
         p.denoiseIntensity = renderer.settings.denoiseIntensity;
+        p.adaptiveSampling     = renderer.settings.enableAdaptiveSampling;
+        p.adaptiveBaseSamples  = renderer.settings.adaptiveBaseSamples;
+        p.adaptiveThreshold    = renderer.settings.adaptiveThreshold;
         p.postProcess      = renderer.settings.enableRenderingPostProcess;
         p.bloomThreshold   = renderer.settings.bloomThreshold;
         p.bloomStrength    = renderer.settings.bloomStrength;

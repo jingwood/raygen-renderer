@@ -19,6 +19,13 @@ struct ViewerParams {
     // Quality / denoise
     bool  denoise          = true;
     float denoiseIntensity = 1.0f;
+    // Adaptive sampling — re-distributes the per-pixel sample budget across
+    // tiles by relative SEM. `samples` is the per-pixel cap; converged tiles
+    // stop earlier so total trace work is typically well below the uniform
+    // cost on mixed-difficulty scenes.
+    bool  adaptiveSampling = false;
+    int   adaptiveBaseSamples = 4;       // samples per pass
+    float adaptiveThreshold = 0.02f;     // rSEM cap (lower = stricter)
     // Camera (mainCamera). Angles in degrees; aperture is an f-stop-like
     // value (smaller = wider blur); apertureBlades=0 is a round iris.
     float camLocation[3]   = {0.0f, 0.0f, 0.0f};
