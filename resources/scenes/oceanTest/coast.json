@@ -1,0 +1,32 @@
+// Ocean-prep scene: ridged terrain extending under the implicit Y=0
+// water line. No water surface yet — this scene exists to validate the
+// terrain generator and serve as a starting point for the next phase
+// (water plane + reflective/refractive shading).
+//
+// Re-bake the mesh with:
+//   python3 tools/terrain/terrain_gen.py \
+//       --output resources/scenes/oceanTest/coast.obj \
+//       --size 400 400 --res 384 384 --amplitude 18 --ridges \
+//       --seabed -3 --falloff 0.12 --seed 5
+{
+  "mainCamera": {
+    "location": [0, 4, 80],
+    "angle":    [-3, 0, 0],
+    "fieldOfView": 45,
+    "exposure": 0.9
+  },
+
+  "envmap": {
+    "texture":   "../../textures/derelict_airfield_01_4k.hdr",
+    "intensity": 1.4,
+    "rotation":  120
+  },
+
+  "world": {
+    "Terrain": {
+      "location": [0, 0, 0],
+      "mesh":     "coast.obj",
+      "mat":      { "color": "#6a6447", "diffuse": 0.9, "glossy": 0.05, "roughness": 0.6 }
+    }
+  }
+}
