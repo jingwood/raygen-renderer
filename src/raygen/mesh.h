@@ -21,7 +21,13 @@
 #include "texture.h"
 #include "cubetex.h"
 
-//#define ENABLE_UINT_INDEX
+// 32-bit index by default. ushort (16-bit) caps at 65535 vertices, which a
+// procedural terrain or a wave grid exceeds without warning the moment the
+// resolution goes past ~256 — index wraparound silently produces degenerate
+// triangles and the mesh disappears at top-down camera angles. The 4-byte
+// cost per index is negligible vs. the per-triangle vec3 / per-vertex
+// storage that already dominates Mesh memory.
+#define ENABLE_UINT_INDEX
 
 #if defined(ENABLE_UINT_INDEX)
 typedef uint vertex_index_t;

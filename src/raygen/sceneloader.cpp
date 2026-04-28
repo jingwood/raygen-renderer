@@ -404,7 +404,16 @@ void SceneJsonLoader::readObjAsSceneObjects(SceneObject& parent, const string& o
 			}
 		}
 
-		// Resolution order for material: scene.json _materials override (by name) > .mtl defaults.
+		// Resolution order for material:
+		//   scene.json _materials override (by name)
+		//   > .mtl defaults
+		//   > parent SceneObject's `mat` block (the JSON object that owns this mesh)
+		//   > built-in Material default
+		// The parent fallback matters when an .obj exported by a heightmap /
+		// procedural tool skips usemtl / mtllib entirely — without it the child
+		// would render with a blank default material, silently ignoring whatever
+		// colour / emission / glossy the scene JSON set on the loading object
+		// (e.g. `"mesh": "terrain.obj", "mat": { "color": "...", ... }`).
 		// Keeping the material name on the child lets downstream code (and later overrides) address it.
 		const string& matName = oo.selectedMatName;
 		Material* overridden = matName.isEmpty() ? NULL : this->findMaterialByName(matName);
@@ -412,6 +421,8 @@ void SceneJsonLoader::readObjAsSceneObjects(SceneObject& parent, const string& o
 			child->material = *overridden;
 		} else if (oo.getMaterial() != NULL) {
 			applyObjMaterialDefaults(child->material, *oo.getMaterial(), baseDir, this->resPool);
+		} else {
+			child->material = target.material;
 		}
 		if (!matName.isEmpty()) {
 			child->material.name = matName;
