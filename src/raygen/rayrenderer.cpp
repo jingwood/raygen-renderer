@@ -1313,6 +1313,35 @@ color3 RayRenderer::tracePath(const Ray& ray, void* shaderParam) const {
         return env;
     }
 
+    // Heat-haze branch (Phase 4 — refractive shimmer / 陽炎). When the
+    // current medium is a pure refractive volume, we ray-march from entry
+    // to the next surface bending the direction by the IOR gradient at
+    // each step. The far face of the bounding mesh is the next surface
+    // BVH returns, so the march length matches the exit point under a
+    // straight ray; the bent ray may overshoot or undershoot it slightly
+    // (small for typical iorAmplitude). Conceptually we "walk out of the
+    // volume" — currentMedium must reset to the outer medium *before*
+    // recursing so a BVH-epsilon miss on the exit surface doesn't drop us
+    // back into this branch and recurse with maxT = RAY_MAX_DISTANCE
+    // until the stack blows. Heat haze takes priority over the σ-driven
+    // branches; a "shimmer + glow" scene needs two separate volumes.
+    if (medium->isHeatHaze()) {
+        const float maxT_h = (info.triangle != NULL) ? info.t : RAY_MAX_DISTANCE;
+        const float marchLen = fminf(maxT_h, 1000.0f);
+        const Ray bent = medium->bendRay(ray, marchLen);
+
+        BSDFParam* sp = (BSDFParam*)shaderParam;
+        const HomogeneousMedium* outer = (this->scene != NULL) ? this->scene->globalMedium : NULL;
+        const HomogeneousMedium* savedMedium = NULL;
+        if (sp != NULL) {
+            savedMedium = sp->currentMedium;
+            sp->currentMedium = outer;
+        }
+        const color3 result = this->tracePath(bent, shaderParam);
+        if (sp != NULL) sp->currentMedium = savedMedium;
+        return result;
+    }
+
     // Volumetric path. Free-flight distance is sampled from a single
     // "hero" channel exponential, then per-channel σt mismatch is corrected
     // by a spectral weight at the chosen event (scatter or surface). The

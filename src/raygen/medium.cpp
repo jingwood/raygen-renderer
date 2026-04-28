@@ -137,6 +137,97 @@ inline float valueNoise3D(float x, float y, float z) {
 }
 }
 
+namespace {
+// Shared fBm walker: samples the value-noise basis at increasing octaves,
+// normalises into [0,1]. Used by both density and heat-haze IOR sampling
+// with their own frequency / octave parameters so the two fields can
+// detune independently.
+inline float fbmNormalised(float x, float y, float z,
+                           float freq, int octaves, float gain, float lacunarity) {
+    float fx = x * freq, fy = y * freq, fz = z * freq;
+    float amp = 1.0f, total = 0.0f, ampSum = 0.0f;
+    const int oct = (octaves > 0) ? octaves : 1;
+    for (int i = 0; i < oct; i++) {
+        total  += amp * valueNoise3D(fx, fy, fz);
+        ampSum += amp;
+        amp    *= gain;
+        fx     *= lacunarity;
+        fy     *= lacunarity;
+        fz     *= lacunarity;
+    }
+    return (ampSum > 0.0f) ? (total / ampSum) : 0.0f;
+}
+}
+
+float HomogeneousMedium::iorAt(const vec3& p) const {
+    if (!this->heatHaze) return 1.0f;
+    const float n = fbmNormalised(p.x - this->iorOffset.x,
+                                  p.y - this->iorOffset.y,
+                                  p.z - this->iorOffset.z,
+                                  this->iorFrequency, this->iorOctaves,
+                                  this->iorGain, this->iorLacunarity);
+    // Centre the noise around zero so n − 1 has mean ~0; the air alternates
+    // between slightly compressed (cold) and slightly rarefied (hot)
+    // pockets. iorAmplitude is the half-range of n − 1.
+    return 1.0f + this->iorAmplitude * (n - 0.5f) * 2.0f;
+}
+
+vec3 HomogeneousMedium::iorGradientAt(const vec3& p) const {
+    if (!this->heatHaze) return vec3::zero;
+    // Step proportional to a single noise cell so the gradient captures
+    // the smallest-octave detail without falling into hash aliasing.
+    const float h = (this->iorFrequency > 0.0f) ? (0.5f / this->iorFrequency) : 0.05f;
+    const float nxp = this->iorAt(vec3(p.x + h, p.y, p.z));
+    const float nxm = this->iorAt(vec3(p.x - h, p.y, p.z));
+    const float nyp = this->iorAt(vec3(p.x, p.y + h, p.z));
+    const float nym = this->iorAt(vec3(p.x, p.y - h, p.z));
+    const float nzp = this->iorAt(vec3(p.x, p.y, p.z + h));
+    const float nzm = this->iorAt(vec3(p.x, p.y, p.z - h));
+    const float inv2h = 0.5f / h;
+    return vec3((nxp - nxm) * inv2h,
+                (nyp - nym) * inv2h,
+                (nzp - nzm) * inv2h);
+}
+
+Ray HomogeneousMedium::bendRay(const Ray& ray, float length) const {
+    if (length <= 0.0f || !this->isHeatHaze()) {
+        return Ray(ray.origin + ray.dir * length, ray.dir);
+    }
+    const int N = this->iorMarchSteps;
+    const float ds = length / (float)N;
+
+    vec3 pos = ray.origin;
+    vec3 dir = ray.dir;
+    for (int i = 0; i < N; i++) {
+        // Sample at the midpoint of the upcoming step — better gradient
+        // estimate than evaluating at the start of each step (RK1 vs an
+        // implicit RK2 split).
+        const vec3 mid(pos.x + dir.x * (ds * 0.5f),
+                       pos.y + dir.y * (ds * 0.5f),
+                       pos.z + dir.z * (ds * 0.5f));
+        const float n = this->iorAt(mid);
+        const vec3 grad = this->iorGradientAt(mid);
+        // Eikonal integrator in component form:
+        //   d(n·dir)/ds = ∇n   ⇒   d(dir)/ds = (∇n − (∇n·dir)·dir) / n.
+        // The projection drops the parallel component so |dir| stays ~1.
+        const float gd = grad.x * dir.x + grad.y * dir.y + grad.z * dir.z;
+        const vec3 perp(grad.x - dir.x * gd,
+                        grad.y - dir.y * gd,
+                        grad.z - dir.z * gd);
+        const float invN = (n > 1e-6f) ? (1.0f / n) : 1.0f;
+        vec3 newDir(dir.x + perp.x * (ds * invN),
+                    dir.y + perp.y * (ds * invN),
+                    dir.z + perp.z * (ds * invN));
+        const float l2 = newDir.x*newDir.x + newDir.y*newDir.y + newDir.z*newDir.z;
+        if (l2 > 1e-12f) {
+            const float invL = 1.0f / sqrtf(l2);
+            dir = vec3(newDir.x * invL, newDir.y * invL, newDir.z * invL);
+        }
+        pos = vec3(pos.x + dir.x * ds, pos.y + dir.y * ds, pos.z + dir.z * ds);
+    }
+    return Ray(pos, dir);
+}
+
 float HomogeneousMedium::densityAt(const vec3& p) const {
     if (this->densityField == DensityField_None) return 1.0f;
     // Anchor and scale into "noise space" once. Octave loop accumulates

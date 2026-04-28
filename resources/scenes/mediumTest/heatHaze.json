@@ -1,0 +1,80 @@
+// Phase 4 demo: jet-engine heat shimmer (陽炎 / Schlieren effect). The
+// "exhaust" is a transparent bounding box whose interior medium has heat
+// haze on; eye rays traversing it are bent by the IOR fBm gradient instead
+// of being scattered or attenuated. The airfield HDR envmap behind the
+// engine provides the rich background detail that makes the distortion
+// readable — without recognisable scenery the bending is invisible.
+//
+// Tuning notes:
+//   - iorAmplitude is the visible knob. 0.02 ≈ stylised heat-haze; bump
+//     to 0.05+ for very hot shoulders, drop to 0.005 for a gentler shimmer.
+//   - iorFrequency controls the wobble cell size in world units. Low
+//     frequencies look like swimming-pool refraction; high frequencies
+//     look like blast-furnace turbulence.
+//   - iorMarchSteps trades cost for accuracy — 12-16 is plenty here. Push
+//     iorOctaves up if the wobble looks too smooth.
+//
+// Layout (world axes, +Y up):
+//   - Camera at +Z, slightly elevated, looking at the engine on the right.
+//   - Nozzle (dark metal cylinder/sphere) at x=2, behind it the exhaust.
+//   - Haze volume sits to the left of the nozzle, covering the line of
+//     sight from the camera to the airfield envmap & ground beyond.
+{
+  "mainCamera": {
+    "location": [0, 0.4, 4.0],
+    "angle":    [8, 12, 0],
+    "fieldOfView": 38,
+    "exposure": 0.9
+  },
+
+  "envmap": {
+    "texture":   "../../textures/derelict_airfield_01_4k.hdr",
+    "intensity": 1.6,
+    "rotation":  60
+  },
+
+  "world": {
+    "Floor": {
+      "location": [0, -1.0, 0],
+      "scale":    [60, 1, 60],
+      "mesh":     { "type": "plane" },
+      "mat":      { "color": "#2a2a2a", "diffuse": 0.9, "glossy": 0.05, "roughness": 0.5 }
+    },
+
+    // Stand-in jet nozzle. The afterburner glow itself isn't part of this
+    // demo — the focus is the *invisible* hot air behind it.
+    "Nozzle": {
+      "location": [2.0, 0.5, -0.5],
+      "scale":    [0.35, 0.35, 0.35],
+      "mesh":     { "type": "sphere" },
+      "mat":      { "color": "#1a1a1a", "glossy": 0.8, "metallic": 1.0, "roughness": 0.3 }
+    },
+
+    // Heat-haze region: a thin transparent slab covering the camera's
+    // line of sight from the nozzle area to the airfield horizon. Sized
+    // so the cube fills most of the visible frame; the rich envmap detail
+    // behind it (treeline, sky, distant structures) is what makes the
+    // refractive distortion legible.
+    "HazeVolume": {
+      "location": [0.3, 1.0, -1.0],
+      "scale":    [4.5, 2.4, 1.4],
+      "mesh":     { "type": "cube" },
+      "mat":      { "color": "#ffffff", "transparency": 1.0 },
+      "medium": {
+        "sigma_a": [0, 0, 0],
+        "sigma_s": [0, 0, 0],
+        "heatHaze":     true,
+        // Visible-but-coherent shimmer needs (amplitude × frequency)
+        // small enough that adjacent eye rays sample similar gradients;
+        // too high and the cube area dissolves into per-pixel noise
+        // instead of a wavy refraction.
+        "iorAmplitude": 0.012,
+        "iorFrequency": 1.2,
+        "iorOctaves":   3,
+        "iorGain":      0.5,
+        "iorLacunarity": 2.0,
+        "iorMarchSteps": 12
+      }
+    }
+  }
+}

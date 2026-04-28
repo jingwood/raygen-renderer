@@ -112,6 +112,32 @@ bool drawDensityField(HomogeneousMedium& m) {
     return changed;
 }
 
+// Phase 4: heat haze (refractive shimmer / 陽炎). The volume bends rays
+// instead of scattering / emitting, so this section unlocks under its own
+// checkbox and visually replaces the σ-driven preview when on. Realistic
+// hot-air values for iorAmplitude live around 1e-3..5e-3; push 0.05+ for
+// stylised distortion. iorFrequency sets the world-scale of the wobble.
+bool drawHeatHaze(HomogeneousMedium& m) {
+    bool changed = false;
+    changed |= ImGui::Checkbox("heatHaze##im", &m.heatHaze);
+    if (!m.heatHaze) return changed;
+
+    ImGui::TextDisabled("(σ_a/σ_s/emission ignored on this path)");
+    changed |= ImGui::SliderFloat("iorAmplitude##im",  &m.iorAmplitude, 0.0f,  0.1f,  "%.5f");
+    changed |= ImGui::SliderFloat("iorFrequency##im",  &m.iorFrequency, 0.05f, 32.0f, "%.3f");
+    changed |= ImGui::SliderInt  ("iorOctaves##im",    &m.iorOctaves,   1, 6);
+    changed |= ImGui::SliderFloat("iorGain##im",       &m.iorGain,      0.0f, 1.0f, "%.3f");
+    changed |= ImGui::SliderFloat("iorLacunarity##im", &m.iorLacunarity, 1.0f, 4.0f, "%.3f");
+    changed |= ImGui::SliderInt  ("iorMarchSteps##im", &m.iorMarchSteps, 1, 64);
+
+    float ioff[3] = { m.iorOffset.x, m.iorOffset.y, m.iorOffset.z };
+    if (ImGui::DragFloat3("iorOffset##im", ioff, 0.05f, -1000.0f, 1000.0f, "%.3f")) {
+        m.iorOffset = ugm::vec3(ioff[0], ioff[1], ioff[2]);
+        changed = true;
+    }
+    return changed;
+}
+
 }  // namespace
 
 bool drawInteriorMedium(SceneObject& so) {
@@ -151,6 +177,7 @@ bool drawInteriorMedium(SceneObject& so) {
     changed |= drawSigmaCommon(*m, sa, ss);
     changed |= drawEmissionMode(*m, se);
     changed |= drawDensityField(*m);
+    changed |= drawHeatHaze(*m);
 
     if (changed) {
         m->sigma_a = ugm::color3(sa[0], sa[1], sa[2]);

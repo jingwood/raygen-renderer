@@ -266,6 +266,22 @@ HomogeneousMedium* SceneJsonLoader::readMedium(const JSObject& obj) {
         m->noiseOffset = v;
     }
 
+    // Phase 4: heat-haze (refractive shimmer / 陽炎). `heatHaze: true` flips
+    // the volume into the ray-bending branch; the σ knobs are ignored on
+    // that path so a pure shimmer volume can leave them at zero.
+    if (obj.hasProperty("heatHaze")) {
+        m->heatHaze = obj.isBooleanPropertyTrue("heatHaze");
+    }
+    obj.tryGetNumberProperty("iorAmplitude",  &m->iorAmplitude);
+    obj.tryGetNumberProperty("iorFrequency",  &m->iorFrequency);
+    obj.tryGetNumberProperty("iorOctaves",    &m->iorOctaves);
+    obj.tryGetNumberProperty("iorGain",       &m->iorGain);
+    obj.tryGetNumberProperty("iorLacunarity", &m->iorLacunarity);
+    obj.tryGetNumberProperty("iorMarchSteps", &m->iorMarchSteps);
+    if (SceneJsonLoader::tryReadVec3Property(obj, "iorOffset", &v)) {
+        m->iorOffset = v;
+    }
+
     m->prepare();
 
     // No active σ AND no emission AND not a cone — caller almost certainly

@@ -93,6 +93,28 @@ public:
     // stays put even if the bounding mesh is moved.
     bool   coneFollowObject = false;
 
+    // --- Phase 4: heat-haze (refractive shimmer) ---------------------------
+    // Models the visual distortion behind a jet engine / over hot tarmac:
+    // hot air has slightly lower density and therefore lower refractive index,
+    // so light rays bend toward higher-density regions (Schlieren effect /
+    // 陽炎). When `heatHaze` is on, rays inside this volume are ray-marched
+    // and gradually steered by -∇n along the path; absorption / scattering /
+    // emission for the volume are bypassed (the visible glow lives in a
+    // separate emissive medium if the scene wants both).
+    //
+    // Physics: n(p) = 1 + iorAmplitude · fbm(p). For real heated air,
+    // (n−1) is ~1e-4 .. 1e-3, so the visible deflection is a few pixels
+    // over a metre of path. iorAmplitude here is the *visible* knob — push
+    // it 10×−100× for stylised exaggeration on stage shots.
+    bool   heatHaze        = false;
+    float  iorAmplitude    = 0.005f;   // (n − 1) at the noise peak
+    float  iorFrequency    = 4.0f;     // octave-0 frequency, separate from densityField
+    int    iorOctaves      = 3;        // 1..6
+    float  iorGain         = 0.5f;
+    float  iorLacunarity   = 2.0f;
+    int    iorMarchSteps   = 16;       // ray-march resolution along the segment
+    vec3   iorOffset       = vec3::zero;  // shift the noise field (cheap "animation" between frames)
+
     // --- Phase 3: heterogeneous density field ------------------------------
     // FBmNoise multiplies σa/σs/σe at every sample point by a scalar
     // fractal-Brownian-motion noise drawn from a hash-based 3D value-noise
@@ -148,11 +170,24 @@ public:
 
     // The volumetric branch of tracePath fires when this returns true. A pure-
     // emission cone (σt=0) needs to be considered active too — otherwise the
-    // legacy non-volumetric fast path runs and the flame disappears.
+    // legacy non-volumetric fast path runs and the flame disappears. Heat-
+    // haze likewise activates the volumetric branch so the renderer can ray-
+    // march and bend the path even when σ values are all zero (a pure
+    // refractive shimmer volume has no extinction).
     inline bool isActive() const {
         if (this->sigma_t_hero > 0.0f) return true;
         if (this->emissionMode == EmissionMode_Cone && this->coneIntensity > 0.0f) return true;
+        if (this->heatHaze && this->iorAmplitude > 0.0f) return true;
         return this->sigma_e_eff != color3::zero;
+    }
+
+    // True when this volume should bend the ray instead of running the
+    // standard scatter / emission integration for the segment. Mutually
+    // exclusive in the renderer hot path with the σ-driven volumetric
+    // branch (heat haze takes priority); the visible glow of a flame
+    // belongs in a separate medium.
+    inline bool isHeatHaze() const {
+        return this->heatHaze && this->iorAmplitude > 0.0f && this->iorMarchSteps > 0;
     }
 
     // Beer-Lambert per-channel transmittance over a segment of length d.
@@ -219,6 +254,22 @@ public:
     inline float freeFlightSurvivalProb(float d) const {
         return expf(-this->sigma_t_hero * d);
     }
+
+    // Refractive index n(p) at world-space point p. Returns 1.0 when heat
+    // haze is off (used internally by the bender; callers should normally
+    // check isHeatHaze() first to skip the work).
+    float iorAt(const vec3& p) const;
+
+    // ∇n at p via central differences. Step size adapts to iorFrequency so
+    // the gradient reflects the noise's natural detail scale.
+    vec3 iorGradientAt(const vec3& p) const;
+
+    // Ray-march `length` units from `ray.origin` along the (initially
+    // straight) direction, bending each step by the refractive-index gradient.
+    // Returns the bent ray (origin = endpoint, dir = bent direction). Caller
+    // continues tracing from this ray; the original segment's other side of
+    // the bounding mesh is discovered by the next BVH query.
+    Ray bendRay(const Ray& ray, float length) const;
 
     // Sample a scattered direction wi given incoming wo using the Henyey-
     // Greenstein phase function. (u1, u2) are uniform in [0, 1). Returns the
