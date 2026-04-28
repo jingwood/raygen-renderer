@@ -1088,7 +1088,8 @@ float RayRenderer::computeTileNoise(size_t tileIdx) const {
 
 void RayRenderer::renderThreadAdaptive(const RenderThreadContext& ctx,
                                         const std::vector<size_t>* activeTiles,
-                                        int sampleStart, int sampleCount) {
+                                        int sampleStart, int sampleCount,
+                                        float baseProgress, float passShare) {
     const Camera* camera = this->scene->mainCamera;
     if (camera == NULL) camera = &this->defaultCamera;
 
@@ -1144,7 +1145,11 @@ void RayRenderer::renderThreadAdaptive(const RenderThreadContext& ctx,
         this->commitTilePreview(ctx, tileIdx);
 
         const size_t done = this->completedTiles.fetch_add(1, std::memory_order_relaxed) + 1;
-        const float pr = (float)done * invActive;
+        // Map this pass's per-tile fraction onto the global 0..1 progress
+        // window owned by this pass. Across all passes the windows tile up
+        // (Pass 0 covers a slice up to baseSamples/targetSamples; later
+        // passes add smaller slices proportional to active-area × samples).
+        const float pr = baseProgress + passShare * (float)done * invActive;
         if (pr > this->progressRate) {
             this->progressRate = pr;
             if (this->progressCallback != NULL) {
@@ -1168,18 +1173,50 @@ void RayRenderer::renderAdaptive(const RenderThreadContext& ctx) {
     const int baseSamples   = std::max(1, this->settings.adaptiveBaseSamples);
     const float threshold   = this->settings.adaptiveThreshold;
 
+    // Total work upper bound (uniform-equivalent): targetSamples × pixels.
+    // Each pass's progress contribution is its (samples × active-pixels) over
+    // that bound. Sum across all passes ≤ 1.0 (early convergence leaves the
+    // bar short, then the viewer's post-render hook snaps it to 100%).
+    const double totalWorkInv =
+        1.0 / ((double)targetSamples * (double)W * (double)H);
+
     auto runPass = [&](const std::vector<size_t>& active, int sampleStart, int sampleCount) {
         if (active.empty()) return;
+
+        // Sum of pixel counts in the active subset (last row/column tiles
+        // can be smaller than 32×32 — count actual width × height).
+        long long activePixels = 0;
+        for (size_t idx : active) {
+            const RenderTile& t = this->renderTiles[idx];
+            activePixels += (long long)t.width * (long long)t.height;
+        }
+        const float baseProgress = this->progressRate;
+        const float passShare =
+            (float)((double)sampleCount * (double)activePixels * totalWorkInv);
+
         this->nextTileIndex.store(0, std::memory_order_relaxed);
         this->completedTiles.store(0, std::memory_order_relaxed);
 
         std::vector<std::thread> workers;
         for (int i = 0; i < this->settings.threads; i++) {
-            workers.push_back(std::thread([this, &ctx, &active, sampleStart, sampleCount] {
-                this->renderThreadAdaptive(ctx, &active, sampleStart, sampleCount);
-            }));
+            workers.push_back(std::thread(
+                [this, &ctx, &active, sampleStart, sampleCount, baseProgress, passShare] {
+                    this->renderThreadAdaptive(ctx, &active, sampleStart, sampleCount,
+                                               baseProgress, passShare);
+                }));
         }
         for (std::thread& w : workers) w.join();
+
+        // Force-fire the end-of-pass progress: the worker uses pr > rate so
+        // the very last tick can race-skip, leaving the bar a hair below the
+        // intended pass ceiling. Without this the bar drifts down each pass.
+        const float postPassProgress = baseProgress + passShare;
+        if (postPassProgress > this->progressRate) {
+            this->progressRate = postPassProgress;
+            if (this->progressCallback != NULL) {
+                this->progressCallback(this->progressRate);
+            }
+        }
     };
 
     // Pass 0: every tile gets baseSamples. Progressive preview already shows

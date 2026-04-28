@@ -199,9 +199,14 @@ private:
 	void renderAdaptive(const RenderThreadContext& ctx);
 	// Adaptive worker: pulls tile indices out of `activeTiles` via fetch_add,
 	// runs samples [sampleStart, sampleStart + sampleCount) for each pixel.
+	// `baseProgress` + `passShare` map per-pass tile completion onto a global
+	// 0..1 progress scale so the bar advances monotonically across passes
+	// (without these the per-pass `done/activeCount` would reset to 0 each
+	// pass and never beat Pass 0's ceiling).
 	void renderThreadAdaptive(const RenderThreadContext& ctx,
 	                          const std::vector<size_t>* activeTiles,
-	                          int sampleStart, int sampleCount);
+	                          int sampleStart, int sampleCount,
+	                          float baseProgress, float passShare);
 	// Run a sample range for a pixel and accumulate per-sample HDR linear
 	// radiance into caller-provided sum / sum-of-squares. AOVs (denoise
 	// guides) are written only when sampleStart == 0. Used by both the
