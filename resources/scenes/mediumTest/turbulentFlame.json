@@ -9,6 +9,12 @@
     "fieldOfView": 45,
     "exposure": 0.7
   },
+	
+  "envmap": {
+		"texture": "../../textures/sky_sun.hdr",
+		"intensity": 2,
+		"rotation": 20
+	},
 
   "world": {
     "Floor": {
