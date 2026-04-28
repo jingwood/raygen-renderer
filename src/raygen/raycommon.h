@@ -70,6 +70,20 @@ inline Ray ThicknessRay(const vec3& origin, const vec3& dir) {
 	return Ray(origin + dir.normalize() * SURFACE_THICKNESS, dir);
 }
 
+// Surface-aware self-intersection guard. Offsets the new ray's origin along
+// the surface normal on the side the ray is leaving toward (sign(dot(dir,n))).
+// Unlike ThicknessRay's tangent-along-dir offset, the perpendicular distance
+// to the originating triangle stays = SURFACE_THICKNESS regardless of the
+// outgoing angle, so grazing-angle reflections / refractions / shadow rays
+// don't immediately self-hit the same or a neighbouring wave triangle —
+// e.g. a Gerstner-displaced ocean viewed nearly edge-on, where the reflected
+// dir is almost tangent and the dir-only offset collapses to ~0 perpendicular
+// distance.
+inline Ray SurfaceRay(const vec3& hit, const vec3& dir, const vec3& normal) {
+	const float side = (dot(dir, normal) >= 0.0f) ? 1.0f : -1.0f;
+	return Ray(hit + normal * (side * SURFACE_THICKNESS), dir);
+}
+
 struct RayTriangleIntersectionInfo;
 
 class RenderMeshTriangle {

@@ -1178,7 +1178,7 @@ color3 RayRenderer::traceEnvmapLight(const vec3& hit, const vec3& normal, float 
     const float cosObj = dot(envDir, normal);
     if (cosObj <= 0.0f) return color3::zero;
 
-    const Ray shadowRay = ThicknessRay(hit, envDir);
+    const Ray shadowRay = SurfaceRay(hit, envDir, normal);
     const bool blocked = this->bvh.intersectAny(shadowRay, 1e30f, [](const RenderMeshTriangle* rt) {
         const auto& mat = rt->object.material;
         if (mat.emission > 0.0f) return false;
@@ -1507,6 +1507,27 @@ color3 RayRenderer::tracePath(const Ray& ray, void* shaderParam) const {
     if (info.triangle != NULL) {
         VertexInterpolation vi;
         this->calcVertexInterpolation(info, &vi);
+
+        // Smooth-shading silhouette fix. Barycentric interpolation of
+        // per-vertex normals on a curved low-poly mesh can tilt the
+        // shading normal far enough that `dot(ray.dir, vi.normal) > 0`
+        // (shading "back-face") even though the ray geometrically hits
+        // the front face. Downstream BSDFs read that as a back-face
+        // hit and the smooth-mirror branch in particular produces a
+        // reflected direction below the geometric plane — the ray then
+        // dives into the dark hemisphere of the envmap and that
+        // triangle renders as solid black. Most visible on a
+        // Gerstner-displaced ocean viewed near edge-on, where wave
+        // crests' shading normals lean toward the camera. Fall back
+        // to the geometric face normal when we detect this anomaly;
+        // smooth shading is locally lost on those slivers but the
+        // black artefact goes away.
+        const vec3& gpd = info.triangle->ti.normalizedpd;
+        const vec3 geomN = (dot(gpd, ray.dir) <= 0.0f) ? gpd : -gpd;
+        if (dot(ray.dir, vi.normal) > 0.0f && dot(ray.dir, geomN) < 0.0f) {
+            vi.normal = geomN;
+        }
+
         const color3 surfaceShade = this->shaderProvider->shade(info, ray, vi, shaderParam);
         return mediumEmission + surfaceWeight * surfaceShade;
     }
@@ -1607,7 +1628,7 @@ color3 RayRenderer::traceAreaLight(const LightSource& lightSource, const vec3& h
     const float dotLightToRay = dot(-lightDir, lightHit.normal);
     if (dotLightToRay <= 0.0f) return color3::zero;
 
-    Ray ray = ThicknessRay(hit, lightRay);
+    Ray ray = SurfaceRay(hit, lightRay, objectNormal);
     constexpr float maxt = 0.99999f;
 
     // Any opaque non-emissive triangle between shading point and the sampled
@@ -1680,7 +1701,7 @@ bool RayRenderer::sampleAreaLightForNEE(const vec3& hit, const vec3& surfaceNorm
     const float cosLight = dot(-dir, lightHit.normal);
     if (cosLight <= 0.0f) return false;
 
-    Ray shadowRay = ThicknessRay(hit, lightRay);
+    Ray shadowRay = SurfaceRay(hit, lightRay, surfaceNormal);
     constexpr float maxt = 0.99999f;
     const bool blocked = this->bvh.intersectAny(shadowRay, maxt, [](const RenderMeshTriangle* rt) {
         const auto& mat = rt->object.material;
@@ -1712,7 +1733,7 @@ bool RayRenderer::sampleEnvmapForNEE(const vec3& hit, const vec3& surfaceNormal,
     const float cosObj = dot(envDir, surfaceNormal);
     if (cosObj <= 0.0f) return false;
 
-    const Ray shadowRay = ThicknessRay(hit, envDir);
+    const Ray shadowRay = SurfaceRay(hit, envDir, surfaceNormal);
     const bool blocked = this->bvh.intersectAny(shadowRay, 1e30f, [](const RenderMeshTriangle* rt) {
         const auto& mat = rt->object.material;
         if (mat.emission > 0.0f) return false;
@@ -1826,7 +1847,7 @@ bool RayRenderer::sampleVolumeLightForNEE(const vec3& hit, const vec3& surfaceNo
     // and refractive get skipped — we want the light to "shine through"
     // those even though the hit point may be next to one. maxt clipped just
     // before the sampled point.
-    const Ray shadowRay = ThicknessRay(hit, toSamp);
+    const Ray shadowRay = SurfaceRay(hit, toSamp, surfaceNormal);
     const float maxt = 0.99999f;
     const bool blocked = this->bvh.intersectAny(shadowRay, maxt, [](const RenderMeshTriangle* rt) {
         const auto& mat = rt->object.material;
@@ -1867,7 +1888,7 @@ bool RayRenderer::sampleVolumeLightForNEE(const vec3& hit, const vec3& surfaceNo
 color3 RayRenderer::tracePointLight(const LightSource& lightSource, const vec3& hit, const vec3& objectNormal) const {
     const vec3 lightray = lightSource.transformedLocation - hit;
 
-    Ray ray = ThicknessRay(hit, lightray);
+    Ray ray = SurfaceRay(hit, lightray, objectNormal);
     constexpr float maxt = 0.99999f;
 
     const bool blocked = this->bvh.intersectAny(ray, maxt, [](const RenderMeshTriangle* rt) {

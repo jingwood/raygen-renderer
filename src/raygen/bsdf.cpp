@@ -13,6 +13,22 @@
 
 namespace raygen {
 
+// Geometric face normal of `tri` re-oriented to lie in the same hemisphere
+// as the smooth shading normal `shadingN`. Used for self-intersection offsets
+// (SurfaceRay) so the bias is perpendicular to the actual triangle plane,
+// not the (potentially heavily tilted) interpolated shading normal — without
+// this, a reflected ray sampled in the shading-normal hemisphere can still
+// sit below the geometric plane and immediately re-hit the originating
+// triangle. Most visible on Gerstner-displaced ocean meshes viewed at
+// grazing angles, where the wave-bumps create steep shading-vs-geometric
+// disagreement and BSDF paths get trapped bouncing between adjacent crests
+// until MAX_TRACE_DEPTH / Russian roulette terminates them at throughput 0
+// (the "black triangles at grazing" symptom).
+inline vec3 geomNormal(const RenderMeshTriangle& tri, const vec3& shadingN) {
+    const vec3& gn = tri.ti.normalizedpd;
+    return (dot(gn, shadingN) >= 0.0f) ? gn : -gn;
+}
+
 inline float fresnelSchlick(float cosTheta, float refractiveIndex) {
     float r0 = (1.0f - refractiveIndex) / (1.0f + refractiveIndex);
     r0 = r0 * r0;
@@ -47,7 +63,7 @@ color3 DiffuseShader::shade(BSDFParam& param) {
     // multiply the incoming radiance by surface color — no extra cos/π factors
     // needed in the shader (the 1/π is already in traceLight's direct term).
     const vec3 dir = cosineWeightedDirection(param.vi.normal);
-    const Ray ray = ThicknessRay(interInfo.hit, dir);
+    const Ray ray = SurfaceRay(interInfo.hit, dir, geomNormal(*interInfo.triangle, param.vi.normal));
 
     color3 albedo(1.0f, 1.0f, 1.0f);
     if (renderer.settings.enableColorSampling) {
@@ -185,7 +201,19 @@ color3 GlossyShader::shade(BSDFParam& param) {
     // advertise bsdfSampledPdf = 0 so the next hit skips the BSDF-side MIS
     // weight.
     if (m.roughness < 1e-3f) {
-        const vec3 r = reflect(inDir, normal);
+        const vec3 gN = geomNormal(*interInfo.triangle, normal);
+        // Reflect off the shading normal; if the result dives below the
+        // geometric plane (smooth-shading vs flat-geometry disagreement —
+        // common on Gerstner-displaced ocean meshes where vertex-normal
+        // interpolation tilts the shading normal almost parallel to the
+        // grazing camera ray), fall back to reflecting off the geometric
+        // face normal so the bounce stays in the upper hemisphere instead
+        // of plunging down through the surface and sampling the dark
+        // hemisphere of the envmap (the "black wave triangles" symptom).
+        vec3 r = reflect(inDir, normal);
+        if (dot(r, gN) <= 0.0f) {
+            r = reflect(inDir, gN);
+        }
         const float cosI = fmaxf(0.0f, -dot(inDir, normal));
         const color3 F = schlickF(cosI);
 
@@ -193,7 +221,7 @@ color3 GlossyShader::shade(BSDFParam& param) {
         const float savedPdf = param.bsdfSampledPdf;
         param.throughput *= F;
         param.bsdfSampledPdf = 0.0f;
-        const color3 incoming = renderer.tracePath(ThicknessRay(interInfo.hit, r), (void*)&param);
+        const color3 incoming = renderer.tracePath(SurfaceRay(interInfo.hit, r, gN), (void*)&param);
         param.throughput = savedT;
         param.bsdfSampledPdf = savedPdf;
         return incoming * F;
@@ -307,6 +335,17 @@ color3 GlossyShader::shade(BSDFParam& param) {
 
     const vec3 L = t * L_local.x + b * L_local.y + normal * L_local.z;
 
+    // Geometric-plane sanity: the VNDF-sampled L can be above the shading
+    // plane yet below the geometric face plane when the smooth shading
+    // normal disagrees with the flat triangle (curved low-poly meshes
+    // viewed at grazing). Trace below the geom plane on those samples
+    // would re-enter the triangle and either self-hit or bounce into
+    // the dark hemisphere of the envmap. Drop the BSDF contribution and
+    // keep just the direct-lighting term — NEE has already been added
+    // above for the area / envmap / volume lobes.
+    const vec3 gN = geomNormal(*interInfo.triangle, normal);
+    if (dot(L, gN) <= 0.0f) return direct;
+
     const float VdotH = fmaxf(0.0f, dot(Vlocal, H_local));
     const color3 F = schlickF(VdotH);
 
@@ -327,7 +366,7 @@ color3 GlossyShader::shade(BSDFParam& param) {
     const float savedPdf = param.bsdfSampledPdf;
     param.throughput *= weight;
     param.bsdfSampledPdf = pdfBsdfSampled;
-    const color3 incoming = renderer.tracePath(ThicknessRay(interInfo.hit, L), (void*)&param);
+    const color3 incoming = renderer.tracePath(SurfaceRay(interInfo.hit, L, gN), (void*)&param);
     param.throughput = savedT;
     param.bsdfSampledPdf = savedPdf;
 
@@ -382,12 +421,25 @@ color3 RefractionShader::shade(BSDFParam& param) {
 
     const float fresnel = fresnelSchlick(cosTheta, ior);
 
-    vec3 dir = (randomValue() < fresnel)
+    const bool pickReflect = (randomValue() < fresnel);
+    vec3 dir = pickReflect
         ? reflect(inDir, normal)
         : refract(inDir, normal, ior);
 
     if (m.roughness > 0.0f) {
         dir = (dir + randomRayInHemisphere(normal) * m.roughness).normalize();
+    }
+
+    // Geometric-plane sanity for the reflect branch — the smooth shading
+    // normal can tilt enough on a wave mesh that the mirror reflection
+    // dives below the geometric face plane and self-intersects (or, with
+    // an envmap that has a dark ground hemisphere, samples the floor and
+    // turns the triangle black). Re-reflect off the geometric face normal
+    // in that case so the bounce stays in the upper hemisphere. Refract
+    // is left alone — refraction is supposed to cross the interface.
+    const vec3 gN = geomNormal(*interInfo.triangle, normal);
+    if (pickReflect && dot(dir, gN) <= 0.0f) {
+        dir = reflect(inDir, gN);
     }
 
     const color3 savedT = param.throughput;
@@ -421,7 +473,7 @@ color3 RefractionShader::shade(BSDFParam& param) {
         }
     }
 
-    const color3f color = renderer.tracePath(ThicknessRay(interInfo.hit, dir), (void*)&param);
+    const color3f color = renderer.tracePath(SurfaceRay(interInfo.hit, dir, gN), (void*)&param);
 
     param.throughput = savedT;
     param.bsdfSampledPdf = savedPdf;
@@ -450,7 +502,7 @@ color3 GlassShader::shade(BSDFParam& param) {
     param.throughput *= m.color;
     param.bsdfSampledPdf = 0.0f;  // delta refraction lobe
 
-    const color3f color = renderer.tracePath(ThicknessRay(interInfo.hit, r), (void*)&param);
+    const color3f color = renderer.tracePath(SurfaceRay(interInfo.hit, r, geomNormal(*interInfo.triangle, normal)), (void*)&param);
 
     param.throughput = savedT;
     param.bsdfSampledPdf = savedPdf;
@@ -485,7 +537,7 @@ color3 TransparencyShader::shade(BSDFParam& param) {
         param.currentMedium = (sc != NULL) ? sc->globalMedium : NULL;
     }
 
-    const color3 color = renderer.tracePath(ThicknessRay(interInfo.hit, param.inray.dir), (void*)&param);
+    const color3 color = renderer.tracePath(SurfaceRay(interInfo.hit, param.inray.dir, geomNormal(*interInfo.triangle, param.vi.normal)), (void*)&param);
 
     param.throughput = savedT;
     param.currentMedium = savedMedium;
@@ -503,7 +555,7 @@ color3 AnisotropicShader::shade(BSDFParam& param) {
     const vec3& normal = param.vi.normal;
 
     const vec3 dir = randomRayInHemisphere(normal);
-    const Ray ray = ThicknessRay(interInfo.hit, dir);
+    const Ray ray = SurfaceRay(interInfo.hit, dir, geomNormal(*interInfo.triangle, normal));
 
     color3 albedo(1.0f, 1.0f, 1.0f);
     if (renderer.settings.enableColorSampling) {
