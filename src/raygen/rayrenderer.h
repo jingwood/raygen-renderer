@@ -77,6 +77,14 @@ struct EmissiveVolumeSource {
 	EmissiveVolumeSource() { }
 };
 
+// Screen-space tile rendered as a single work-stealing unit. Tiles are
+// shuffled at render() start so progressive previews fill the frame
+// approximately uniformly instead of top-to-bottom.
+struct RenderTile {
+	int x, y;
+	int width, height;
+};
+
 class RayTransformedMesh {
 public:
 	const Mesh* mesh = NULL;
@@ -114,6 +122,17 @@ struct RendererSettings {
 	// on very bright features but cuts the speckle that otherwise never
 	// converges. 0 disables. Interpreted in linear HDR radiance.
 	float fireflyClamp = 10.0f;
+
+	// Adaptive sampling: spend more samples on noisy tiles, fewer on
+	// converged ones. Total per-pixel sample count is capped at `samples`,
+	// but tiles whose relative standard error of the mean (rSEM) drops
+	// below `adaptiveThreshold` stop early — yielding the same visual
+	// quality faster on scenes with mixed difficulty (e.g. flat walls
+	// next to a glass object). Off by default; enable via the viewer
+	// "Adaptive" toggle or scene JSON.
+	bool enableAdaptiveSampling = false;
+	int adaptiveBaseSamples = 4;          // samples per pass
+	float adaptiveThreshold = 0.02f;      // rSEM cap (lower = more accurate / slower)
 
 	// Bloom runs in linear HDR radiance (pre-tonemap) so a tiny 10000-cd
 	// emitter produces proportionally larger halo than a diffuse white pixel,
@@ -169,6 +188,34 @@ private:
 	void initRenderThreadContext(RenderThreadContext* ctx);
     void renderThread(const RenderThreadContext& ctx, const int threadId);
 	void renderAsyncThread(RenderThreadCallback* callback);
+
+	// Build the per-render tile list and shuffle it into a coverage-friendly
+	// order. Called once per render() before the workers spawn.
+	void buildTileList(int imgWidth, int imgHeight);
+
+	// Adaptive driver: runs base + per-tile refinement passes, accumulating
+	// into adaptiveSumImage / adaptiveSumSqImage and committing the running
+	// mean to renderingImage / hdrImage so the preview refines progressively.
+	void renderAdaptive(const RenderThreadContext& ctx);
+	// Adaptive worker: pulls tile indices out of `activeTiles` via fetch_add,
+	// runs samples [sampleStart, sampleStart + sampleCount) for each pixel.
+	void renderThreadAdaptive(const RenderThreadContext& ctx,
+	                          const std::vector<size_t>* activeTiles,
+	                          int sampleStart, int sampleCount);
+	// Run a sample range for a pixel and accumulate per-sample HDR linear
+	// radiance into caller-provided sum / sum-of-squares. AOVs (denoise
+	// guides) are written only when sampleStart == 0. Used by both the
+	// uniform path (one batched call) and adaptive (multiple passes).
+	void accumulatePixelSamples(const RenderThreadContext& ctx, Ray& ray,
+	                            int x, int y,
+	                            int sampleStart, int sampleCount,
+	                            color3f& sum, color3f& sumSq);
+	// Commit the running mean for one tile to hdrImage + renderingImage so
+	// the in-flight preview shows refinement after each adaptive pass.
+	void commitTilePreview(const RenderThreadContext& ctx, size_t tileIdx);
+	// Mean per-pixel relative standard-error-of-the-mean across the tile.
+	// Returns 0 if the tile has no samples yet.
+	float computeTileNoise(size_t tileIdx) const;
 	
 	void findNearestTriangle(const Ray& ray, RayTriangleIntersectionInfo& info) const;
 	void scanBoundingBoxNearestTriangle(const Ray& ray, const RenderMeshTriangle* hitrt, RayMeshIntersection& rmi) const;
@@ -199,6 +246,26 @@ protected:
 	std::vector<const RenderMeshTriangle*> triangleList;
 	Image4f renderingImage;
 	float progressRate = 0.0f;
+
+	// Tile work-stealing state. nextTileIndex is the shared queue cursor;
+	// completedTiles drives the progress callback. Both reset at render()
+	// start. Workers atomically fetch_add nextTileIndex to claim a tile,
+	// so a thread that finishes a heavy tile (lots of glass / deep
+	// recursion) just grabs another while still-busy threads keep
+	// grinding — much better balance than the old row-stride partition.
+	std::vector<RenderTile> renderTiles;
+	std::atomic<size_t> nextTileIndex{0};
+	std::atomic<size_t> completedTiles{0};
+
+	// Adaptive sampling state. Allocated and populated only when
+	// settings.enableAdaptiveSampling is on; otherwise these stay empty
+	// and zero overhead. adaptiveSumImage/SumSqImage are per-pixel
+	// running totals (alpha unused). tileSampleCounts records the number
+	// of samples that have been accumulated for each tile so far —
+	// uniform across the tile, since every pass spans the whole tile.
+	Image adaptiveSumImage;
+	Image adaptiveSumSqImage;
+	std::vector<int> tileSampleCounts;
 
 	void transformScene();
 	void transformObject(SceneTransformStack& transformStack, SceneObject& obj);

@@ -12,6 +12,8 @@
 #include <iostream>
 #include <thread>
 #include <cassert>
+#include <algorithm>
+#include <random>
 
 #include "ugm/functions.h"
 #include "ugm/imgfilter.h"
@@ -534,14 +536,29 @@ void RayRenderer::render() {
     this->progressRate = 0;
     this->cancelRequested = false;
 
-    std::vector<std::thread> threads;
+    // Tile work queue: built and shuffled once per render so progressive
+    // previews fill the frame uniformly and threads pull from a shared
+    // queue (work stealing) instead of static row-stride partitioning.
+    this->buildTileList((int)ctx.renderSize.width, (int)ctx.renderSize.height);
+    this->nextTileIndex.store(0, std::memory_order_relaxed);
+    this->completedTiles.store(0, std::memory_order_relaxed);
 
-    for (int i = 0; i < this->settings.threads; i++) {
-        threads.push_back(std::thread([this, ctx, i] { this->renderThread(ctx, i); }));
-    }
+    if (this->settings.enableAdaptiveSampling) {
+        // Adaptive driver runs multiple passes internally, spawning + joining
+        // its own worker pool per pass. Tiles converged below the noise
+        // threshold drop out early, so the total trace work is typically
+        // well below settings.samples × pixelCount on mixed-difficulty scenes.
+        this->renderAdaptive(ctx);
+    } else {
+        std::vector<std::thread> threads;
 
-    for (std::thread &th : threads) {
-        th.join();
+        for (int i = 0; i < this->settings.threads; i++) {
+            threads.push_back(std::thread([this, ctx, i] { this->renderThread(ctx, i); }));
+        }
+
+        for (std::thread &th : threads) {
+            th.join();
+        }
     }
 
     // If the user cancelled, leave the partial image alone and skip the
@@ -697,40 +714,82 @@ void RayRenderer::renderAsyncThread(RenderThreadCallback* callback) {
     
 }
 
+void RayRenderer::buildTileList(int imgWidth, int imgHeight) {
+    // 32 px is a long-standing sweet spot for path tracers: small enough
+    // that load imbalance between tiles is bounded (one heavy tile is
+    // ~1024 rays out of 1M+ total), large enough that the per-tile
+    // atomic fetch_add is amortised over thousands of ray-traces.
+    constexpr int tileSize = 32;
+
+    this->renderTiles.clear();
+    if (imgWidth <= 0 || imgHeight <= 0) return;
+
+    const int xCount = (imgWidth  + tileSize - 1) / tileSize;
+    const int yCount = (imgHeight + tileSize - 1) / tileSize;
+    this->renderTiles.reserve((size_t)xCount * (size_t)yCount);
+
+    for (int y = 0; y < imgHeight; y += tileSize) {
+        const int h = std::min(tileSize, imgHeight - y);
+        for (int x = 0; x < imgWidth; x += tileSize) {
+            const int w = std::min(tileSize, imgWidth - x);
+            this->renderTiles.push_back({x, y, w, h});
+        }
+    }
+
+    // Fixed-seed shuffle: stable across runs so progressive-preview frames
+    // are reproducible (helps when comparing two renders by stopping at
+    // the same %). A pure shuffle gives a uniformly random sprinkle that
+    // covers the full frame after only a few percent of tiles complete —
+    // good enough that "is the composition right?" is answerable early.
+    std::mt19937 rng(0xC0FFEEu);
+    std::shuffle(this->renderTiles.begin(), this->renderTiles.end(), rng);
+}
+
 void RayRenderer::renderThread(const RenderThreadContext& ctx, const int threadId) {
-    
+    (void)threadId;
+
     const Camera* camera = this->scene->mainCamera;
     if (camera == NULL) camera = &this->defaultCamera;
-    
-    const float renderWidth = ctx.renderSize.width;
-    const float renderHeight = ctx.renderSize.height;
 
     constexpr int pixelBlock = PIXEL_BLOCK;
-    
+
     Ray ray(vec3(0.0001f, 0.0001f, camera->viewNear), vec3(0.0001f, 0.0001f, -camera->viewFar));
-    
-    for (int y = threadId * pixelBlock; y < renderHeight; y += pixelBlock * this->settings.threads) {
-        // Row-granular cancellation. A finer check per pixel would spam an
-        // atomic load on every ray; checking once per row is cheap and still
-        // returns the viewer to an idle state within a few milliseconds on
-        // typical resolutions.
+
+    const size_t totalTiles = this->renderTiles.size();
+    if (totalTiles == 0) return;
+    const float invTotalTiles = 1.0f / (float)totalTiles;
+
+    while (true) {
+        // Tile-granular cancellation. ~1024 ray-traces per tile, so the
+        // atomic load is essentially free and cancel still lands in a
+        // few ms.
         if (this->cancelRequested.load(std::memory_order_relaxed)) return;
 
-        for (int x = 0; x < renderWidth; x += pixelBlock) {
-            color4f hdrPix;
-            const color4f c = this->renderPixel(ctx, ray, x, y, &hdrPix);
+        const size_t idx = this->nextTileIndex.fetch_add(1, std::memory_order_relaxed);
+        if (idx >= totalTiles) return;
+
+        const RenderTile& tile = this->renderTiles[idx];
+        const int xEnd = tile.x + tile.width;
+        const int yEnd = tile.y + tile.height;
+
+        for (int y = tile.y; y < yEnd; y += pixelBlock) {
+            for (int x = tile.x; x < xEnd; x += pixelBlock) {
+                color4f hdrPix;
+                const color4f c = this->renderPixel(ctx, ray, x, y, &hdrPix);
 
 #if PIXEL_BLOCK == 1
-            this->renderingImage.setPixel(x, y, c);
-            this->hdrImage.setPixel(x, y, hdrPix);
+                this->renderingImage.setPixel(x, y, c);
+                this->hdrImage.setPixel(x, y, hdrPix);
 #else
-            this->renderingImage.fillRect(recti(x, y, pixelBlock, pixelBlock), c);
-            this->hdrImage.fillRect(recti(x, y, pixelBlock, pixelBlock), hdrPix);
+                this->renderingImage.fillRect(recti(x, y, pixelBlock, pixelBlock), c);
+                this->hdrImage.fillRect(recti(x, y, pixelBlock, pixelBlock), hdrPix);
 #endif /* PIXEL_BLOCK */
+            }
         }
-        
-        const float pr = (float)y / renderHeight;
-        
+
+        const size_t done = this->completedTiles.fetch_add(1, std::memory_order_relaxed) + 1;
+        const float pr = (float)done * invTotalTiles;
+
         if (pr > this->progressRate) {
             this->progressRate = pr;
 
@@ -749,11 +808,15 @@ void RayRenderer::renderThread(const RenderThreadContext& ctx, const int threadI
     }
 }
 
-color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const int x, const int y, color4f* outHdr) {
+void RayRenderer::accumulatePixelSamples(const RenderThreadContext& ctx, Ray& ray,
+                                          const int x, const int y,
+                                          const int sampleStart, const int sampleCount,
+                                          color3f& sum, color3f& sumSq) {
 
-    // Guided-denoise AOVs (primary hit only). Miss pixels get sentinels so
-    // the denoiser's depth weight naturally isolates background from geometry.
-    if (this->settings.enableDenoise) {
+    // Guided-denoise AOVs (primary hit only). Written once per pixel, on the
+    // first sample — they're a primary-ray-only snapshot, so adaptive passes
+    // beyond the first reuse what pass 0 already wrote.
+    if (sampleStart == 0 && this->settings.enableDenoise) {
         ViewRaySurfaceInfo traceRayInfo;
         this->traceEyeRaySurfaceInfo(ray, &traceRayInfo);
 
@@ -785,11 +848,11 @@ color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const
     const float dx = ((float)x + 0.5f - ctx.halfRenderSize.width) * ctx.viewScaleX;
     const float dy = -((float)y + 0.5f - ctx.halfRenderSize.height) * ctx.viewScaleY;
 
-    color4f sampleColor;
-    const int totalSamples = this->settings.samples;
     const bool aaEnabled = this->settings.enableAntialias;
+    const float clampMax = this->settings.fireflyClamp;
 
-    for (int i = 0; i < totalSamples; i++) {
+    const int sampleEnd = sampleStart + sampleCount;
+    for (int i = sampleStart; i < sampleEnd; i++) {
         // Reset the Halton walk for this (pixel, sample). The early dims (0,1
         // for sub-pixel jitter, 2,3 for DOF) are the best-stratified slots, and
         // the remaining dims propagate down into the path trace for BSDF /
@@ -875,52 +938,42 @@ color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const
         // single near-infinite-variance path (tight NEE r², low-roughness
         // glossy caustics…) cannot anchor the Monte-Carlo average. Biased but
         // the bias shrinks as samples grow and speckles vanish.
-        const float clampMax = this->settings.fireflyClamp;
         if (clampMax > 0.0f) {
             oneSample.r = fminf(oneSample.r, clampMax);
             oneSample.g = fminf(oneSample.g, clampMax);
             oneSample.b = fminf(oneSample.b, clampMax);
         }
-        sampleColor += oneSample;
+        sum.r   += oneSample.r;
+        sum.g   += oneSample.g;
+        sum.b   += oneSample.b;
+        sumSq.r += oneSample.r * oneSample.r;
+        sumSq.g += oneSample.g * oneSample.g;
+        sumSq.b += oneSample.b * oneSample.b;
     }
+}
 
-    const color3f radiance = sampleColor * ctx.exposure / (float)totalSamples;
-
-    // Linear HDR radiance clamped to non-negative. renderThread fans this out
-    // across the pixel block into hdrImage; bloom and the final tonemap read
-    // from there. That's what makes the bloom energy-proportional instead of
-    // clamp-proportional (10000-cd emitter vs 1.0 diffuse white).
+// Tonemap + gamma path shared by renderPixel and the adaptive commit. Takes a
+// linear-HDR radiance (already exposure-multiplied) and returns the LDR
+// preview color, or the unchanged HDR (with alpha=1) when the denoiser is
+// going to handle compression itself.
+static inline color4f hdrToPreview(const color3f& radiance, bool denoising) {
     const color4f hdrPix(fmaxf(radiance.r, 0.0f),
                          fmaxf(radiance.g, 0.0f),
                          fmaxf(radiance.b, 0.0f),
                          1.0f);
-    if (outHdr) *outHdr = hdrPix;
+    if (denoising) return hdrPix;
 
-    // When the denoiser is on we defer tonemap+gamma to a post-denoise pass:
-    // filtering in linear radiance avoids the banding that non-linear
-    // compression induces around edges and gradients. The returned value
-    // feeds the in-flight preview in renderingImage — same HDR values as
-    // the shadow hdrImage; they get clamped at display time.
-    if (this->settings.enableDenoise) {
-        return hdrPix;
-    }
-
-    // Luminance-based Reinhard: compress the perceived brightness L = luma
-    // and scale RGB by the same factor so saturated colors stay saturated.
-    // Per-channel Reinhard (the old approach) desaturated bright mixed
-    // colors toward white because it shrinks the high channels more than
-    // the low ones (10:3:1 → 0.91:0.75:0.5, washed out). If the rescaled
-    // RGB exceeds [0,1] gamut (pure saturated HDR red like (10,0,0)), clip
-    // by dividing by the peak channel so the hue is preserved and only
-    // brightness tops out at 1.
-    const float L = 0.2126f * radiance.r + 0.7152f * radiance.g + 0.0722f * radiance.b;
+    // Luminance-based Reinhard — keeps saturated bright HDR colors from
+    // washing toward white, then clips against the brightest channel to
+    // preserve hue when radiance overshoots gamut (10:0:0 stays red).
+    const float L = 0.2126f * hdrPix.r + 0.7152f * hdrPix.g + 0.0722f * hdrPix.b;
     float mr = 0.0f, mg = 0.0f, mb = 0.0f;
     if (L > 1e-6f) {
         const float Lmapped = L / (L + 1.0f);
         const float scale = Lmapped / L;
-        mr = radiance.r * scale;
-        mg = radiance.g * scale;
-        mb = radiance.b * scale;
+        mr = hdrPix.r * scale;
+        mg = hdrPix.g * scale;
+        mb = hdrPix.b * scale;
         const float peak = fmaxf(fmaxf(mr, mg), mb);
         if (peak > 1.0f) {
             const float inv = 1.0f / peak;
@@ -931,7 +984,234 @@ color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const
     const color3f encoded(powf(fmaxf(mr, 0.0f), invGamma),
                           powf(fmaxf(mg, 0.0f), invGamma),
                           powf(fmaxf(mb, 0.0f), invGamma));
-    return clamp(encoded, 0.0f, 1.0f);
+    return color4f(clamp(encoded, 0.0f, 1.0f), 1.0f);
+}
+
+color4f RayRenderer::renderPixel(const RenderThreadContext& ctx, Ray& ray, const int x, const int y, color4f* outHdr) {
+    color3f sum(0.0f, 0.0f, 0.0f);
+    color3f sumSq(0.0f, 0.0f, 0.0f);
+    const int totalSamples = this->settings.samples;
+    this->accumulatePixelSamples(ctx, ray, x, y, 0, totalSamples, sum, sumSq);
+
+    const float invN = (totalSamples > 0) ? (1.0f / (float)totalSamples) : 0.0f;
+    const color3f radiance(sum.r * invN * ctx.exposure,
+                           sum.g * invN * ctx.exposure,
+                           sum.b * invN * ctx.exposure);
+
+    const color4f preview = hdrToPreview(radiance, this->settings.enableDenoise);
+    if (outHdr) {
+        outHdr->r = fmaxf(radiance.r, 0.0f);
+        outHdr->g = fmaxf(radiance.g, 0.0f);
+        outHdr->b = fmaxf(radiance.b, 0.0f);
+        outHdr->a = 1.0f;
+    }
+    return preview;
+}
+
+void RayRenderer::commitTilePreview(const RenderThreadContext& ctx, size_t tileIdx) {
+    const RenderTile& tile = this->renderTiles[tileIdx];
+    const int n = this->tileSampleCounts[tileIdx];
+    if (n <= 0) return;
+
+    const float invN = 1.0f / (float)n;
+    const float exposure = ctx.exposure;
+    const bool denoising = this->settings.enableDenoise;
+
+    const int xEnd = tile.x + tile.width;
+    const int yEnd = tile.y + tile.height;
+    for (int y = tile.y; y < yEnd; y++) {
+        for (int x = tile.x; x < xEnd; x++) {
+            const color4f sum = this->adaptiveSumImage.getPixel(x, y);
+            const color3f radiance(sum.r * invN * exposure,
+                                   sum.g * invN * exposure,
+                                   sum.b * invN * exposure);
+            const color4f hdrPix(fmaxf(radiance.r, 0.0f),
+                                 fmaxf(radiance.g, 0.0f),
+                                 fmaxf(radiance.b, 0.0f),
+                                 1.0f);
+            this->hdrImage.setPixel(x, y, hdrPix);
+            this->renderingImage.setPixel(x, y, hdrToPreview(radiance, denoising));
+        }
+    }
+}
+
+float RayRenderer::computeTileNoise(size_t tileIdx) const {
+    const RenderTile& tile = this->renderTiles[tileIdx];
+    const int n = this->tileSampleCounts[tileIdx];
+    // -ffast-math disables INF, so use a sentinel that beats any threshold
+    // a user would dial in. Pre-Pass 0 (n=0) shouldn't reach this anyway.
+    if (n <= 1) return 1e9f;
+
+    const float invN = 1.0f / (float)n;
+    const int xEnd = tile.x + tile.width;
+    const int yEnd = tile.y + tile.height;
+
+    double accum = 0.0;
+    int pixelCount = 0;
+
+    for (int y = tile.y; y < yEnd; y++) {
+        for (int x = tile.x; x < xEnd; x++) {
+            const color4f sum   = this->adaptiveSumImage.getPixel(x, y);
+            const color4f sumSq = this->adaptiveSumSqImage.getPixel(x, y);
+
+            const float mr = sum.r * invN;
+            const float mg = sum.g * invN;
+            const float mb = sum.b * invN;
+
+            // Skip near-black pixels: the relative SEM blows up when the
+            // mean is tiny, but those pixels are perceptually fine — they
+            // just are dark, not noisy.
+            const float maxMean = fmaxf(fmaxf(mr, mg), mb);
+            if (maxMean < 1e-3f) continue;
+
+            const float vR = fmaxf(0.0f, sumSq.r * invN - mr * mr);
+            const float vG = fmaxf(0.0f, sumSq.g * invN - mg * mg);
+            const float vB = fmaxf(0.0f, sumSq.b * invN - mb * mb);
+
+            // SEM (standard error of the mean) per channel; relative to
+            // mean. Take the max across channels so a noisy chroma (e.g.
+            // a saturated red glossy hit) still flags the tile.
+            const float semR = sqrtf(vR * invN);
+            const float semG = sqrtf(vG * invN);
+            const float semB = sqrtf(vB * invN);
+            const float rR = semR / fmaxf(mr, 1e-3f);
+            const float rG = semG / fmaxf(mg, 1e-3f);
+            const float rB = semB / fmaxf(mb, 1e-3f);
+            accum += (double)fmaxf(fmaxf(rR, rG), rB);
+            pixelCount++;
+        }
+    }
+
+    if (pixelCount == 0) return 0.0f;
+    return (float)(accum / (double)pixelCount);
+}
+
+void RayRenderer::renderThreadAdaptive(const RenderThreadContext& ctx,
+                                        const std::vector<size_t>* activeTiles,
+                                        int sampleStart, int sampleCount) {
+    const Camera* camera = this->scene->mainCamera;
+    if (camera == NULL) camera = &this->defaultCamera;
+
+    Ray ray(vec3(0.0001f, 0.0001f, camera->viewNear),
+            vec3(0.0001f, 0.0001f, -camera->viewFar));
+
+    const size_t activeCount = activeTiles->size();
+    if (activeCount == 0) return;
+    const float invActive = 1.0f / (float)activeCount;
+
+    while (true) {
+        if (this->cancelRequested.load(std::memory_order_relaxed)) return;
+
+        const size_t idx = this->nextTileIndex.fetch_add(1, std::memory_order_relaxed);
+        if (idx >= activeCount) return;
+
+        const size_t tileIdx = (*activeTiles)[idx];
+        const RenderTile& tile = this->renderTiles[tileIdx];
+
+        const int xEnd = tile.x + tile.width;
+        const int yEnd = tile.y + tile.height;
+        for (int y = tile.y; y < yEnd; y++) {
+            for (int x = tile.x; x < xEnd; x++) {
+                color3f localSum(0.0f, 0.0f, 0.0f);
+                color3f localSumSq(0.0f, 0.0f, 0.0f);
+                this->accumulatePixelSamples(ctx, ray, x, y,
+                                             sampleStart, sampleCount,
+                                             localSum, localSumSq);
+
+                // Merge per-pixel running totals. No race: this tile's
+                // pixels are exclusively owned by this thread until the
+                // commit below.
+                const color4f prevSum   = this->adaptiveSumImage.getPixel(x, y);
+                const color4f prevSumSq = this->adaptiveSumSqImage.getPixel(x, y);
+                this->adaptiveSumImage.setPixel(x, y,
+                    color4f(prevSum.r + localSum.r,
+                            prevSum.g + localSum.g,
+                            prevSum.b + localSum.b,
+                            0.0f));
+                this->adaptiveSumSqImage.setPixel(x, y,
+                    color4f(prevSumSq.r + localSumSq.r,
+                            prevSumSq.g + localSumSq.g,
+                            prevSumSq.b + localSumSq.b,
+                            0.0f));
+            }
+        }
+
+        // Same-pass sampleStart for every active tile (the driver only
+        // selects tiles that all currently sit at the same sample count),
+        // so we can write the new total directly without read-modify-write
+        // races.
+        this->tileSampleCounts[tileIdx] = sampleStart + sampleCount;
+        this->commitTilePreview(ctx, tileIdx);
+
+        const size_t done = this->completedTiles.fetch_add(1, std::memory_order_relaxed) + 1;
+        const float pr = (float)done * invActive;
+        if (pr > this->progressRate) {
+            this->progressRate = pr;
+            if (this->progressCallback != NULL) {
+                this->progressCallback(this->progressRate);
+            }
+        }
+    }
+}
+
+void RayRenderer::renderAdaptive(const RenderThreadContext& ctx) {
+    const int W = (int)ctx.renderSize.width;
+    const int H = (int)ctx.renderSize.height;
+
+    // Per-pixel accumulators. createEmpty zeroes the buffer so first-pass
+    // accumulation starts from 0.
+    this->adaptiveSumImage.createEmpty(W, H);
+    this->adaptiveSumSqImage.createEmpty(W, H);
+    this->tileSampleCounts.assign(this->renderTiles.size(), 0);
+
+    const int targetSamples = std::max(1, this->settings.samples);
+    const int baseSamples   = std::max(1, this->settings.adaptiveBaseSamples);
+    const float threshold   = this->settings.adaptiveThreshold;
+
+    auto runPass = [&](const std::vector<size_t>& active, int sampleStart, int sampleCount) {
+        if (active.empty()) return;
+        this->nextTileIndex.store(0, std::memory_order_relaxed);
+        this->completedTiles.store(0, std::memory_order_relaxed);
+
+        std::vector<std::thread> workers;
+        for (int i = 0; i < this->settings.threads; i++) {
+            workers.push_back(std::thread([this, &ctx, &active, sampleStart, sampleCount] {
+                this->renderThreadAdaptive(ctx, &active, sampleStart, sampleCount);
+            }));
+        }
+        for (std::thread& w : workers) w.join();
+    };
+
+    // Pass 0: every tile gets baseSamples. Progressive preview already shows
+    // the whole frame after this pass, since tiles commit means as they
+    // finish.
+    {
+        std::vector<size_t> firstPass(this->renderTiles.size());
+        for (size_t i = 0; i < firstPass.size(); i++) firstPass[i] = i;
+        const int firstCount = std::min(baseSamples, targetSamples);
+        runPass(firstPass, 0, firstCount);
+        if (this->cancelRequested.load(std::memory_order_relaxed)) return;
+    }
+
+    // Refinement passes: keep adding baseSamples worth of samples to
+    // tiles whose relative SEM is still above threshold, capped at the
+    // target sample budget. Stop when no tile qualifies (visually
+    // converged) or the budget is exhausted.
+    int spent = std::min(baseSamples, targetSamples);
+    while (spent < targetSamples) {
+        std::vector<size_t> active;
+        active.reserve(this->renderTiles.size());
+        for (size_t i = 0; i < this->renderTiles.size(); i++) {
+            if (this->tileSampleCounts[i] >= targetSamples) continue;
+            if (this->computeTileNoise(i) > threshold) active.push_back(i);
+        }
+        if (active.empty()) break;
+
+        const int passCount = std::min(baseSamples, targetSamples - spent);
+        runPass(active, spent, passCount);
+        if (this->cancelRequested.load(std::memory_order_relaxed)) return;
+        spent += passCount;
+    }
 }
 
 color4 RayRenderer::traceEyeRay(const Ray& ray) const {
