@@ -19,7 +19,19 @@
 // enough margin for typical meter-scale meshes without making the surface
 // noticeably "thick".
 #define SURFACE_THICKNESS 0.0001f
-#define MAX_RAY_DISTANCE 999.9f
+// Default initial `info.t` for closest-hit BVH traversal. The slab test
+// rejects nodes whose tmin exceeds this, so it acts as the *implicit*
+// far cap for primary rays — anything beyond doesn't get visited and
+// reads as "miss" / envmap. 1 000 000 mesh-local units accommodates
+// terrain / ocean scenes that span hundreds of units (especially after
+// SceneObject scale composites with the mesh extent) without leaving
+// far geometry stranded behind a 1 km wall, while staying well under
+// FLT_MAX so float-precision in the slab math doesn't degrade.
+//
+// Local-effect ranges (AO, heat-haze fallback) live on RAY_MAX_DISTANCE
+// in rayrenderer.h — those stay capped low on purpose so a ray that
+// genuinely escapes a small bounding mesh doesn't ray-march forever.
+#define MAX_RAY_DISTANCE 1.0e6f
 
 namespace raygen {
 
