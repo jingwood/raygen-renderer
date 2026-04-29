@@ -95,6 +95,17 @@ void drawFilePanel(const FilePanelCtx& ctx) {
     }
     if (!canSave) ImGui::EndDisabled();
 
+    // Save viewer settings to <scene>.viewer.json. Independent of the render
+    // buffer state — the user just wants to commit the current slider values
+    // at a moment of their choosing (auto-save on slider drag was removed
+    // since it overwrote the file mid-tweak).
+    ImGui::SameLine();
+    if (!hasScene || !ctx.onSaveViewer) ImGui::BeginDisabled();
+    if (ImGui::Button("Save viewer")) {
+        ctx.onSaveViewer();
+    }
+    if (!hasScene || !ctx.onSaveViewer) ImGui::EndDisabled();
+
     ImGui::End();
 }
 

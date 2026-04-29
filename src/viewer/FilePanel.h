@@ -42,8 +42,13 @@ struct FilePanelCtx {
     //   onLoadScene(p)   — Load Scene dialog returned `p`: caller should
     //                      update its scenePath buffer, recompute sidecar /
     //                      default output path, then run the same load flow.
+    //   onSaveViewer     — Save viewer button: flush current ViewerParams
+    //                      (sliders, env, post-process, output) to the
+    //                      sidecar. Lets users commit a known-good state
+    //                      without waiting for the next render kick.
     std::function<void()>                    onReloadScene;
     std::function<void(const char* newPath)> onLoadScene;
+    std::function<void()>                    onSaveViewer;
 };
 
 void drawFilePanel(const FilePanelCtx& ctx);

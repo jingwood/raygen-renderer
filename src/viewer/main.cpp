@@ -16,6 +16,7 @@
 #include "backends/imgui_impl_opengl3.h"
 
 #include <atomic>
+#include <cerrno>
 #include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
@@ -26,6 +27,14 @@
 #include <vector>
 
 #include <GLFW/glfw3.h>
+
+#ifdef _WIN32
+  #include <direct.h>
+  #include <windows.h>
+#else
+  #include <sys/stat.h>
+  #include <sys/types.h>
+#endif
 
 // Windows ships with only GL 1.1 constants in <GL/gl.h>. Declare the handful of
 // 1.2+ enums we use so we don't have to pull in GLEW/GLAD just for these.
@@ -111,9 +120,40 @@ static void computeSidecarPath(const char* scenePath, char* out, size_t outCap) 
     memcpy(out + keep, suffix, suffixLen + 1);  // includes trailing NUL
 }
 
+// Sidecar schema version. v1 is the first nested layout; v0 (no version key)
+// is the original flat layout we still read for back-compat.
+//
+// Layout (v1) — mirrors scene.json's hierarchy so a future "merged dump" can
+// overlay the sidecar onto the scene tree directly:
+//
+//   {
+//     "schemaVersion": 1,
+//     "quality":     { samples, threads, denoise, denoiseIntensity,
+//                      adaptiveSampling, adaptiveBaseSamples, adaptiveThreshold },
+//     "mainCamera":  { location, angle, fieldOfView, depthOfField, aperture,
+//                      apertureBlades, apertureRotation, exposure },
+//     "envmap":      { intensity, rotation },
+//     "medium":      { enabled, sigmaA, sigmaS, emission, g, density },
+//     "postProcess": { enabled, bloom: { threshold, strength, curve, radius } },
+//     "output":      { width, height },
+//
+//     // Future expansion. Children must live under an explicit "children"
+//     // key so transform/material fields can't collide with object names:
+//     // "objects": {
+//     //   "<name>": {
+//     //     "transform": { location, angle, scale },
+//     //     "visible": true, "renderable": true,
+//     //     "material": { ... },
+//     //     "children": { "<childName>": { ... } }
+//     //   }
+//     // }
+//   }
+static const int VIEWER_SCHEMA_VERSION = 1;
+
 // Read a JSON array of 3 numbers into `v`. Silently leaves `v` untouched if
 // the key is missing or the array is the wrong shape — defaults stay in place.
 static void readVec3Into(const ucm::JSObject* obj, const char* key, float v[3]) {
+    if (!obj) return;
     std::vector<ucm::JSValue>* arr = obj->getArrayProperty(key);
     if (!arr || arr->size() < 3) return;
     for (int i = 0; i < 3; i++) {
@@ -128,6 +168,99 @@ static void writeVec3(ucm::JSONWriter& w, const char* key, const float v[3]) {
     w.writeArrayElement((double)v[1]);
     w.writeArrayElement((double)v[2]);
     w.endArray();
+}
+
+// Legacy flat reader for v0 sidecars (no schemaVersion field). Pulls the same
+// keys the original layout used; can be deleted once existing sidecars in the
+// wild are confirmed migrated.
+static void loadViewerConfigV0(const ucm::JSObject* obj, ViewerParams& params,
+                               int& outputWidth, int& outputHeight) {
+    obj->tryGetNumberProperty("samples",          &params.samples);
+    obj->tryGetNumberProperty("threads",          &params.threads);
+    if (obj->hasProperty("denoise"))
+        params.denoise = obj->isBooleanPropertyTrue("denoise");
+    obj->tryGetNumberProperty("denoiseIntensity", &params.denoiseIntensity);
+    if (obj->hasProperty("adaptiveSampling"))
+        params.adaptiveSampling = obj->isBooleanPropertyTrue("adaptiveSampling");
+    obj->tryGetNumberProperty("adaptiveBaseSamples", &params.adaptiveBaseSamples);
+    obj->tryGetNumberProperty("adaptiveThreshold",   &params.adaptiveThreshold);
+    readVec3Into(obj, "location", params.camLocation);
+    readVec3Into(obj, "angle",    params.camAngle);
+    obj->tryGetNumberProperty("fieldOfView",      &params.fieldOfView);
+    obj->tryGetNumberProperty("depthOfField",     &params.depthOfField);
+    obj->tryGetNumberProperty("aperture",         &params.aperture);
+    obj->tryGetNumberProperty("apertureBlades",   &params.apertureBlades);
+    obj->tryGetNumberProperty("apertureRotation", &params.apertureRotation);
+    obj->tryGetNumberProperty("exposure",         &params.exposure);
+    obj->tryGetNumberProperty("envIntensity",     &params.envIntensity);
+    obj->tryGetNumberProperty("envRotation",      &params.envRotation);
+    if (obj->hasProperty("mediumEnabled"))
+        params.mediumEnabled = obj->isBooleanPropertyTrue("mediumEnabled");
+    readVec3Into(obj, "mediumSigmaA",   params.mediumSigmaA);
+    readVec3Into(obj, "mediumSigmaS",   params.mediumSigmaS);
+    readVec3Into(obj, "mediumEmission", params.mediumEmission);
+    obj->tryGetNumberProperty("mediumG",       &params.mediumG);
+    obj->tryGetNumberProperty("mediumDensity", &params.mediumDensity);
+    if (obj->hasProperty("postProcess"))
+        params.postProcess = obj->isBooleanPropertyTrue("postProcess");
+    obj->tryGetNumberProperty("bloomThreshold",   &params.bloomThreshold);
+    obj->tryGetNumberProperty("bloomStrength",    &params.bloomStrength);
+    obj->tryGetNumberProperty("bloomCurve",       &params.bloomCurve);
+    obj->tryGetNumberProperty("bloomRadius",      &params.bloomRadius);
+    obj->tryGetNumberProperty("outputWidth",      &outputWidth);
+    obj->tryGetNumberProperty("outputHeight",     &outputHeight);
+}
+
+static void loadViewerConfigV1(const ucm::JSObject* root, ViewerParams& params,
+                               int& outputWidth, int& outputHeight) {
+    if (const ucm::JSObject* q = root->getObjectProperty("quality")) {
+        q->tryGetNumberProperty("samples",          &params.samples);
+        q->tryGetNumberProperty("threads",          &params.threads);
+        if (q->hasProperty("denoise"))
+            params.denoise = q->isBooleanPropertyTrue("denoise");
+        q->tryGetNumberProperty("denoiseIntensity", &params.denoiseIntensity);
+        if (q->hasProperty("adaptiveSampling"))
+            params.adaptiveSampling = q->isBooleanPropertyTrue("adaptiveSampling");
+        q->tryGetNumberProperty("adaptiveBaseSamples", &params.adaptiveBaseSamples);
+        q->tryGetNumberProperty("adaptiveThreshold",   &params.adaptiveThreshold);
+    }
+    if (const ucm::JSObject* c = root->getObjectProperty("mainCamera")) {
+        readVec3Into(c, "location", params.camLocation);
+        readVec3Into(c, "angle",    params.camAngle);
+        c->tryGetNumberProperty("fieldOfView",      &params.fieldOfView);
+        c->tryGetNumberProperty("depthOfField",     &params.depthOfField);
+        c->tryGetNumberProperty("aperture",         &params.aperture);
+        c->tryGetNumberProperty("apertureBlades",   &params.apertureBlades);
+        c->tryGetNumberProperty("apertureRotation", &params.apertureRotation);
+        c->tryGetNumberProperty("exposure",         &params.exposure);
+    }
+    if (const ucm::JSObject* e = root->getObjectProperty("envmap")) {
+        e->tryGetNumberProperty("intensity", &params.envIntensity);
+        e->tryGetNumberProperty("rotation",  &params.envRotation);
+    }
+    if (const ucm::JSObject* m = root->getObjectProperty("medium")) {
+        if (m->hasProperty("enabled"))
+            params.mediumEnabled = m->isBooleanPropertyTrue("enabled");
+        readVec3Into(m, "sigmaA",   params.mediumSigmaA);
+        readVec3Into(m, "sigmaS",   params.mediumSigmaS);
+        readVec3Into(m, "emission", params.mediumEmission);
+        m->tryGetNumberProperty("g",       &params.mediumG);
+        m->tryGetNumberProperty("density", &params.mediumDensity);
+    }
+    if (const ucm::JSObject* p = root->getObjectProperty("postProcess")) {
+        if (p->hasProperty("enabled"))
+            params.postProcess = p->isBooleanPropertyTrue("enabled");
+        if (const ucm::JSObject* b = p->getObjectProperty("bloom")) {
+            b->tryGetNumberProperty("threshold", &params.bloomThreshold);
+            b->tryGetNumberProperty("strength",  &params.bloomStrength);
+            b->tryGetNumberProperty("curve",     &params.bloomCurve);
+            b->tryGetNumberProperty("radius",    &params.bloomRadius);
+        }
+    }
+    if (const ucm::JSObject* o = root->getObjectProperty("output")) {
+        o->tryGetNumberProperty("width",  &outputWidth);
+        o->tryGetNumberProperty("height", &outputHeight);
+    }
 }
 
 // Pull the sidecar's known fields into `params` (only overwrites keys that
@@ -146,44 +279,15 @@ static bool loadViewerConfig(const char* path, ViewerParams& params,
     ucm::JSObject* obj = reader.readObject();
     if (!obj) return false;
 
-    obj->tryGetNumberProperty("samples",          &params.samples);
-    obj->tryGetNumberProperty("threads",          &params.threads);
-    if (obj->hasProperty("denoise"))
-        params.denoise = obj->isBooleanPropertyTrue("denoise");
-    obj->tryGetNumberProperty("denoiseIntensity", &params.denoiseIntensity);
-    if (obj->hasProperty("adaptiveSampling"))
-        params.adaptiveSampling = obj->isBooleanPropertyTrue("adaptiveSampling");
-    obj->tryGetNumberProperty("adaptiveBaseSamples", &params.adaptiveBaseSamples);
-    obj->tryGetNumberProperty("adaptiveThreshold",   &params.adaptiveThreshold);
-    // Camera
-    readVec3Into(obj, "location", params.camLocation);
-    readVec3Into(obj, "angle",    params.camAngle);
-    obj->tryGetNumberProperty("fieldOfView",      &params.fieldOfView);
-    obj->tryGetNumberProperty("depthOfField",     &params.depthOfField);
-    obj->tryGetNumberProperty("aperture",         &params.aperture);
-    obj->tryGetNumberProperty("apertureBlades",   &params.apertureBlades);
-    obj->tryGetNumberProperty("apertureRotation", &params.apertureRotation);
-    obj->tryGetNumberProperty("exposure",         &params.exposure);
-    // Scene
-    obj->tryGetNumberProperty("envIntensity",     &params.envIntensity);
-    obj->tryGetNumberProperty("envRotation",      &params.envRotation);
-    if (obj->hasProperty("mediumEnabled"))
-        params.mediumEnabled = obj->isBooleanPropertyTrue("mediumEnabled");
-    readVec3Into(obj, "mediumSigmaA",   params.mediumSigmaA);
-    readVec3Into(obj, "mediumSigmaS",   params.mediumSigmaS);
-    readVec3Into(obj, "mediumEmission", params.mediumEmission);
-    obj->tryGetNumberProperty("mediumG",       &params.mediumG);
-    obj->tryGetNumberProperty("mediumDensity", &params.mediumDensity);
-    // Post-process
-    if (obj->hasProperty("postProcess"))
-        params.postProcess = obj->isBooleanPropertyTrue("postProcess");
-    obj->tryGetNumberProperty("bloomThreshold",   &params.bloomThreshold);
-    obj->tryGetNumberProperty("bloomStrength",    &params.bloomStrength);
-    obj->tryGetNumberProperty("bloomCurve",       &params.bloomCurve);
-    obj->tryGetNumberProperty("bloomRadius",      &params.bloomRadius);
-    // Output
-    obj->tryGetNumberProperty("outputWidth",      &outputWidth);
-    obj->tryGetNumberProperty("outputHeight",     &outputHeight);
+    int version = 0;
+    obj->tryGetNumberProperty("schemaVersion", &version);
+    if (version >= 1) {
+        loadViewerConfigV1(obj, params, outputWidth, outputHeight);
+    } else {
+        // No version key → legacy flat layout. The next saveViewerConfig() will
+        // rewrite the file in v1 form.
+        loadViewerConfigV0(obj, params, outputWidth, outputHeight);
+    }
 
     delete obj;
     return true;
@@ -193,38 +297,159 @@ static void saveViewerConfig(const char* path, const ViewerParams& params,
                              int outputWidth, int outputHeight) {
     ucm::JSONWriter w;
     w.beginObject();
-    w.writeProperty("samples",            (int)params.samples);
-    w.writeProperty("threads",            (int)params.threads);
-    w.writeProperty("denoise",            params.denoise);
-    w.writeProperty("denoiseIntensity",   (double)params.denoiseIntensity);
-    w.writeProperty("adaptiveSampling",   params.adaptiveSampling);
-    w.writeProperty("adaptiveBaseSamples", (int)params.adaptiveBaseSamples);
-    w.writeProperty("adaptiveThreshold",  (double)params.adaptiveThreshold);
-    writeVec3(w,     "location",        params.camLocation);
-    writeVec3(w,     "angle",           params.camAngle);
-    w.writeProperty("fieldOfView",      (double)params.fieldOfView);
-    w.writeProperty("depthOfField",     (double)params.depthOfField);
-    w.writeProperty("aperture",         (double)params.aperture);
-    w.writeProperty("apertureBlades",   (int)params.apertureBlades);
-    w.writeProperty("apertureRotation", (double)params.apertureRotation);
-    w.writeProperty("exposure",         (double)params.exposure);
-    w.writeProperty("envIntensity",     (double)params.envIntensity);
-    w.writeProperty("envRotation",      (double)params.envRotation);
-    w.writeProperty("mediumEnabled",    params.mediumEnabled);
-    writeVec3(w,    "mediumSigmaA",     params.mediumSigmaA);
-    writeVec3(w,    "mediumSigmaS",     params.mediumSigmaS);
-    writeVec3(w,    "mediumEmission",   params.mediumEmission);
-    w.writeProperty("mediumG",          (double)params.mediumG);
-    w.writeProperty("mediumDensity",    (double)params.mediumDensity);
-    w.writeProperty("postProcess",      params.postProcess);
-    w.writeProperty("bloomThreshold",   (double)params.bloomThreshold);
-    w.writeProperty("bloomStrength",    (double)params.bloomStrength);
-    w.writeProperty("bloomCurve",       (double)params.bloomCurve);
-    w.writeProperty("bloomRadius",      (double)params.bloomRadius);
-    w.writeProperty("outputWidth",      outputWidth);
-    w.writeProperty("outputHeight",     outputHeight);
+    w.writeProperty("schemaVersion", VIEWER_SCHEMA_VERSION);
+
+    w.beginObjectWithKey("quality");
+        w.writeProperty("samples",             (int)params.samples);
+        w.writeProperty("threads",             (int)params.threads);
+        w.writeProperty("denoise",             params.denoise);
+        w.writeProperty("denoiseIntensity",    (double)params.denoiseIntensity);
+        w.writeProperty("adaptiveSampling",    params.adaptiveSampling);
+        w.writeProperty("adaptiveBaseSamples", (int)params.adaptiveBaseSamples);
+        w.writeProperty("adaptiveThreshold",   (double)params.adaptiveThreshold);
+    w.endObject();
+
+    w.beginObjectWithKey("mainCamera");
+        writeVec3(w,    "location",         params.camLocation);
+        writeVec3(w,    "angle",            params.camAngle);
+        w.writeProperty("fieldOfView",      (double)params.fieldOfView);
+        w.writeProperty("depthOfField",     (double)params.depthOfField);
+        w.writeProperty("aperture",         (double)params.aperture);
+        w.writeProperty("apertureBlades",   (int)params.apertureBlades);
+        w.writeProperty("apertureRotation", (double)params.apertureRotation);
+        w.writeProperty("exposure",         (double)params.exposure);
+    w.endObject();
+
+    w.beginObjectWithKey("envmap");
+        w.writeProperty("intensity", (double)params.envIntensity);
+        w.writeProperty("rotation",  (double)params.envRotation);
+    w.endObject();
+
+    w.beginObjectWithKey("medium");
+        w.writeProperty("enabled",  params.mediumEnabled);
+        writeVec3(w,    "sigmaA",   params.mediumSigmaA);
+        writeVec3(w,    "sigmaS",   params.mediumSigmaS);
+        writeVec3(w,    "emission", params.mediumEmission);
+        w.writeProperty("g",        (double)params.mediumG);
+        w.writeProperty("density",  (double)params.mediumDensity);
+    w.endObject();
+
+    w.beginObjectWithKey("postProcess");
+        w.writeProperty("enabled", params.postProcess);
+        w.beginObjectWithKey("bloom");
+            w.writeProperty("threshold", (double)params.bloomThreshold);
+            w.writeProperty("strength",  (double)params.bloomStrength);
+            w.writeProperty("curve",     (double)params.bloomCurve);
+            w.writeProperty("radius",    (double)params.bloomRadius);
+        w.endObject();
+    w.endObject();
+
+    w.beginObjectWithKey("output");
+        w.writeProperty("width",  outputWidth);
+        w.writeProperty("height", outputHeight);
+    w.endObject();
+
     w.endObject();
     ucm::File::writeTextFile(path, w.getString().getBuffer());
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// Per-user UI state: window geometry + ImGui panel layout.
+//
+// Lives in a global config directory (not next to the scene), since the user's
+// preferred window position and panel layout doesn't change with the scene.
+//   POSIX:   $HOME/.raygen-viewer/
+//   Windows: %APPDATA%/raygen-viewer/
+//
+// Two files inside that dir:
+//   imgui.ini   — ImGui handles this automatically once io.IniFilename is set.
+//                 Stores per-panel docking, position, size, collapsed state.
+//   window.json — our own GLFW window x/y/width/height. Schema versioned to
+//                 stay aligned with how the scene sidecar evolves.
+///////////////////////////////////////////////////////////////////////////////
+
+static const int VIEWER_WINDOW_SCHEMA_VERSION = 1;
+
+static bool makeDirIfMissing(const char* path) {
+#ifdef _WIN32
+    int rc = _mkdir(path);
+    return rc == 0 || errno == EEXIST;
+#else
+    int rc = ::mkdir(path, 0755);
+    return rc == 0 || errno == EEXIST;
+#endif
+}
+
+// Fill `out` with "<configDir>/" (with trailing separator). Creates the
+// directory if missing. Returns false if no usable home/appdata env var was
+// found — callers fall back to in-CWD defaults so the viewer still runs.
+static bool ensureViewerConfigDir(char* out, size_t outCap) {
+#ifdef _WIN32
+    const char* base = getenv("APPDATA");
+    const char sep = '\\';
+#else
+    const char* base = getenv("HOME");
+    const char sep = '/';
+#endif
+    if (!base || !*base) { out[0] = '\0'; return false; }
+
+#ifdef _WIN32
+    int n = std::snprintf(out, outCap, "%s%craygen-viewer%c", base, sep, sep);
+#else
+    int n = std::snprintf(out, outCap, "%s%c.raygen-viewer%c", base, sep, sep);
+#endif
+    if (n <= 0 || (size_t)n >= outCap) { out[0] = '\0'; return false; }
+
+    // mkdir wants the path without trailing separator on POSIX; trim, mkdir,
+    // restore. Cheap, avoids platform-specific helpers.
+    out[n - 1] = '\0';
+    bool ok = makeDirIfMissing(out);
+    out[n - 1] = sep;
+    return ok;
+}
+
+// Compose "<dir><file>" into `out`. Caller-provided buffer; truncates safely.
+static void joinConfigPath(char* out, size_t outCap, const char* dir, const char* file) {
+    std::snprintf(out, outCap, "%s%s", dir, file);
+}
+
+// Load saved window geometry. Returns true if file existed and parsed; on
+// false the caller uses hard-coded defaults. Individual fields default to
+// their input value if missing, so partial/older files are tolerated.
+static bool loadWindowState(const char* path, int& x, int& y, int& w, int& h) {
+    ucm::string pathStr(path);
+    ucm::File f(pathStr);
+    if (!f.isExist()) return false;
+    ucm::string json;
+    ucm::File::readTextFile(path, json);
+    if (json.length() == 0) return false;
+
+    ucm::JSONReader reader(json);
+    ucm::JSObject* root = reader.readObject();
+    if (!root) return false;
+
+    if (const ucm::JSObject* win = root->getObjectProperty("window")) {
+        win->tryGetNumberProperty("x",      &x);
+        win->tryGetNumberProperty("y",      &y);
+        win->tryGetNumberProperty("width",  &w);
+        win->tryGetNumberProperty("height", &h);
+    }
+    delete root;
+    return true;
+}
+
+static void saveWindowState(const char* path, int x, int y, int w, int h) {
+    ucm::JSONWriter wr;
+    wr.beginObject();
+    wr.writeProperty("schemaVersion", VIEWER_WINDOW_SCHEMA_VERSION);
+    wr.beginObjectWithKey("window");
+        wr.writeProperty("x",      x);
+        wr.writeProperty("y",      y);
+        wr.writeProperty("width",  w);
+        wr.writeProperty("height", h);
+    wr.endObject();
+    wr.endObject();
+    ucm::File::writeTextFile(path, wr.getString().getBuffer());
 }
 
 static void glfw_error_callback(int error, const char* description) {
@@ -340,14 +565,38 @@ int main(int argc, char** argv) {
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit()) return 1;
 
+    // Per-user UI state directory. If we can't compute one (no HOME/APPDATA)
+    // the viewer still runs — imgui.ini falls back to its default location and
+    // window geometry uses the hard-coded fallback below.
+    static char viewerConfigDir[1024] = {0};
+    static char imguiIniPath[1024]    = {0};
+    char windowStatePath[1024]        = {0};
+    const bool haveConfigDir = ensureViewerConfigDir(viewerConfigDir, sizeof(viewerConfigDir));
+    if (haveConfigDir) {
+        joinConfigPath(imguiIniPath,    sizeof(imguiIniPath),    viewerConfigDir, "imgui.ini");
+        joinConfigPath(windowStatePath, sizeof(windowStatePath), viewerConfigDir, "window.json");
+    }
+
+    // Window geometry: load saved values; fall back to a sensible default size
+    // and let the WM pick the position (-1 sentinel = "don't restore").
+    int winX = -1, winY = -1, winW = 1500, winH = 950;
+    if (haveConfigDir) loadWindowState(windowStatePath, winX, winY, winW, winH);
+    if (winW < 320) winW = 1500;
+    if (winH < 200) winH = 950;
+
     const char* glsl_version = "#version 150";
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 
-    GLFWwindow* window = glfwCreateWindow(1500, 950, "raygen viewer", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(winW, winH, "raygen viewer", nullptr, nullptr);
     if (!window) { glfwTerminate(); return 1; }
+    if (winX != -1 && winY != -1) {
+        // GLFW silently no-ops if the position is invalid for the current
+        // monitor configuration, so we don't need to clamp ourselves.
+        glfwSetWindowPos(window, winX, winY);
+    }
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
 
@@ -384,6 +633,14 @@ int main(int argc, char** argv) {
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    // Point ImGui at our per-user imgui.ini so panel positions, sizes, and
+    // collapsed state survive across runs. ImGui doesn't copy this string, so
+    // imguiIniPath must outlive the ImGui context — it's a static buffer.
+    // When the config dir is unavailable we leave IniFilename at its default
+    // ("imgui.ini" in CWD) rather than disabling persistence outright.
+    if (haveConfigDir && imguiIniPath[0]) {
+        io.IniFilename = imguiIniPath;
+    }
     ImGui::StyleColorsDark();
 
     // Crisp text: rasterize the default font at the combined pixel size
@@ -793,6 +1050,12 @@ int main(int argc, char** argv) {
             kickFinal(JobKind::Full);
         };
         auto loadNewScene = [&](const char* newPath) {
+            // Persist current scene's sidecar before we lose track of its
+            // path. sidecarPath still points at the *outgoing* scene here, so
+            // any edits made since the last explicit save aren't dropped on
+            // the floor. No-op when sidecarPath is empty (first-time load).
+            persistSidecar();
+
             // Replace scenePath, recompute the sidecar location, and reset
             // the default output path to "<basename>-out.jpg" — user-edited
             // output paths from the previous scene shouldn't carry over.
@@ -821,6 +1084,7 @@ int main(int argc, char** argv) {
         fpCtx.renderer       = &renderer;
         fpCtx.onReloadScene  = reloadCurrentScene;
         fpCtx.onLoadScene    = loadNewScene;
+        fpCtx.onSaveViewer   = persistSidecar;
         viewer::drawFilePanel(fpCtx);
 
         // --- Render preview ---
@@ -973,9 +1237,10 @@ int main(int argc, char** argv) {
             lastKickedParams = uiParams;
             enqueueWorker(snapshot, kind);
             lastKickWasPreview = applyOverride;
-            // Only persist when we're at rest — preview snapshots with
-            // forced samples=1 would otherwise overwrite the user-set value.
-            if (!anyActive) persistSidecar();
+            // Slider-driven kicks no longer auto-persist — too noisy and
+            // overwrites the file mid-tweak. Sidecar saves now happen on
+            // explicit actions (Apply / Re-render / Reload / Load scene /
+            // Save viewer button) via persistSidecar() in those paths.
             pendingDirty = false;
         }
 
@@ -996,6 +1261,15 @@ int main(int argc, char** argv) {
         job.cv.notify_all();
     }
     worker.join();
+
+    // Capture window geometry before tearing down GLFW. ImGui auto-saves
+    // imgui.ini during DestroyContext using the IniFilename we configured.
+    if (haveConfigDir && windowStatePath[0]) {
+        int x = 0, y = 0, w = 0, h = 0;
+        glfwGetWindowPos(window, &x, &y);
+        glfwGetWindowSize(window, &w, &h);
+        if (w > 0 && h > 0) saveWindowState(windowStatePath, x, y, w, h);
+    }
 
     if (renderTex) glDeleteTextures(1, &renderTex);
     ImGui_ImplOpenGL3_Shutdown();
