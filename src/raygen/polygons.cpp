@@ -6,8 +6,6 @@
 //  (c) 2016-2020 Jingwood, unvell.com, all rights reserved.
 ///////////////////////////////////////////////////////////////////////////////
 
-#include <utility>
-
 #include "polygons.h"
 
 namespace raygen {
@@ -187,11 +185,6 @@ ConeMesh::ConeMesh(float radiusStart, float radiusEnd, int slices) {
     this->hasTangentSpaceBasis = false;
 
     if (slices < 3) slices = 3;
-
-    // radiusStart sits at z = +0.5 (object-local "forward"), radiusEnd at
-    // z = -0.5. Swap into the internal (small-z, large-z) build order so
-    // existing cap winding / slant-normal math stays valid.
-    std::swap(radiusStart, radiusEnd);
 
     const float zStart = -0.5f;
     const float zEnd   =  0.5f;
