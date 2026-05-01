@@ -9,6 +9,7 @@
 #include "medium.h"
 
 #include <math.h>
+#include <limits>
 
 #include "ugm/functions.h"
 
@@ -51,27 +52,52 @@ void HomogeneousMedium::prepare() {
     // with the legacy view-matrix === identity path stays correct).
     this->coneOriginR = this->coneOrigin;
     this->coneAxisR   = this->coneAxisN;
+    // Path render-space cache mirror — same fallback rationale as cone.
+    this->pathPointsR = this->pathPoints;
 }
 
 void HomogeneousMedium::bake(const Matrix4& viewMatrix, const Matrix4& modelMatrix) {
-    if (this->emissionMode != EmissionMode_Cone) return;
-    // Compose the transform stack the same way transformObject does for
-    // vertex positions: viewMatrix * modelMatrix when the cone follows the
-    // object (object-local → view), or just viewMatrix when authored params
-    // are world-space (legacy / JSON-authored scenes).
-    Matrix4 fullT = viewMatrix;
-    if (this->coneFollowObject) {
-        fullT = viewMatrix * modelMatrix;
+    if (this->emissionMode == EmissionMode_Cone) {
+        // Compose the transform stack the same way transformObject does for
+        // vertex positions: viewMatrix * modelMatrix when the cone follows
+        // the object (object-local → view), or just viewMatrix when the
+        // authored params are world-space (legacy / JSON-authored scenes).
+        Matrix4 fullT = viewMatrix;
+        if (this->coneFollowObject) {
+            fullT = viewMatrix * modelMatrix;
+        }
+        const vec4 originW(this->coneOrigin.x, this->coneOrigin.y, this->coneOrigin.z, 1.0f);
+        const vec4 axisW  (this->coneAxisN.x,  this->coneAxisN.y,  this->coneAxisN.z,  0.0f);
+        const vec4 originV = originW * fullT;
+        const vec4 axisV   = axisW   * fullT;
+        this->coneOriginR = vec3(originV.x, originV.y, originV.z);
+        const float al2 = axisV.x*axisV.x + axisV.y*axisV.y + axisV.z*axisV.z;
+        this->coneAxisR  = (al2 > 1e-12f)
+            ? vec3(axisV.x, axisV.y, axisV.z) * (1.0f / sqrtf(al2))
+            : this->coneAxisN;
+        return;
     }
-    const vec4 originW(this->coneOrigin.x, this->coneOrigin.y, this->coneOrigin.z, 1.0f);
-    const vec4 axisW  (this->coneAxisN.x,  this->coneAxisN.y,  this->coneAxisN.z,  0.0f);
-    const vec4 originV = originW * fullT;
-    const vec4 axisV   = axisW   * fullT;
-    this->coneOriginR = vec3(originV.x, originV.y, originV.z);
-    const float al2 = axisV.x*axisV.x + axisV.y*axisV.y + axisV.z*axisV.z;
-    this->coneAxisR  = (al2 > 1e-12f)
-        ? vec3(axisV.x, axisV.y, axisV.z) * (1.0f / sqrtf(al2))
-        : this->coneAxisN;
+    if (this->emissionMode == EmissionMode_Path) {
+        // Same transform stack as the cone branch — pathFollowObject toggles
+        // whether modelMatrix is composed in. Each control point goes
+        // through as a w=1 point; radius and t stay invariant (radius is a
+        // local scalar in the medium's own units, not a vector to transform).
+        Matrix4 fullT = viewMatrix;
+        if (this->pathFollowObject) {
+            fullT = viewMatrix * modelMatrix;
+        }
+        this->pathPointsR.resize(this->pathPoints.size());
+        for (size_t i = 0; i < this->pathPoints.size(); i++) {
+            const PathSample& src = this->pathPoints[i];
+            const vec4 pW(src.p.x, src.p.y, src.p.z, 1.0f);
+            const vec4 pV = pW * fullT;
+            PathSample& dst = this->pathPointsR[i];
+            dst.p = vec3(pV.x, pV.y, pV.z);
+            dst.radius = src.radius;
+            dst.t = src.t;
+        }
+        return;
+    }
 }
 
 color3 HomogeneousMedium::transmittance(float d) const {
@@ -262,6 +288,53 @@ color3 HomogeneousMedium::emissionAt(const vec3& p) const {
         if (this->densityField == DensityField_None) return base;
         return base * this->densityAt(p);
     }
+    if (this->emissionMode == EmissionMode_Path) {
+        // Find the segment with minimum perpendicular distance, then
+        // evaluate radial falloff inside the lerped tube radius. Linear
+        // walk over segments — fine for the handful (≤ ~16) of control
+        // points a streamline needs; if path counts ever scale, swap in
+        // a small spatial accelerator. We use squared distances throughout
+        // and only sqrt once at the end for the radial falloff.
+        const size_t n = this->pathPointsR.size();
+        if (n < 2) return color3::zero;
+        float bestD2 = std::numeric_limits<float>::infinity();
+        float bestT  = 0.0f;
+        float bestRadius = 0.0f;
+        for (size_t i = 0; i + 1 < n; i++) {
+            const PathSample& a = this->pathPointsR[i];
+            const PathSample& b = this->pathPointsR[i + 1];
+            const vec3 ab(b.p.x - a.p.x, b.p.y - a.p.y, b.p.z - a.p.z);
+            const float ab2 = ab.x*ab.x + ab.y*ab.y + ab.z*ab.z;
+            if (ab2 < 1e-12f) continue;
+            const vec3 ap(p.x - a.p.x, p.y - a.p.y, p.z - a.p.z);
+            float u = (ap.x*ab.x + ap.y*ab.y + ap.z*ab.z) / ab2;
+            if (u < 0.0f) u = 0.0f;
+            else if (u > 1.0f) u = 1.0f;
+            const vec3 q(a.p.x + ab.x * u, a.p.y + ab.y * u, a.p.z + ab.z * u);
+            const float dx = p.x - q.x, dy = p.y - q.y, dz = p.z - q.z;
+            const float d2 = dx*dx + dy*dy + dz*dz;
+            if (d2 < bestD2) {
+                bestD2 = d2;
+                bestT = a.t + (b.t - a.t) * u;
+                bestRadius = a.radius + (b.radius - a.radius) * u;
+            }
+        }
+        if (bestRadius <= 0.0f) return color3::zero;
+        const float r2max = bestRadius * bestRadius;
+        if (bestD2 >= r2max) return color3::zero;
+        const float r = sqrtf(bestD2) / bestRadius;
+        const float radial = powf(fmaxf(0.0f, 1.0f - r), this->pathFalloffPower);
+        if (radial <= 0.0f) return color3::zero;
+        // Inner→outer blend by axial parameter. t=0 picks the upstream
+        // (pathInner) colour; t=1 picks the downstream (pathOuter) colour.
+        const float tBlend = (bestT < 0.0f) ? 0.0f : (bestT > 1.0f ? 1.0f : bestT);
+        const color3 col = this->pathInner * (1.0f - tBlend) + this->pathOuter * tBlend;
+        float scale = radial * this->pathIntensity * fmaxf(0.0f, this->density);
+        if (this->densityField != DensityField_None) {
+            scale *= this->densityAt(p);
+        }
+        return col * scale;
+    }
     // Cone profile. Axial coordinate runs along coneAxisR from coneOriginR
     // (render-space cache populated by bake() once per frame so we don't pay
     // matrix mults per ray sample). Radial coordinate is the perpendicular
@@ -356,8 +429,12 @@ color3 HomogeneousMedium::emissionIntegralAlongRay(const Ray& ray, float maxT) c
 
     // Stratified MC: split [0, maxT] into N strata, jitter one sample per
     // stratum. The Tr·σe·dt accumulator gives an unbiased estimator of the
-    // line integral; bumping coneEmissionSamples trades noise for cost.
-    const int N = (this->coneEmissionSamples > 0) ? this->coneEmissionSamples : 1;
+    // line integral; bumping the per-mode sample count trades noise for cost.
+    int sampleCount = this->coneEmissionSamples;
+    if (this->emissionMode == EmissionMode_Path) {
+        sampleCount = this->pathEmissionSamples;
+    }
+    const int N = (sampleCount > 0) ? sampleCount : 1;
     const float dt = maxT / (float)N;
     color3 accum = color3::zero;
     for (int i = 0; i < N; i++) {

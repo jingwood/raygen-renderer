@@ -14,6 +14,8 @@
 // material.h / scene.h pick them up via texture.h.
 #include "ugm/ugm.h"
 
+#include <vector>
+
 namespace raygen {
 
 // Phase 1 participating media: homogeneous absorption + isotropic-scattering
@@ -36,9 +38,28 @@ class HomogeneousMedium {
 public:
     // Constant: σe is the uniform `sigma_e` field (analytical integral).
     // Cone:     σe(p) is procedural along an axis, sampled along the ray.
+    // Path:     σe(p) is a swept-tube along a poly-line. Each sample finds
+    //           the closest segment, evaluates a radial falloff inside the
+    //           tube, and blends pathInner→pathOuter by the per-control-
+    //           point axial parameter. Lets vapor follow a curved streamline
+    //           rather than a single straight axis — used for wing-surface
+    //           vortex condensation that hugs the airframe and lifts off
+    //           toward the trailing edge.
     enum EmissionMode {
         EmissionMode_Constant = 0,
         EmissionMode_Cone     = 1,
+        EmissionMode_Path     = 2,
+    };
+
+    // Per-control-point sample for Path emission. `p` is a 3D anchor in
+    // world or object-local space (see `pathFollowObject`); `radius` is the
+    // tube radius at this point (lerped between adjacent points along the
+    // segment); `t` is the axial parameter ∈ [0,1] used to blend
+    // pathInner→pathOuter (lerped likewise).
+    struct PathSample {
+        vec3  p      = vec3::zero;
+        float radius = 0.1f;
+        float t      = 0.0f;
     };
 
     // None: σ values are spatially uniform — Phase 1 / Phase 2 behaviour.
@@ -153,6 +174,23 @@ public:
     vec3   coneOriginR = vec3::zero;
     vec3   coneAxisR   = vec3(0.0f, 0.0f, -1.0f);
 
+    // --- Phase 5: swept-tube (poly-line) emission --------------------------
+    // Authored polyline + per-point radius/t. Containing mesh (cube/cone)
+    // is still the volume's physical boundary — pathPoints must lie inside
+    // it in object space, otherwise the emission outside the bounding mesh
+    // contributes nothing. Path emission uses the same stratified MC line
+    // integral as Cone, just with a different σe(p) evaluator.
+    std::vector<PathSample> pathPoints;
+    std::vector<PathSample> pathPointsR;        // bake()-transformed copy
+    bool   pathFollowObject  = false;            // mirrors coneFollowObject
+    color3 pathInner         = color3(0.6f, 0.7f, 1.0f);
+    color3 pathOuter         = color3(0.3f, 0.4f, 0.6f);
+    float  pathIntensity     = 1.0f;
+    // (1 - r/radius)^pathFalloffPower radial profile. >1 gives a softer,
+    // more cloud-like edge; 1 is linear; 2 is the Cone-mode radial default.
+    float  pathFalloffPower  = 2.0f;
+    int    pathEmissionSamples = 6;
+
     HomogeneousMedium() { }
     HomogeneousMedium(const color3& sa, const color3& ss, float g = 0.0f, float density = 1.0f)
         : sigma_a(sa), sigma_s(ss), g(g), density(density) { prepare(); }
@@ -177,6 +215,9 @@ public:
     inline bool isActive() const {
         if (this->sigma_t_hero > 0.0f) return true;
         if (this->emissionMode == EmissionMode_Cone && this->coneIntensity > 0.0f) return true;
+        if (this->emissionMode == EmissionMode_Path
+            && this->pathIntensity > 0.0f
+            && this->pathPoints.size() >= 2) return true;
         if (this->heatHaze && this->iorAmplitude > 0.0f) return true;
         return this->sigma_e_eff != color3::zero;
     }

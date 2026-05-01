@@ -225,6 +225,8 @@ HomogeneousMedium* SceneJsonLoader::readMedium(const JSObject& obj) {
     const string* modeStr = obj.getStringProperty("emissionMode");
     if (modeStr != NULL && *modeStr == "cone") {
         m->emissionMode = HomogeneousMedium::EmissionMode_Cone;
+    } else if (modeStr != NULL && *modeStr == "path") {
+        m->emissionMode = HomogeneousMedium::EmissionMode_Path;
     }
     if (SceneJsonLoader::tryReadVec3Property(obj, "coneAxis", &v)) {
         m->coneAxis = v;
@@ -246,6 +248,42 @@ HomogeneousMedium* SceneJsonLoader::readMedium(const JSObject& obj) {
     obj.tryGetNumberProperty("coneEmissionSamples", &m->coneEmissionSamples);
     if (obj.hasProperty("coneFollowObject")) {
         m->coneFollowObject = obj.isBooleanPropertyTrue("coneFollowObject");
+    }
+
+    // Phase 5: swept-tube poly-line emission. `pathPoints` is an array of
+    // {p:[x,y,z], radius, t} objects; the segment between consecutive points
+    // forms a tapered tube that emits inside its (lerped) radius. Color
+    // blends pathInner→pathOuter by the per-point axial parameter t∈[0,1].
+    if (SceneJsonLoader::tryReadVec3Property(obj, "pathInner", &v)) {
+        m->pathInner = color3(v.x, v.y, v.z);
+    }
+    if (SceneJsonLoader::tryReadVec3Property(obj, "pathOuter", &v)) {
+        m->pathOuter = color3(v.x, v.y, v.z);
+    }
+    obj.tryGetNumberProperty("pathIntensity",       &m->pathIntensity);
+    obj.tryGetNumberProperty("pathFalloffPower",    &m->pathFalloffPower);
+    obj.tryGetNumberProperty("pathEmissionSamples", &m->pathEmissionSamples);
+    if (obj.hasProperty("pathFollowObject")) {
+        m->pathFollowObject = obj.isBooleanPropertyTrue("pathFollowObject");
+    }
+    {
+        const std::vector<JSValue>* arr = obj.getArrayProperty("pathPoints");
+        if (arr != NULL) {
+            m->pathPoints.clear();
+            m->pathPoints.reserve(arr->size());
+            for (size_t i = 0; i < arr->size(); i++) {
+                const JSValue& el = arr->at(i);
+                if (el.type != JSType::JSType_Object || el.object == NULL) continue;
+                const JSObject& po = *el.object;
+                HomogeneousMedium::PathSample s;
+                if (SceneJsonLoader::tryReadVec3Property(po, "p", &v)) {
+                    s.p = v;
+                }
+                po.tryGetNumberProperty("radius", &s.radius);
+                po.tryGetNumberProperty("t",      &s.t);
+                m->pathPoints.push_back(s);
+            }
+        }
     }
 
     // Phase 3: heterogeneous density field. Optional `densityField: "fbm"`
