@@ -54,7 +54,11 @@ void HomogeneousMedium::prepare() {
 }
 
 void HomogeneousMedium::bake(const Matrix4& viewMatrix, const Matrix4& modelMatrix) {
-    if (this->emissionMode != EmissionMode_Cone) return;
+    // Heat-haze axial fade reads coneOriginR / coneAxisR too, so bake whenever
+    // either the cone-emission profile or the haze fade is in use.
+    const bool needsBake = (this->emissionMode == EmissionMode_Cone)
+                        || (this->heatHaze && this->iorFalloff != 0.0f);
+    if (!needsBake) return;
     // Compose the transform stack the same way transformObject does for
     // vertex positions: viewMatrix * modelMatrix when the cone follows the
     // object (object-local → view), or just viewMatrix when authored params
@@ -166,10 +170,29 @@ float HomogeneousMedium::iorAt(const vec3& p) const {
                                   p.z - this->iorOffset.z,
                                   this->iorFrequency, this->iorOctaves,
                                   this->iorGain, this->iorLacunarity);
+    // Optional axial fade: project p onto the (baked) cone axis and ramp the
+    // amplitude down across [0, coneLength]. Sign of iorFalloff picks the
+    // direction; magnitude is the fraction of amplitude lost at the far end.
+    float ampMul = 1.0f;
+    if (this->iorFalloff != 0.0f && this->coneLength > 0.0f) {
+        const float relx = p.x - this->coneOriginR.x;
+        const float rely = p.y - this->coneOriginR.y;
+        const float relz = p.z - this->coneOriginR.z;
+        const float axialT = relx * this->coneAxisR.x
+                           + rely * this->coneAxisR.y
+                           + relz * this->coneAxisR.z;
+        float u = axialT / this->coneLength;
+        if (u < 0.0f) u = 0.0f;
+        else if (u > 1.0f) u = 1.0f;
+        const float mag = (this->iorFalloff < 0.0f) ? -this->iorFalloff : this->iorFalloff;
+        const float t = (this->iorFalloff >= 0.0f) ? u : (1.0f - u);
+        ampMul = 1.0f - mag * t;
+        if (ampMul < 0.0f) ampMul = 0.0f;
+    }
     // Centre the noise around zero so n − 1 has mean ~0; the air alternates
     // between slightly compressed (cold) and slightly rarefied (hot)
     // pockets. iorAmplitude is the half-range of n − 1.
-    return 1.0f + this->iorAmplitude * (n - 0.5f) * 2.0f;
+    return 1.0f + this->iorAmplitude * ampMul * (n - 0.5f) * 2.0f;
 }
 
 vec3 HomogeneousMedium::iorGradientAt(const vec3& p) const {

@@ -281,6 +281,7 @@ HomogeneousMedium* SceneJsonLoader::readMedium(const JSObject& obj) {
     if (SceneJsonLoader::tryReadVec3Property(obj, "iorOffset", &v)) {
         m->iorOffset = v;
     }
+    obj.tryGetNumberProperty("iorFalloff",    &m->iorFalloff);
 
     m->prepare();
 

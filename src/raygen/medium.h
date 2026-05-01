@@ -115,6 +115,17 @@ public:
     int    iorMarchSteps   = 16;       // ray-march resolution along the segment
     vec3   iorOffset       = vec3::zero;  // shift the noise field (cheap "animation" between frames)
 
+    // Single signed knob that linearly attenuates iorAmplitude along the
+    // cone axis (reuses coneOrigin / coneAxis / coneLength — set those
+    // alongside heatHaze for the fade to take effect).
+    //   0   — no fade (uniform shimmer; legacy behaviour)
+    //   >0  — fade along +coneAxis: full strength at u=0, scaled by
+    //         (1 − iorFalloff) at u=1
+    //   <0  — fade along −coneAxis: full strength at u=1, scaled by
+    //         (1 − |iorFalloff|) at u=0
+    // u = (p − coneOriginR)·coneAxisR / coneLength, clamped to [0,1].
+    float  iorFalloff      = 0.0f;
+
     // --- Phase 3: heterogeneous density field ------------------------------
     // FBmNoise multiplies σa/σs/σe at every sample point by a scalar
     // fractal-Brownian-motion noise drawn from a hash-based 3D value-noise

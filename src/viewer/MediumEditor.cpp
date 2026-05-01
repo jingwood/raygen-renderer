@@ -135,6 +135,10 @@ bool drawHeatHaze(HomogeneousMedium& m) {
         m.iorOffset = ugm::vec3(ioff[0], ioff[1], ioff[2]);
         changed = true;
     }
+    // Axial fade reuses the cone params authored on this medium
+    // (coneOrigin / coneAxis / coneLength). Single signed knob: 0 = no fade,
+    // +ve fades along +coneAxis, -ve along -coneAxis, |value| = strength.
+    changed |= ImGui::SliderFloat("iorFalloff##im", &m.iorFalloff, -1.0f, 1.0f, "%.3f");
     return changed;
 }
 
