@@ -31,6 +31,13 @@ bool openSceneFileDialog(char* out, size_t outCap, const char* initialDir);
 bool saveBundleFileDialog(char* out, size_t outCap,
                           const char* defaultName, const char* initialDir);
 
+// Generic "Open image" dialog for picking texture / envmap files. Filters
+// the common image formats supported by the renderer (.jpg/.png/.bmp/.hdr).
+// `title` may be null (defaults to "Open image"); `initialDir` may be null.
+// Same return contract as the other dialogs.
+bool openImageFileDialog(char* out, size_t outCap,
+                         const char* title, const char* initialDir);
+
 }  // namespace viewer
 }  // namespace raygen
 

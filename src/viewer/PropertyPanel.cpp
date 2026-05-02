@@ -4,14 +4,18 @@
 
 #include "PropertyPanel.h"
 
+#include <cstring>
+
 #include "imgui.h"
 
 #include "raygen/material.h"
 #include "raygen/scene.h"
+#include "raygen/texture.h"
 #include "ucm/string.h"
 #include "ugm/color.h"
 #include "ugm/vector.h"
 
+#include "Dialog.h"
 #include "MediumEditor.h"
 
 namespace raygen {
@@ -50,11 +54,79 @@ bool drawTransform(SceneObject& so) {
     return dirty;
 }
 
+// Compute the directory portion of `path` into `outDir` for seeding the
+// texture-file dialog at a useful location.
+void deriveDirOf(const char* path, char* outDir, size_t outDirCap) {
+    outDir[0] = '\0';
+    if (path == nullptr || outDirCap == 0) return;
+    const char* lsU = std::strrchr(path, '/');
+    const char* lsW = std::strrchr(path, '\\');
+    const char* ls  = lsU > lsW ? lsU : lsW;
+    if (ls == nullptr) return;
+    size_t n = (size_t)(ls - path);
+    if (n >= outDirCap) n = outDirCap - 1;
+    std::memcpy(outDir, path, n);
+    outDir[n] = '\0';
+}
+
+// "texture: <path> [Browse...] [Clear]" row. `existingPath` may be empty;
+// `scenePath` seeds the dialog folder when no texture is set yet. Returns
+// true if the user picked a new texture (or cleared); the caller should
+// then update `pathField` and `texPtr` accordingly.
+bool drawTextureRow(const char* label, ucm::string& pathField,
+                    Texture*& texPtr, bool isRendering,
+                    const char* scenePath, const char* idSuffix) {
+    bool changed = false;
+    if (!pathField.isEmpty()) {
+        ImGui::TextWrapped("%s: %s", label, pathField.getBuffer());
+    } else {
+        ImGui::TextDisabled("%s: (none)", label);
+    }
+
+    const bool canPick = !isRendering;
+    if (!canPick) ImGui::BeginDisabled();
+    char btnBrowse[64];
+    std::snprintf(btnBrowse, sizeof(btnBrowse), "Browse...##%s", idSuffix);
+    if (ImGui::Button(btnBrowse)) {
+        char initDir[512];
+        deriveDirOf(!pathField.isEmpty() ? pathField.getBuffer() : scenePath,
+                    initDir, sizeof(initDir));
+        char picked[1024] = {0};
+        if (openImageFileDialog(picked, sizeof(picked),
+                                "Open texture",
+                                initDir[0] ? initDir : nullptr)) {
+            ucm::string p(picked);
+            Texture* tex = SceneResourcePool::instance.getTexture(p);
+            if (tex != nullptr) {
+                texPtr    = tex;
+                pathField = p;
+                changed   = true;
+            } else {
+                fprintf(stderr, "load texture failed: %s\n", picked);
+            }
+        }
+    }
+    if (!pathField.isEmpty()) {
+        ImGui::SameLine();
+        char btnClear[64];
+        std::snprintf(btnClear, sizeof(btnClear), "Clear##%s", idSuffix);
+        if (ImGui::Button(btnClear)) {
+            // Drop the texture pointer; the resource pool still owns the
+            // Texture* (it caches by path) so we don't delete it here.
+            texPtr = NULL;
+            pathField.clear();
+            changed = true;
+        }
+    }
+    if (!canPick) ImGui::EndDisabled();
+    return changed;
+}
+
 // Material — edits write directly to SceneObject::material. The renderer
 // reads material by value per-hit via a pointer on the triangle, so the
 // change shows up on the next trace. 32-bit float writes are atomic so
 // dragging a slider can't tear a pixel — only briefly mix old/new channels.
-bool drawMaterial(Material& m) {
+bool drawMaterial(Material& m, bool isRendering, const char* scenePath) {
     if (!ImGui::CollapsingHeader("Material", ImGuiTreeNodeFlags_DefaultOpen)) return false;
 
     bool dirty = false;
@@ -80,10 +152,11 @@ bool drawMaterial(Material& m) {
     dirty |= ImGui::DragFloat  ("emission",         &m.emission,         0.1f, 0.0f, 10000.0f, "%.2f");
     dirty |= ImGui::DragFloat  ("spotRange",        &m.spotRange,        0.01f, 0.0f, 100.0f,  "%.3f");
 
-    if (!m.texturePath.isEmpty())
-        ImGui::TextDisabled("texture:    %s", m.texturePath.getBuffer());
-    if (!m.normalmapPath.isEmpty())
-        ImGui::TextDisabled("normal map: %s", m.normalmapPath.getBuffer());
+    ImGui::Spacing();
+    dirty |= drawTextureRow("texture",    m.texturePath,   m.texture,
+                            isRendering,  scenePath, "tex");
+    dirty |= drawTextureRow("normal map", m.normalmapPath, m.normalmap,
+                            isRendering,  scenePath, "nmap");
     return dirty;
 }
 
@@ -98,15 +171,16 @@ void drawHeader(const SceneObject& so) {
 
 }  // namespace
 
-bool drawPropertyPanel(SceneObject* selected) {
+bool drawPropertyPanel(const PropertyPanelCtx& ctx) {
     ImGui::Begin("Property");
     bool dirty = false;
+    SceneObject* selected = ctx.selected;
     if (!selected) {
         ImGui::TextDisabled("Select an object in the Outline window to inspect.");
     } else {
         drawHeader(*selected);
         dirty |= drawTransform(*selected);
-        dirty |= drawMaterial(selected->material);
+        dirty |= drawMaterial(selected->material, ctx.isRendering, ctx.scenePath);
         // Interior medium UI lives in MediumEditor.cpp — see header for why
         // it's its own file (keeps Phase-by-Phase volume work scoped).
         dirty |= drawInteriorMedium(*selected);

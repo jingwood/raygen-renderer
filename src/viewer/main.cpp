@@ -49,8 +49,10 @@
 
 #include "raygen/medium.h"
 #include "raygen/rayrenderer.h"
+#include "raygen/scene.h"
 #include "raygen/sceneloader.h"
 #include "raygen/scenewriter.h"
+#include "raygen/texture.h"
 
 #include "Dialog.h"
 #include "FilePanel.h"
@@ -946,6 +948,30 @@ int main(int argc, char** argv) {
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
+        // Apply a newly-picked envmap file to the current Scene. Loads the
+        // texture through the resource pool (which de-dupes by path), swaps
+        // Scene::envmap, rebuilds the importance-sampling CDF, and kicks a
+        // Full render. The Browse button is disabled while rendering, so this
+        // runs on an idle worker — safe to mutate scene->envmap*.
+        auto loadEnvmap = [&](const char* path) {
+            if (path == nullptr || path[0] == '\0') return;
+            ucm::string p(path);
+            Texture* tex = SceneResourcePool::instance.getTexture(p);
+            if (tex == nullptr) {
+                fprintf(stderr, "load envmap failed: %s\n", path);
+                return;
+            }
+            // Replace the equirect envmap. The cubemap faces (if any) take
+            // precedence in the renderer, so clear them so the new equirect
+            // is what the worker actually samples.
+            scene->envmap     = tex;
+            scene->envmapPath = p;
+            for (int i = 0; i < 6; i++) scene->envCubemapFaces[i] = NULL;
+            scene->buildEnvmapCDF();
+            lastKickedParams = uiParams;
+            kickFinal(JobKind::Full);
+        };
+
         // --- Control panel (lives in MainPanel.cpp) ---
         viewer::MainPanelCtx mpCtx;
         mpCtx.params           = &uiParams;
@@ -959,12 +985,22 @@ int main(int argc, char** argv) {
         mpCtx.isRendering      = isRendering;
         mpCtx.currentJobKind   = currentJobKind;
         mpCtx.previewProgress  = previewProgress;
+        mpCtx.envmapPath       = scene->envmapPath.getBuffer();
+        mpCtx.onLoadEnvmap     = loadEnvmap;
         viewer::drawMainPanel(mpCtx, kickFinal);
 
         // --- Output resolution window ---
         ImGui::Begin("Output");
         ImGui::InputInt("width",  &outputWidth,  10, 100);
         ImGui::InputInt("height", &outputHeight, 10, 100);
+        // Swap width/height — handy for flipping landscape↔portrait without
+        // re-typing both fields. Just swaps the edit buffer; the user still
+        // commits via Apply (or the auto-apply preset path).
+        if (ImGui::SmallButton("swap W <-> H")) {
+            const int t = outputWidth;
+            outputWidth  = outputHeight;
+            outputHeight = t;
+        }
         if (outputWidth  < 16)   outputWidth  = 16;
         if (outputHeight < 16)   outputHeight = 16;
         if (outputWidth  > 8192) outputWidth  = 8192;
@@ -1274,7 +1310,11 @@ int main(int argc, char** argv) {
         // reads it.
         bool sceneDirty = false;
         sceneDirty |= viewer::drawOutlinePanel(*scene, selectedObj);
-        sceneDirty |= viewer::drawPropertyPanel(selectedObj);
+        viewer::PropertyPanelCtx ppCtx;
+        ppCtx.selected    = selectedObj;
+        ppCtx.isRendering = isRendering;
+        ppCtx.scenePath   = scenePath;
+        sceneDirty |= viewer::drawPropertyPanel(ppCtx);
 
         // Scene edits always need a full re-trace (BVH bounds, transforms,
         // materials all feed the primary ray). Route through the shared

@@ -22,6 +22,8 @@ namespace viewer {
 bool openSceneFileDialog_mac(char* out, size_t outCap, const char* initialDir);
 bool saveBundleFileDialog_mac(char* out, size_t outCap,
                               const char* defaultName, const char* initialDir);
+bool openImageFileDialog_mac(char* out, size_t outCap,
+                             const char* title, const char* initialDir);
 #endif
 
 bool openSceneFileDialog(char* out, size_t outCap, const char* initialDir) {
@@ -99,6 +101,41 @@ bool saveBundleFileDialog(char* out, size_t outCap,
     return saveBundleFileDialog_mac(out, outCap, defaultName, initialDir);
 #else
     (void)defaultName; (void)initialDir;
+    return false;
+#endif
+}
+
+bool openImageFileDialog(char* out, size_t outCap,
+                         const char* title, const char* initialDir) {
+    if (out == nullptr || outCap == 0) return false;
+    out[0] = '\0';
+
+#ifdef _WIN32
+    // Filter list mirrors the renderer's loadable formats: LDR via libjpeg /
+    // libpng + the BSD bitmap codec, HDR via the Radiance .hdr decoder.
+    static const char kFilter[] =
+        "Image Files\0*.jpg;*.jpeg;*.png;*.bmp;*.hdr\0"
+        "JPEG\0*.jpg;*.jpeg\0"
+        "PNG\0*.png\0"
+        "BMP\0*.bmp\0"
+        "Radiance HDR\0*.hdr\0"
+        "All Files\0*.*\0";
+
+    OPENFILENAMEA ofn;
+    ZeroMemory(&ofn, sizeof(ofn));
+    ofn.lStructSize     = sizeof(ofn);
+    ofn.hwndOwner       = nullptr;
+    ofn.lpstrFilter     = kFilter;
+    ofn.lpstrFile       = out;
+    ofn.nMaxFile        = (DWORD)outCap;
+    ofn.lpstrInitialDir = initialDir;
+    ofn.lpstrTitle      = title != nullptr ? title : "Open image";
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+    return GetOpenFileNameA(&ofn) != 0;
+#elif defined(__APPLE__)
+    return openImageFileDialog_mac(out, outCap, title, initialDir);
+#else
+    (void)title; (void)initialDir;
     return false;
 #endif
 }

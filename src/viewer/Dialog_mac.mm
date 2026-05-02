@@ -92,5 +92,48 @@ bool saveBundleFileDialog_mac(char* out, size_t outCap,
     }
 }
 
+bool openImageFileDialog_mac(char* out, size_t outCap,
+                             const char* title, const char* initialDir) {
+    if (out == nullptr || outCap == 0) return false;
+    out[0] = '\0';
+
+    @autoreleasepool {
+        NSOpenPanel* panel = [NSOpenPanel openPanel];
+        panel.title = (title != nullptr && title[0] != '\0')
+            ? [NSString stringWithUTF8String:title]
+            : @"Open image";
+        panel.canChooseFiles = YES;
+        panel.canChooseDirectories = NO;
+        panel.allowsMultipleSelection = NO;
+        // Renderer-supported formats: JPEG / PNG / BMP via the LDR codecs and
+        // Radiance .hdr via the RGBE decoder. .hdr has no registered UTI so
+        // build a UTType from the extension and fall through if it's nil.
+        NSMutableArray<UTType*>* types = [NSMutableArray array];
+        [types addObject:UTTypeJPEG];
+        [types addObject:UTTypePNG];
+        [types addObject:UTTypeBMP];
+        UTType* hdrType = [UTType typeWithFilenameExtension:@"hdr"];
+        if (hdrType != nil) [types addObject:hdrType];
+        panel.allowedContentTypes = types;
+
+        if (initialDir != nullptr && initialDir[0] != '\0') {
+            NSString* dir = [NSString stringWithUTF8String:initialDir];
+            panel.directoryURL = [NSURL fileURLWithPath:dir isDirectory:YES];
+        }
+
+        if ([panel runModal] != NSModalResponseOK) return false;
+
+        NSURL* url = panel.URL;
+        if (url == nil) return false;
+
+        const char* path = url.fileSystemRepresentation;
+        if (path == nullptr) return false;
+
+        std::strncpy(out, path, outCap - 1);
+        out[outCap - 1] = '\0';
+        return true;
+    }
+}
+
 }  // namespace viewer
 }  // namespace raygen

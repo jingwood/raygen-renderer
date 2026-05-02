@@ -4,11 +4,15 @@
 
 #include "MainPanel.h"
 
+#include <cstring>
+
 #include "imgui.h"
 
 #include "raygen/rayrenderer.h"
 #include "raygen/scene.h"
 #include "ucm/string.h"
+
+#include "Dialog.h"
 
 namespace raygen {
 namespace viewer {
@@ -99,9 +103,53 @@ bool drawCameraSection(ViewerParams& p, Camera* mainCamera) {
     return dirty;
 }
 
-bool drawSceneSection(ViewerParams& p) {
+// Compute the directory portion of `path` into `outDir`. Used to seed the
+// envmap-file dialog at the current envmap's folder (or the scene folder
+// when no envmap is loaded yet).
+void deriveDirOf(const char* path, char* outDir, size_t outDirCap) {
+    outDir[0] = '\0';
+    if (path == nullptr || outDirCap == 0) return;
+    const char* lsU = std::strrchr(path, '/');
+    const char* lsW = std::strrchr(path, '\\');
+    const char* ls  = lsU > lsW ? lsU : lsW;
+    if (ls == nullptr) return;
+    size_t n = (size_t)(ls - path);
+    if (n >= outDirCap) n = outDirCap - 1;
+    std::memcpy(outDir, path, n);
+    outDir[n] = '\0';
+}
+
+bool drawSceneSection(const MainPanelCtx& ctx) {
     if (!ImGui::CollapsingHeader("Scene", ImGuiTreeNodeFlags_DefaultOpen)) return false;
+    ViewerParams& p = *ctx.params;
     bool dirty = false;
+
+    // Envmap file row: current path (read-only display) + Browse button. The
+    // Browse button is disabled while a render is in flight because the worker
+    // reads scene->envmap / envmap CDF arrays per ray and the swap happens on
+    // the main thread.
+    const bool hasEnv = ctx.envmapPath != nullptr && ctx.envmapPath[0] != '\0';
+    if (hasEnv) {
+        ImGui::TextWrapped("envmap: %s", ctx.envmapPath);
+    } else {
+        ImGui::TextDisabled("envmap: (none)");
+    }
+    const bool canPickEnv = !ctx.isRendering && (bool)ctx.onLoadEnvmap;
+    if (!canPickEnv) ImGui::BeginDisabled();
+    if (ImGui::Button("Browse...##envmap")) {
+        char initDir[512];
+        // Prefer the current envmap's folder; fall back to the scene folder.
+        deriveDirOf(hasEnv ? ctx.envmapPath : ctx.scenePath,
+                    initDir, sizeof(initDir));
+        char picked[1024] = {0};
+        if (openImageFileDialog(picked, sizeof(picked),
+                                "Open envmap",
+                                initDir[0] ? initDir : nullptr)) {
+            if (ctx.onLoadEnvmap) ctx.onLoadEnvmap(picked);
+        }
+    }
+    if (!canPickEnv) ImGui::EndDisabled();
+
     dirty |= ImGui::SliderFloat("envmap intensity", &p.envIntensity, 0.0f, 10.0f,   "%.2f");
     dirty |= ImGui::SliderFloat("envmap rotation",  &p.envRotation,  0.0f, 360.0f, "%.0f");
 
@@ -176,7 +224,7 @@ bool drawMainPanel(const MainPanelCtx& ctx,
     bool dirty = false;
     dirty |= drawQualitySection(*ctx.params);
     dirty |= drawCameraSection(*ctx.params, ctx.mainCamera);
-    dirty |= drawSceneSection(*ctx.params);
+    dirty |= drawSceneSection(ctx);
     dirty |= drawPostProcessSection(*ctx.params);
 
     // Intent tracking: pendingDirty is set whenever sliders move while we
