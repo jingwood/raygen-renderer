@@ -24,10 +24,16 @@ bool openSceneFileDialog_mac(char* out, size_t outCap, const char* initialDir) {
         panel.canChooseFiles = YES;
         panel.canChooseDirectories = NO;
         panel.allowsMultipleSelection = NO;
-        // UTTypeJSON covers the .json extension; allowing the generic JSON
-        // UTI lets the user pick scenes that may have non-.json mime
-        // associations from other apps too.
-        panel.allowedContentTypes = @[ UTTypeJSON ];
+        // .json (authoring) and .toba (bundle) are both accepted — the
+        // loader detects by extension. UTTypeJSON covers .json; .toba
+        // doesn't have a registered UTI so we fall back to a custom
+        // UTType derived from the extension.
+        UTType* tobaType = [UTType typeWithFilenameExtension:@"toba"];
+        if (tobaType != nil) {
+            panel.allowedContentTypes = @[ UTTypeJSON, tobaType ];
+        } else {
+            panel.allowedContentTypes = @[ UTTypeJSON ];
+        }
 
         if (initialDir != nullptr && initialDir[0] != '\0') {
             NSString* dir = [NSString stringWithUTF8String:initialDir];
@@ -37,6 +43,41 @@ bool openSceneFileDialog_mac(char* out, size_t outCap, const char* initialDir) {
         // runModal blocks until the user dismisses the panel. The viewer
         // worker thread keeps rendering — only the GLFW main loop pauses,
         // which is fine since the user is interacting with the dialog.
+        if ([panel runModal] != NSModalResponseOK) return false;
+
+        NSURL* url = panel.URL;
+        if (url == nil) return false;
+
+        const char* path = url.fileSystemRepresentation;
+        if (path == nullptr) return false;
+
+        std::strncpy(out, path, outCap - 1);
+        out[outCap - 1] = '\0';
+        return true;
+    }
+}
+
+bool saveBundleFileDialog_mac(char* out, size_t outCap,
+                              const char* defaultName, const char* initialDir) {
+    if (out == nullptr || outCap == 0) return false;
+    out[0] = '\0';
+
+    @autoreleasepool {
+        NSSavePanel* panel = [NSSavePanel savePanel];
+        panel.title = @"Save scene bundle";
+        UTType* tobaType = [UTType typeWithFilenameExtension:@"toba"];
+        if (tobaType != nil) {
+            panel.allowedContentTypes = @[ tobaType ];
+        }
+
+        if (defaultName != nullptr && defaultName[0] != '\0') {
+            panel.nameFieldStringValue = [NSString stringWithUTF8String:defaultName];
+        }
+        if (initialDir != nullptr && initialDir[0] != '\0') {
+            NSString* dir = [NSString stringWithUTF8String:initialDir];
+            panel.directoryURL = [NSURL fileURLWithPath:dir isDirectory:YES];
+        }
+
         if ([panel runModal] != NSModalResponseOK) return false;
 
         NSURL* url = panel.URL;

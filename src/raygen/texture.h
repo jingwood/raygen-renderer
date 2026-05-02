@@ -11,6 +11,7 @@
 
 #include <stdio.h>
 #include "ucm/string.h"
+#include "ucm/stream.h"
 #include "ugm/ugm.h"
 
 namespace raygen {
@@ -33,6 +34,12 @@ public:
 	bool sRGB = true;
 
 	bool loadFromFile(const string& imagePath);
+
+	// Load a Radiance .hdr (RGBE) image directly from a Stream. Used by the
+	// archive-based bundle loader so an embedded envmap chunk can be decoded
+	// without writing a temp file first. Returns true on success and sets
+	// isHDR/sRGB the same way loadFromFile does for the disk path.
+	bool loadHDRFromStream(ucm::Stream& stream);
 
 	const inline Image& getImage() const { return this->image; }
 	inline Image& getImage() { return this->image; }

@@ -9,6 +9,7 @@
 #include <iostream>
 #include "raygen/rayrenderer.h"
 #include "raygen/sceneloader.h"
+#include "raygen/scenewriter.h"
 #include "ugm/imgcodec.h"
 #include "ucm/stopwatch.h"
 #include "ucm/ansi.h"
@@ -300,12 +301,101 @@ int main(int argc, const char * argv[]) {
 		errorExit("no command specified.\n");
 	}
     
-    if (cmd != "render") {
-        errorExit("only render command is supported\n");
+    if (cmd != "render" && cmd != "bundle" && cmd != "tobalist" && cmd != "tobaextract") {
+        errorExit("only render, bundle, tobalist and tobaextract commands are supported\n");
     }
-	
+
 	if (scenefile.isEmpty()) {
 		errorExit("no input file specified.\n");
+	}
+
+	// Inspection helpers for debugging bundle round-trips. `tobalist <bundle>`
+	// dumps every chunk's uid, format tag, and length. `tobaextract <bundle>`
+	// pairs with `-o <outdir>` to dump each chunk's payload to disk so the
+	// bytes can be opened in an external tool (image viewer, hex editor) to
+	// confirm the embedded data is valid.
+	if (cmd == "tobalist") {
+		ucm::Archive archive;
+		archive.load(scenefile);
+		ucm::ArchiveInfo info(archive);
+		const auto& indices = info.getTrunks().getIndices();
+		printf("uid        format     length     compressed\n");
+		printf("------------------------------------------\n");
+		for (const auto& idx : indices) {
+			char fmt[5] = {0,0,0,0,0};
+			*(uint*)fmt = idx.format;
+			printf("0x%08x %-8s   %-10u %s\n",
+				idx.uid, fmt, (uint)idx.length,
+				(idx.trunkFlags & 0x1) ? "yes" : "no");
+		}
+		return 0;
+	}
+	if (cmd == "tobaextract") {
+		if (outputImageFile.isEmpty()) {
+			errorExit("tobaextract: pass output directory via -o\n");
+		}
+		ucm::Archive archive;
+		archive.load(scenefile);
+		ucm::ArchiveInfo info(archive);
+		const auto& indices = info.getTrunks().getIndices();
+		for (const auto& idx : indices) {
+			char fmt[5] = {0,0,0,0,0};
+			*(uint*)fmt = idx.format;
+			ucm::string outpath;
+			outpath.appendFormat("%s%s%08x.%s",
+				outputImageFile.c_str(), PATH_SPLITTER_STR, idx.uid, fmt);
+			ucm::ChunkEntry* entry = archive.openChunk(idx.uid, idx.format);
+			if (entry != NULL) {
+				ucm::FileStream fs(outpath);
+				fs.openWrite(ucm::FileStreamType::Binary);
+				fs.write(entry->stream->getBuffer(), (uint)entry->stream->getLength());
+				fs.close();
+				archive.closeChunk(entry);
+				printf("extracted: %s (%u bytes)\n", outpath.c_str(),
+					(uint)entry->stream->getLength());
+			}
+		}
+		return 0;
+	}
+
+	// Bundle command: load scene → write a single .toba archive containing
+	// the manifest, meshes, and texture chunks. Output path falls back to
+	// "<scenebase>.toba" when -o wasn't given. Skips the renderer entirely —
+	// no trace, no thumbnail (the CLI doesn't have a rendered frame to
+	// embed; the viewer is the place for that).
+	if (cmd == "bundle") {
+		File bundleFile(scenefile);
+		string bundleOutPath = outputImageFile;
+		if (bundleOutPath.isEmpty() ||
+		    !(bundleOutPath.endsWith(".toba", StringComparingFlags::SCF_CASE_INSENSITIVE))) {
+			bundleOutPath.clear();
+			const string& inpath = bundleFile.getPath();
+			if (!inpath.isEmpty()) {
+				bundleOutPath.appendFormat("%s%s", inpath.c_str(), PATH_SPLITTER_STR);
+			}
+			bundleOutPath.appendFormat("%s.toba", bundleFile.getBaseName().c_str());
+		}
+
+		Scene bundleScene;
+		RendererSceneLoader bundleLoader;
+		RendererSettings bundleRs;
+		RayRenderer bundleRenderer(&bundleRs);
+		bundleLoader.load(bundleRenderer, &bundleScene, scenefile);
+
+		printf("bundling: %s -> %s\n", scenefile.c_str(), bundleOutPath.c_str());
+		raygen::SceneBundleSaver::save(bundleScene, bundleOutPath, NULL);
+		if (enableDumpScene) {
+			// --dump prints the manifest text so authors can inspect what
+			// went into chunk uid=1. Useful when round-trip results don't
+			// look right and you want to confirm the JSON shape.
+			ucm::Archive archive;
+			archive.load(bundleOutPath);
+			ucm::string manifest;
+			archive.getTextChunkData(1, 0x7466696d /* MIFT */, &manifest);
+			printf("--- manifest ---\n%s\n--- end manifest ---\n", manifest.c_str());
+		}
+		printf("done.\n");
+		return 0;
 	}
 
 	File file(scenefile);

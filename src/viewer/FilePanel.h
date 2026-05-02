@@ -49,6 +49,13 @@ struct FilePanelCtx {
     std::function<void()>                    onReloadScene;
     std::function<void(const char* newPath)> onLoadScene;
     std::function<void()>                    onSaveViewer;
+
+    // Save current scene tree as a self-contained .toba bundle. Caller
+    // shows the save dialog, writes the archive (manifest + thumbnail +
+    // mesh / texture chunks), and may then update its scenePath buffer to
+    // the saved location so subsequent Reload targets the bundle. NULL
+    // disables the Save Bundle button.
+    std::function<void()>                    onSaveBundle;
 };
 
 void drawFilePanel(const FilePanelCtx& ctx);

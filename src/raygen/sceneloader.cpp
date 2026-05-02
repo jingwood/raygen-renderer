@@ -655,7 +655,11 @@ void SceneJsonLoader::readSceneObject(SceneObject& obj, const JSObject& jsobj, A
 //					obj->material.name = matName;
 
 				} else if (val.type == JSType::JSType_Object && val.object != NULL) {
-					SceneJsonLoader::readMaterial(obj.material, *val.object, this->resPool);
+					// Pass `bundle` so inline mat blocks with tob://__this__/<uid>
+					// texture URIs resolve into the same archive the parent scene
+					// was loaded from. Without this, bundle round-trip loses every
+					// inline-material texture (envmap had a separate code path).
+					this->readMaterial(obj.material, *val.object, this->resPool, bundle);
 				}
 			}
 		}
@@ -704,6 +708,7 @@ void SceneJsonLoader::readSceneObject(SceneObject& obj, const JSObject& jsobj, A
 				this->transformPath(*val.str, filepath);
 				if (this->resPool != NULL) {
 					this->pendingEnvmap = this->resPool->getTexture(filepath, bundle);
+					this->pendingEnvmapPath = filepath;
 				}
 			} else if (val.type == JSType::JSType_Object && val.object != NULL) {
 				const string* texPath = val.object->getStringProperty("texture");
@@ -712,6 +717,7 @@ void SceneJsonLoader::readSceneObject(SceneObject& obj, const JSObject& jsobj, A
 					this->transformPath(*texPath, filepath);
 					if (this->resPool != NULL) {
 						this->pendingEnvmap = this->resPool->getTexture(filepath, bundle);
+						this->pendingEnvmapPath = filepath;
 					}
 				}
 
@@ -792,6 +798,51 @@ Camera* findMainCamera(SceneObject& obj) {
 	return NULL;
 }
 
+// Hand off `rootObj`'s children + accumulated pending state (envmap, global
+// medium) to `scene`. Shared between load() and loadBundle() so the .json
+// and .toba paths produce identically-shaped Scenes. Takes ownership of
+// rootObj — caller must not use it after this returns.
+static void finalizeSceneFromRoot(SceneJsonLoader& self,
+                                  SceneObject* rootObj,
+                                  Scene& scene,
+                                  Texture* pendingEnvmap,
+                                  Texture* const* pendingEnvCubemap,
+                                  float pendingEnvmapIntensity,
+                                  float pendingEnvmapRotation,
+                                  const string& pendingEnvmapPath,
+                                  HomogeneousMedium*& pendingGlobalMedium) {
+    (void)self;
+    if (rootObj == NULL) return;
+
+    for (auto child : rootObj->getObjects()) {
+        child->setParent(NULL);
+        scene.addObject(*child);
+    }
+
+    Camera* mainCamera = findMainCamera(*rootObj);
+    if (mainCamera != NULL) {
+        scene.mainCamera = mainCamera;
+    }
+
+    if (pendingEnvmap != NULL) {
+        scene.envmap = pendingEnvmap;
+        scene.buildEnvmapCDF();
+    }
+    scene.envmapIntensity = pendingEnvmapIntensity;
+    scene.envmapRotation  = pendingEnvmapRotation;
+    scene.envmapPath      = pendingEnvmapPath;
+    for (int i = 0; i < 6; i++) scene.envCubemapFaces[i] = pendingEnvCubemap[i];
+
+    if (pendingGlobalMedium != NULL) {
+        if (scene.globalMedium != NULL) delete scene.globalMedium;
+        scene.globalMedium = pendingGlobalMedium;
+        pendingGlobalMedium = NULL;
+    }
+
+    rootObj->objects.clear();
+    delete rootObj;
+}
+
 void SceneJsonLoader::load(const string& jsonPath, Scene& scene) {
 	this->jsonFilePath = jsonPath;
 
@@ -799,52 +850,72 @@ void SceneJsonLoader::load(const string& jsonPath, Scene& scene) {
 		resPool = &SceneResourcePool::instance;
 	}
 
+	// .toba bundles route to loadBundle() — they aren't text JSON files and
+	// the manifest lives inside chunk uid=1, not on disk. Detect by extension
+	// before trying to read the path as text.
+	if (jsonPath.endsWith(".toba", StringComparingFlags::SCF_CASE_INSENSITIVE)) {
+		this->loadBundle(jsonPath, scene);
+		return;
+	}
+
 	if (this->basePath.isEmpty()) {
 		File file(jsonPath);
 		this->setBasePath(file.getPath());
 	}
-	
+
 //	scene.resPool.basePath = this->basePath;
-	
+
 	string json;
 	File::readTextFile(this->jsonFilePath, json);
-	
+
 	if (json.isEmpty()) {
 		throw Exception("scene file is empty");
 	}
 
 	SceneObject* rootObj = this->loadObject(json);
-	
-	if (rootObj != NULL) {
-		for (auto child : rootObj->getObjects()) {
-			child->setParent(NULL);
-			scene.addObject(*child);
-		}
+	finalizeSceneFromRoot(*this, rootObj, scene,
+	                      this->pendingEnvmap, this->pendingEnvCubemap,
+	                      this->pendingEnvmapIntensity, this->pendingEnvmapRotation,
+	                      this->pendingEnvmapPath,
+	                      this->pendingGlobalMedium);
+}
 
-		Camera* mainCamera = findMainCamera(*rootObj);
-		if (mainCamera != NULL) {
-			scene.mainCamera = mainCamera;
-		}
+void SceneJsonLoader::loadBundle(const string& tobaPath, Scene& scene) {
+	this->jsonFilePath = tobaPath;
 
-		if (this->pendingEnvmap != NULL) {
-			scene.envmap = this->pendingEnvmap;
-			scene.buildEnvmapCDF();
-		}
-		scene.envmapIntensity = this->pendingEnvmapIntensity;
-		scene.envmapRotation = this->pendingEnvmapRotation;
-		for (int i = 0; i < 6; i++) scene.envCubemapFaces[i] = this->pendingEnvCubemap[i];
-
-		if (this->pendingGlobalMedium != NULL) {
-			if (scene.globalMedium != NULL) delete scene.globalMedium;
-			scene.globalMedium = this->pendingGlobalMedium;
-			this->pendingGlobalMedium = NULL;
-		}
-
-		rootObj->objects.clear();
-		delete rootObj;
-		rootObj = NULL;
+	if (resPool == NULL) {
+		resPool = &SceneResourcePool::instance;
 	}
 
+	// Bundles are self-contained — basePath only matters for resolving
+	// `_bundle` references inside the manifest, which would point relative to
+	// the .toba's own directory. Kept consistent with the .json path so a
+	// bundle can still reference a sibling external bundle if it wants to.
+	if (this->basePath.isEmpty()) {
+		File file(tobaPath);
+		this->setBasePath(file.getPath());
+	}
+
+	Archive* archive = this->resPool->loadArchive(tobaPath, tobaPath);
+	if (archive == NULL) {
+		throw Exception("failed to open bundle");
+	}
+
+	string manifest;
+	archive->getTextChunkData(1, FORMAT_TAG_MIFT, &manifest);
+	if (manifest.isEmpty()) {
+		throw Exception("bundle manifest (chunk 1) missing or empty");
+	}
+
+	// loadObject(json, bundle) threads the bundle Archive into readMaterial /
+	// readMesh / readSceneObject so any sob://__this__/<uid> resolves against
+	// this archive's chunks rather than the disk.
+	SceneObject* rootObj = this->loadObject(manifest, archive);
+	finalizeSceneFromRoot(*this, rootObj, scene,
+	                      this->pendingEnvmap, this->pendingEnvCubemap,
+	                      this->pendingEnvmapIntensity, this->pendingEnvmapRotation,
+	                      this->pendingEnvmapPath,
+	                      this->pendingGlobalMedium);
 }
 
 

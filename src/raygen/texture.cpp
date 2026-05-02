@@ -8,6 +8,7 @@
 
 #include "texture.h"
 #include "ugm/imgcodec.h"
+#include "ucm/stream.h"
 #include <cstdio>
 #include <cstring>
 #include <cmath>
@@ -17,20 +18,66 @@ namespace raygen {
 
 namespace {
 
-// Minimal Radiance .hdr (RGBE) loader. Handles the common new-format RLE
-// layout that every HDRI asset today uses; falls back to false on anything
-// else (old uncompressed format, non-RGBE, bad header) so the caller can try
-// another codec or fail cleanly.
-bool loadRadianceHDR(Image& image, const string& path) {
-    FILE* f = fopen(path.getBuffer(), "rb");
-    if (f == NULL) return false;
+// Byte-stream readers. The HDR header is line-oriented ASCII; the raw scanline
+// data is bytes. Two small adapters give us "is the next byte X?" / "read N
+// bytes" / "read a line ending in \n" without committing the loader to FILE*
+// (so we can decode an embedded archive chunk too).
 
-    // Header: ASCII lines, ending with a blank line. Look for the RGBE format
-    // tag and then the resolution line.
+struct ByteReader {
+    virtual ~ByteReader() {}
+    virtual bool readByte(unsigned char& out) = 0;
+    virtual bool readBytes(unsigned char* out, size_t n) = 0;
+};
+
+struct FileByteReader : public ByteReader {
+    FILE* f;
+    explicit FileByteReader(FILE* f) : f(f) {}
+    bool readByte(unsigned char& out) override {
+        return std::fread(&out, 1, 1, f) == 1;
+    }
+    bool readBytes(unsigned char* out, size_t n) override {
+        return std::fread(out, 1, n, f) == n;
+    }
+};
+
+struct StreamByteReader : public ByteReader {
+    ucm::Stream& s;
+    explicit StreamByteReader(ucm::Stream& s) : s(s) {}
+    bool readByte(unsigned char& out) override {
+        return s.read(&out, 1) == 1;
+    }
+    bool readBytes(unsigned char* out, size_t n) override {
+        return s.read(out, (uint)n) == n;
+    }
+};
+
+// Pull one '\n'-terminated line into `out` (capacity `cap`). Returns the
+// number of characters read (excluding the NUL); 0 on EOF or error. Strips
+// nothing — caller compares prefixes via strncmp.
+int readLine(ByteReader& r, char* out, int cap) {
+    int n = 0;
+    while (n < cap - 1) {
+        unsigned char c;
+        if (!r.readByte(c)) break;
+        out[n++] = (char)c;
+        if (c == '\n') break;
+    }
+    out[n] = '\0';
+    return n;
+}
+
+// Core RGBE decoder shared by file and stream paths. Reads the header,
+// resolution, then the RLE-compressed scanlines from `r`. Returns false on
+// malformed / unsupported input (old non-RLE format, non-RGBE, EOF before
+// data complete). Caller is expected to have positioned `r` at the start of
+// the file.
+bool decodeRadianceHDR(Image& image, ByteReader& r) {
     char line[256];
     bool rgbeOK = false;
     bool gotMagic = false;
-    while (fgets(line, (int)sizeof(line), f) != NULL) {
+    while (true) {
+        const int len = readLine(r, line, (int)sizeof(line));
+        if (len <= 0) return false;
         if (line[0] == '\n' || line[0] == '\r') break;
         if (!gotMagic && (strncmp(line, "#?RADIANCE", 10) == 0 || strncmp(line, "#?RGBE", 6) == 0)) {
             gotMagic = true;
@@ -39,12 +86,14 @@ bool loadRadianceHDR(Image& image, const string& path) {
             if (strncmp(line + 7, "32-bit_rle_rgbe", 15) == 0) rgbeOK = true;
         }
     }
-    if (!gotMagic || !rgbeOK) { fclose(f); return false; }
+    if (!gotMagic || !rgbeOK) return false;
 
-    int W = 0, H = 0;
-    if (fscanf(f, "-Y %d +X %d\n", &H, &W) != 2 || W <= 0 || H <= 0) {
-        fclose(f); return false;
-    }
+    // Resolution line: "-Y H +X W\n". We need to read it byte-by-byte rather
+    // than fscanf because the underlying reader doesn't necessarily support
+    // formatted parsing.
+    if (readLine(r, line, (int)sizeof(line)) <= 0) return false;
+    int H = 0, W = 0;
+    if (sscanf(line, "-Y %d +X %d", &H, &W) != 2 || W <= 0 || H <= 0) return false;
 
     image.setPixelDataFormat(PixelDataFormat::PDF_RGB, 32);
     image.createEmpty(W, H);
@@ -53,29 +102,28 @@ bool loadRadianceHDR(Image& image, const string& path) {
 
     for (int y = 0; y < H; y++) {
         unsigned char hdr[4];
-        if (fread(hdr, 1, 4, f) != 4) { fclose(f); return false; }
+        if (!r.readBytes(hdr, 4)) return false;
 
         if (hdr[0] == 2 && hdr[1] == 2 && (hdr[2] & 0x80) == 0) {
-            // New RLE: four channel streams, each RLE-compressed.
             const int len = (hdr[2] << 8) | hdr[3];
-            if (len != W) { fclose(f); return false; }
+            if (len != W) return false;
 
             for (int chan = 0; chan < 4; chan++) {
                 int p = 0;
                 while (p < W) {
                     unsigned char count;
-                    if (fread(&count, 1, 1, f) != 1) { fclose(f); return false; }
+                    if (!r.readByte(count)) return false;
                     if (count > 128) {
                         const int runLen = count & 0x7f;
                         unsigned char val;
-                        if (fread(&val, 1, 1, f) != 1) { fclose(f); return false; }
+                        if (!r.readByte(val)) return false;
                         for (int i = 0; i < runLen; i++) scanline[(p + i) * 4 + chan] = val;
                         p += runLen;
                     } else {
                         const int n = count;
                         for (int i = 0; i < n; i++) {
                             unsigned char val;
-                            if (fread(&val, 1, 1, f) != 1) { fclose(f); return false; }
+                            if (!r.readByte(val)) return false;
                             scanline[(p + i) * 4 + chan] = val;
                         }
                         p += n;
@@ -84,23 +132,31 @@ bool loadRadianceHDR(Image& image, const string& path) {
             }
         } else {
             // Old uncompressed format — refuse rather than silently misread.
-            fclose(f); return false;
+            return false;
         }
 
         for (int x = 0; x < W; x++) {
-            const unsigned char r = scanline[x * 4 + 0];
-            const unsigned char g = scanline[x * 4 + 1];
-            const unsigned char b = scanline[x * 4 + 2];
-            const unsigned char e = scanline[x * 4 + 3];
-            // RGBE decoding: channel * 2^(E - 128) / 256. When E is 0 the pixel
-            // is black; ldexp handles that without branching.
+            const unsigned char rB = scanline[x * 4 + 0];
+            const unsigned char gB = scanline[x * 4 + 1];
+            const unsigned char bB = scanline[x * 4 + 2];
+            const unsigned char e  = scanline[x * 4 + 3];
+            // RGBE decoding: channel * 2^(E - 128) / 256. When E is 0 the
+            // pixel is black; ldexp handles that without branching.
             const float scale = (e == 0) ? 0.0f : ldexpf(1.0f, (int)e - 128 - 8);
-            image.setPixel(x, y, color4f(r * scale, g * scale, b * scale, 1.0f));
+            image.setPixel(x, y, color4f(rB * scale, gB * scale, bB * scale, 1.0f));
         }
     }
 
-    fclose(f);
     return true;
+}
+
+bool loadRadianceHDR(Image& image, const string& path) {
+    FILE* f = fopen(path.getBuffer(), "rb");
+    if (f == NULL) return false;
+    FileByteReader r(f);
+    const bool ok = decodeRadianceHDR(image, r);
+    fclose(f);
+    return ok;
 }
 
 bool pathEndsWithHDR(const string& path) {
@@ -188,6 +244,16 @@ Texture* Texture::createFromFile(const string& path) {
 	auto tex = new Texture();
 	tex->loadFromFile(path);
 	return tex;
+}
+
+bool Texture::loadHDRFromStream(ucm::Stream& stream) {
+    StreamByteReader r(stream);
+    if (decodeRadianceHDR(this->image, r)) {
+        this->isHDR = true;
+        this->sRGB  = false;
+        return true;
+    }
+    return false;
 }
 
 }

@@ -50,7 +50,9 @@
 #include "raygen/medium.h"
 #include "raygen/rayrenderer.h"
 #include "raygen/sceneloader.h"
+#include "raygen/scenewriter.h"
 
+#include "Dialog.h"
 #include "FilePanel.h"
 #include "MainPanel.h"
 #include "MediumEditor.h"
@@ -1075,6 +1077,68 @@ int main(int argc, char** argv) {
             reloadCurrentScene();
         };
 
+        // Save bundle: package the *current* in-memory Scene (with all the
+        // viewer-side edits to transforms, materials, mediums) into a single
+        // .toba archive. The worker is gated off in the panel via isRendering
+        // so this walk doesn't race with mid-render mesh / material reads.
+        auto saveBundle = [&]() {
+            // Seed default filename from the loaded scene path: drop the
+            // existing extension, append `.toba`. With no scene yet we offer
+            // "untitled.toba" — user can re-aim with the dialog.
+            char defaultName[256] = {0};
+            if (scenePath[0] != '\0') {
+                const char* slashU = std::strrchr(scenePath, '/');
+                const char* slashW = std::strrchr(scenePath, '\\');
+                const char* slash  = slashU > slashW ? slashU : slashW;
+                const char* base   = slash ? slash + 1 : scenePath;
+                size_t baseLen = std::strlen(base);
+                const char* dot = std::strrchr(base, '.');
+                if (dot) baseLen = (size_t)(dot - base);
+                if (baseLen > sizeof(defaultName) - 6) baseLen = sizeof(defaultName) - 6;
+                std::memcpy(defaultName, base, baseLen);
+                std::memcpy(defaultName + baseLen, ".toba", 6);
+            } else {
+                std::memcpy(defaultName, "untitled.toba", 14);
+            }
+
+            char initDir[512] = {0};
+            if (scenePath[0] != '\0') {
+                const char* slashU = std::strrchr(scenePath, '/');
+                const char* slashW = std::strrchr(scenePath, '\\');
+                const char* slash  = slashU > slashW ? slashU : slashW;
+                if (slash != nullptr) {
+                    size_t n = (size_t)(slash - scenePath);
+                    if (n >= sizeof(initDir)) n = sizeof(initDir) - 1;
+                    std::memcpy(initDir, scenePath, n);
+                    initDir[n] = '\0';
+                }
+            }
+
+            char picked[1024] = {0};
+            if (!viewer::saveBundleFileDialog(picked, sizeof(picked),
+                                              defaultName,
+                                              initDir[0] ? initDir : nullptr)) {
+                return;
+            }
+
+            // Use the latest tonemapped frame as the bundle thumbnail. Skip
+            // when there's no rendered frame yet — SceneBundleSaver handles a
+            // null thumbnail by simply not creating chunk uid=2.
+            const ugm::Image* thumb = nullptr;
+            if (renderTex != 0) {
+                thumb = &renderer.getRenderResult();
+            }
+
+            try {
+                raygen::SceneBundleSaver::save(*scene, ucm::string(picked), thumb);
+                fprintf(stdout, "saved bundle: %s\n", picked);
+            } catch (const std::exception& e) {
+                fprintf(stderr, "save bundle failed: %s\n", e.what());
+            } catch (...) {
+                fprintf(stderr, "save bundle failed (unknown error)\n");
+            }
+        };
+
         viewer::FilePanelCtx fpCtx;
         fpCtx.scenePath      = scenePath;
         fpCtx.outputPath     = outputPath;
@@ -1085,6 +1149,7 @@ int main(int argc, char** argv) {
         fpCtx.onReloadScene  = reloadCurrentScene;
         fpCtx.onLoadScene    = loadNewScene;
         fpCtx.onSaveViewer   = persistSidecar;
+        fpCtx.onSaveBundle   = saveBundle;
         viewer::drawFilePanel(fpCtx);
 
         // --- Render preview ---

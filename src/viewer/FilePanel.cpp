@@ -106,6 +106,18 @@ void drawFilePanel(const FilePanelCtx& ctx) {
     }
     if (!hasScene || !ctx.onSaveViewer) ImGui::EndDisabled();
 
+    // Save Bundle: pack the current Scene tree (with any viewer-side edits
+    // to transforms, materials, mediums) into a single .toba bundle. Disabled
+    // while a render is in flight so the worker doesn't see torn mesh/material
+    // state during the walk.
+    ImGui::SameLine();
+    const bool canSaveBundle = !ctx.isRendering && ctx.onSaveBundle != nullptr;
+    if (!canSaveBundle) ImGui::BeginDisabled();
+    if (ImGui::Button("Save bundle...")) {
+        ctx.onSaveBundle();
+    }
+    if (!canSaveBundle) ImGui::EndDisabled();
+
     ImGui::End();
 }
 

@@ -15,14 +15,21 @@
 namespace raygen {
 namespace viewer {
 
-// Opens an "Open scene" dialog filtered to .json. Returns true on selection
-// and writes a NUL-terminated path into `out` (truncated to `outCap-1`
-// bytes). Returns false if the user cancelled, on platforms with no
-// implementation, or if `out` is null.
+// Opens an "Open scene" dialog filtered to .json / .toba. Returns true on
+// selection and writes a NUL-terminated path into `out` (truncated to
+// `outCap-1` bytes). Returns false if the user cancelled, on platforms with
+// no implementation, or if `out` is null.
 //
 // `initialDir` (may be null) seeds the dialog's working directory; we don't
 // change the process CWD even if the user navigates elsewhere.
 bool openSceneFileDialog(char* out, size_t outCap, const char* initialDir);
+
+// "Save bundle as" dialog. Returns true on Save, writing the chosen path to
+// `out`. The dialog defaults to a `.toba` extension and seeds the suggested
+// filename from `defaultName` (just the basename, no path). Behaves like
+// openSceneFileDialog otherwise — false on cancel / unsupported platform.
+bool saveBundleFileDialog(char* out, size_t outCap,
+                          const char* defaultName, const char* initialDir);
 
 }  // namespace viewer
 }  // namespace raygen
