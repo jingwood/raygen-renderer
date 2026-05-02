@@ -118,6 +118,23 @@ void drawFilePanel(const FilePanelCtx& ctx) {
     }
     if (!canSaveBundle) ImGui::EndDisabled();
 
+    // Pin the current frame as the bundle thumbnail. Useful when the user
+    // wants the published bundle to keep a "hero" shot, not whatever frame
+    // happened to be in the buffer at Save time. Label flips once a preview
+    // has been captured so the button doubles as a status hint.
+    ImGui::SameLine();
+    const bool canSetPreview = !ctx.isRendering && ctx.hasRender && ctx.onSetPreview != nullptr;
+    if (!canSetPreview) ImGui::BeginDisabled();
+    const char* label = ctx.hasPinnedPreview ? "Update preview" : "Set as preview";
+    if (ImGui::Button(label)) {
+        ctx.onSetPreview();
+    }
+    if (!canSetPreview) ImGui::EndDisabled();
+    if (ctx.hasPinnedPreview) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("(pinned)");
+    }
+
     ImGui::End();
 }
 

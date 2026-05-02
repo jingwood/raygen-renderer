@@ -1077,6 +1077,22 @@ int main(int argc, char** argv) {
             reloadCurrentScene();
         };
 
+        // Pinned bundle thumbnail. When set, Save bundle embeds this image
+        // as chunk uid=2 instead of pulling renderer.getRenderResult() at
+        // save time — useful when the user wants the bundle to ship with a
+        // specific "hero" frame rather than whatever happens to be on screen.
+        // Lives in the main-thread scope alongside renderer because the
+        // panel callback runs there and the snapshot is a deep copy.
+        static ugm::Image pinnedThumbnail;
+        static bool       hasPinnedThumbnail = false;
+
+        auto setPreview = [&]() {
+            // Deep-copy so a later render doesn't mutate the captured pixels
+            // before Save fires. Image's copy ctor copies the buffer.
+            pinnedThumbnail = renderer.getRenderResult();
+            hasPinnedThumbnail = (pinnedThumbnail.width() > 0 && pinnedThumbnail.height() > 0);
+        };
+
         // Save bundle: package the *current* in-memory Scene (with all the
         // viewer-side edits to transforms, materials, mediums) into a single
         // .toba archive. The worker is gated off in the panel via isRendering
@@ -1121,11 +1137,14 @@ int main(int argc, char** argv) {
                 return;
             }
 
-            // Use the latest tonemapped frame as the bundle thumbnail. Skip
-            // when there's no rendered frame yet — SceneBundleSaver handles a
-            // null thumbnail by simply not creating chunk uid=2.
+            // Prefer the pinned preview (Set as preview) so the user can
+            // choose the hero frame deliberately. When nothing is pinned,
+            // fall back to the latest tonemapped frame. SceneBundleSaver
+            // handles a null thumbnail by simply not creating chunk uid=2.
             const ugm::Image* thumb = nullptr;
-            if (renderTex != 0) {
+            if (hasPinnedThumbnail) {
+                thumb = &pinnedThumbnail;
+            } else if (renderTex != 0) {
                 thumb = &renderer.getRenderResult();
             }
 
@@ -1149,7 +1168,9 @@ int main(int argc, char** argv) {
         fpCtx.onReloadScene  = reloadCurrentScene;
         fpCtx.onLoadScene    = loadNewScene;
         fpCtx.onSaveViewer   = persistSidecar;
-        fpCtx.onSaveBundle   = saveBundle;
+        fpCtx.onSaveBundle      = saveBundle;
+        fpCtx.onSetPreview      = setPreview;
+        fpCtx.hasPinnedPreview  = hasPinnedThumbnail;
         viewer::drawFilePanel(fpCtx);
 
         // --- Render preview ---
