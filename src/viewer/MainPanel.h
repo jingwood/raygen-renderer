@@ -39,6 +39,16 @@ struct MainPanelCtx {
     bool isRendering;
     JobKind currentJobKind;
     float previewProgress;
+
+    // Currently attached envmap path (for display in the Scene section).
+    // Empty string when no envmap is loaded. May be null.
+    const char* envmapPath;
+
+    // Apply a newly picked envmap file to the Scene. Called from the Browse
+    // button after the file dialog returns. The caller (main.cpp) loads the
+    // texture, swaps Scene::envmap, rebuilds the CDF and kicks a Full
+    // render. NULL disables the Browse button.
+    std::function<void(const char* path)> onLoadEnvmap;
 };
 
 // Returns true when any widget changed a value this frame. Caller wires this

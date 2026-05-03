@@ -596,7 +596,7 @@ Mesh* SceneResourcePool::loadMeshFromFile(const string& meshURI, Archive* archiv
 
 Texture* SceneResourcePool::getTexture(const string& path, Archive* bundle) {
     const auto it = this->textures.find(path);
-    
+
     if (it != this->textures.end()) {
         return it->second;
     }
@@ -631,7 +631,25 @@ Texture* SceneResourcePool::getTexture(const string& path, Archive* bundle) {
             if (targetBundle != NULL) {
                 uint uid = (uint)std::stoul(uidstr, nullptr, 16);
 
-                loadImage(tex->getImage(), *targetBundle, uid);
+                // HDR (Radiance .hdr) chunks aren't probed by ugm::loadImage's
+                // auto-detect (it only tries JPEG/PNG/BMP/GIF). Inspect the
+                // chunk's stored format tag and route to the RGBE decoder when
+                // it's tagged FORMAT_TAG_HDR; everything else falls through to
+                // the standard codec path.
+                #define _LOCAL_FORMAT_TAG_HDR 0x20726468
+                ChunkEntry* hdrEntry = targetBundle->openChunk(uid);
+                if (hdrEntry != NULL && hdrEntry->format == _LOCAL_FORMAT_TAG_HDR) {
+                    if (tex->loadHDRFromStream(*hdrEntry->stream)) {
+                        targetBundle->closeChunk(hdrEntry);
+                    } else {
+                        targetBundle->closeChunk(hdrEntry);
+                        loadImage(tex->getImage(), *targetBundle, uid);
+                    }
+                } else {
+                    if (hdrEntry != NULL) targetBundle->closeChunk(hdrEntry);
+                    loadImage(tex->getImage(), *targetBundle, uid);
+                }
+                #undef _LOCAL_FORMAT_TAG_HDR
             }
         }
 

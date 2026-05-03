@@ -49,6 +49,21 @@ struct FilePanelCtx {
     std::function<void()>                    onReloadScene;
     std::function<void(const char* newPath)> onLoadScene;
     std::function<void()>                    onSaveViewer;
+
+    // Save current scene tree as a self-contained .toba bundle. Caller
+    // shows the save dialog, writes the archive (manifest + thumbnail +
+    // mesh / texture chunks), and may then update its scenePath buffer to
+    // the saved location so subsequent Reload targets the bundle. NULL
+    // disables the Save Bundle button.
+    std::function<void()>                    onSaveBundle;
+
+    // "Set as preview": snapshot the current LDR frame and pin it as the
+    // thumbnail to embed in the next Save bundle. Without a pinned preview,
+    // Save bundle falls back to whatever frame happens to be in renderer.
+    // hasPinnedPreview flips the button label so the user can tell the snap
+    // already happened.
+    std::function<void()>                    onSetPreview;
+    bool                                     hasPinnedPreview;
 };
 
 void drawFilePanel(const FilePanelCtx& ctx);

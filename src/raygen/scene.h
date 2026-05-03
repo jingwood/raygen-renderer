@@ -189,6 +189,12 @@ public:
 	// Rotation of the environment map around the Y axis, in degrees.
 	float envmapRotation = 0.0f;
 
+	// Source path the envmap texture was loaded from (resolved disk path or
+	// the original `tob://` URI when loaded via a bundle). Persisted so the
+	// bundle writer can re-embed the envmap bytes on save. Empty when the
+	// scene has no envmap or only a cubemap.
+	string envmapPath;
+
 	// Optional 6-face cubemap that overrides the equirectangular envmap when
 	// present (indices: +X, -X, +Y, -Y, +Z, -Z — the standard OpenGL
 	// ordering). Pool owns each Texture; Scene just borrows the pointers.

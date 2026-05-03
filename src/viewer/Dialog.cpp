@@ -4,9 +4,11 @@
 
 #include "Dialog.h"
 
+#include <cstring>
+
 #ifdef _WIN32
 // commdlg32.lib is in MSVC's default link set, so no project-file change is
-// needed to pull in GetOpenFileNameA.
+// needed to pull in GetOpenFileNameA / GetSaveFileNameA.
 #include <windows.h>
 #include <commdlg.h>
 #endif
@@ -18,6 +20,10 @@ namespace viewer {
 // Implemented in Dialog_mac.mm — NSOpenPanel needs Objective-C++ which we
 // don't want to leak into this file (Windows builds don't compile .mm).
 bool openSceneFileDialog_mac(char* out, size_t outCap, const char* initialDir);
+bool saveBundleFileDialog_mac(char* out, size_t outCap,
+                              const char* defaultName, const char* initialDir);
+bool openImageFileDialog_mac(char* out, size_t outCap,
+                             const char* title, const char* initialDir);
 #endif
 
 bool openSceneFileDialog(char* out, size_t outCap, const char* initialDir) {
@@ -27,7 +33,10 @@ bool openSceneFileDialog(char* out, size_t outCap, const char* initialDir) {
 #ifdef _WIN32
     // Filter list is double-NUL-terminated pairs of "label\0pattern\0...\0".
     // The trailing \0 is supplied by the string literal terminator.
-    static const char kFilter[] = "Scene JSON\0*.json\0All Files\0*.*\0";
+    // Both .json (authoring format) and .toba (bundle) are accepted — the
+    // loader detects by extension.
+    static const char kFilter[] =
+        "Scene Files\0*.json;*.toba\0Scene JSON\0*.json\0Scene Bundle\0*.toba\0All Files\0*.*\0";
 
     OPENFILENAMEA ofn;
     ZeroMemory(&ofn, sizeof(ofn));
@@ -51,6 +60,82 @@ bool openSceneFileDialog(char* out, size_t outCap, const char* initialDir) {
     // TODO: GTK FileChooser / zenity on Linux. Until then the Load Scene
     // button is no-op on Linux; the user can still launch with a scene
     // argv and use Reload.
+    return false;
+#endif
+}
+
+bool saveBundleFileDialog(char* out, size_t outCap,
+                          const char* defaultName, const char* initialDir) {
+    if (out == nullptr || outCap == 0) return false;
+    out[0] = '\0';
+
+#ifdef _WIN32
+    // GetSaveFileName uses the same OPENFILENAME struct as the open dialog.
+    // Pre-seed `out` with the suggested filename so the user can edit it
+    // rather than re-typing.
+    if (defaultName != nullptr) {
+        size_t n = std::strlen(defaultName);
+        if (n >= outCap) n = outCap - 1;
+        std::memcpy(out, defaultName, n);
+        out[n] = '\0';
+    }
+
+    static const char kFilter[] = "Scene Bundle\0*.toba\0All Files\0*.*\0";
+
+    OPENFILENAMEA ofn;
+    ZeroMemory(&ofn, sizeof(ofn));
+    ofn.lStructSize     = sizeof(ofn);
+    ofn.hwndOwner       = nullptr;
+    ofn.lpstrFilter     = kFilter;
+    ofn.lpstrFile       = out;
+    ofn.nMaxFile        = (DWORD)outCap;
+    ofn.lpstrInitialDir = initialDir;
+    ofn.lpstrTitle      = "Save scene bundle";
+    ofn.lpstrDefExt     = "toba";
+    // OFN_OVERWRITEPROMPT — Windows asks before clobbering an existing file.
+    // OFN_PATHMUSTEXIST keeps the dir validation; OFN_NOCHANGEDIR matches
+    // the open path's behaviour.
+    ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+    return GetSaveFileNameA(&ofn) != 0;
+#elif defined(__APPLE__)
+    return saveBundleFileDialog_mac(out, outCap, defaultName, initialDir);
+#else
+    (void)defaultName; (void)initialDir;
+    return false;
+#endif
+}
+
+bool openImageFileDialog(char* out, size_t outCap,
+                         const char* title, const char* initialDir) {
+    if (out == nullptr || outCap == 0) return false;
+    out[0] = '\0';
+
+#ifdef _WIN32
+    // Filter list mirrors the renderer's loadable formats: LDR via libjpeg /
+    // libpng + the BSD bitmap codec, HDR via the Radiance .hdr decoder.
+    static const char kFilter[] =
+        "Image Files\0*.jpg;*.jpeg;*.png;*.bmp;*.hdr\0"
+        "JPEG\0*.jpg;*.jpeg\0"
+        "PNG\0*.png\0"
+        "BMP\0*.bmp\0"
+        "Radiance HDR\0*.hdr\0"
+        "All Files\0*.*\0";
+
+    OPENFILENAMEA ofn;
+    ZeroMemory(&ofn, sizeof(ofn));
+    ofn.lStructSize     = sizeof(ofn);
+    ofn.hwndOwner       = nullptr;
+    ofn.lpstrFilter     = kFilter;
+    ofn.lpstrFile       = out;
+    ofn.nMaxFile        = (DWORD)outCap;
+    ofn.lpstrInitialDir = initialDir;
+    ofn.lpstrTitle      = title != nullptr ? title : "Open image";
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+    return GetOpenFileNameA(&ofn) != 0;
+#elif defined(__APPLE__)
+    return openImageFileDialog_mac(out, outCap, title, initialDir);
+#else
+    (void)title; (void)initialDir;
     return false;
 #endif
 }

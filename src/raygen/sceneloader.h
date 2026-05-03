@@ -47,6 +47,10 @@ private:
 	Texture* pendingEnvCubemap[6] = { NULL, NULL, NULL, NULL, NULL, NULL };
 	float pendingEnvmapIntensity = 1.0f;
 	float pendingEnvmapRotation = 0.0f;
+	// Source path / bundle URI the envmap texture was loaded from. Round-
+	// tripped onto Scene::envmapPath so the bundle writer can re-embed the
+	// envmap bytes when the user later saves a .toba.
+	string pendingEnvmapPath;
 
 	// Scene-wide participating medium (e.g. fog) discovered at the root scope.
 	// Applied to scene.globalMedium at the end of load(). Heap-owned here
@@ -99,6 +103,12 @@ public:
 	void load(const string& jsonPath, Scene& scene);
 	SceneObject* loadObject(const string& json, Archive* bundle = NULL);
 	SceneObject* loadObject(const JSObject& jsobj, Archive* bundle = NULL);
+
+	// Open a .toba bundle as a self-contained scene: the manifest at chunk
+	// uid=1 (FORMAT_TAG_MIFT) is parsed as the root scene JSON, with mesh /
+	// texture URIs of the form `tob://__this__/<uid>` resolving back to
+	// chunks in the same archive. Mirrors load() for the bundle case.
+	void loadBundle(const string& tobaPath, Scene& scene);
 
 	static bool tryReadVec3Property(const JSObject& obj, const char* name, vec3* v);
 	static bool tryReadVec2Property(const JSObject& obj, const char* name, vec2* v);

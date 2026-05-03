@@ -49,8 +49,12 @@
 
 #include "raygen/medium.h"
 #include "raygen/rayrenderer.h"
+#include "raygen/scene.h"
 #include "raygen/sceneloader.h"
+#include "raygen/scenewriter.h"
+#include "raygen/texture.h"
 
+#include "Dialog.h"
 #include "FilePanel.h"
 #include "MainPanel.h"
 #include "MediumEditor.h"
@@ -944,6 +948,30 @@ int main(int argc, char** argv) {
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
+        // Apply a newly-picked envmap file to the current Scene. Loads the
+        // texture through the resource pool (which de-dupes by path), swaps
+        // Scene::envmap, rebuilds the importance-sampling CDF, and kicks a
+        // Full render. The Browse button is disabled while rendering, so this
+        // runs on an idle worker — safe to mutate scene->envmap*.
+        auto loadEnvmap = [&](const char* path) {
+            if (path == nullptr || path[0] == '\0') return;
+            ucm::string p(path);
+            Texture* tex = SceneResourcePool::instance.getTexture(p);
+            if (tex == nullptr) {
+                fprintf(stderr, "load envmap failed: %s\n", path);
+                return;
+            }
+            // Replace the equirect envmap. The cubemap faces (if any) take
+            // precedence in the renderer, so clear them so the new equirect
+            // is what the worker actually samples.
+            scene->envmap     = tex;
+            scene->envmapPath = p;
+            for (int i = 0; i < 6; i++) scene->envCubemapFaces[i] = NULL;
+            scene->buildEnvmapCDF();
+            lastKickedParams = uiParams;
+            kickFinal(JobKind::Full);
+        };
+
         // --- Control panel (lives in MainPanel.cpp) ---
         viewer::MainPanelCtx mpCtx;
         mpCtx.params           = &uiParams;
@@ -957,12 +985,22 @@ int main(int argc, char** argv) {
         mpCtx.isRendering      = isRendering;
         mpCtx.currentJobKind   = currentJobKind;
         mpCtx.previewProgress  = previewProgress;
+        mpCtx.envmapPath       = scene->envmapPath.getBuffer();
+        mpCtx.onLoadEnvmap     = loadEnvmap;
         viewer::drawMainPanel(mpCtx, kickFinal);
 
         // --- Output resolution window ---
         ImGui::Begin("Output");
         ImGui::InputInt("width",  &outputWidth,  10, 100);
         ImGui::InputInt("height", &outputHeight, 10, 100);
+        // Swap width/height — handy for flipping landscape↔portrait without
+        // re-typing both fields. Just swaps the edit buffer; the user still
+        // commits via Apply (or the auto-apply preset path).
+        if (ImGui::SmallButton("swap W <-> H")) {
+            const int t = outputWidth;
+            outputWidth  = outputHeight;
+            outputHeight = t;
+        }
         if (outputWidth  < 16)   outputWidth  = 16;
         if (outputHeight < 16)   outputHeight = 16;
         if (outputWidth  > 8192) outputWidth  = 8192;
@@ -1075,6 +1113,87 @@ int main(int argc, char** argv) {
             reloadCurrentScene();
         };
 
+        // Pinned bundle thumbnail. When set, Save bundle embeds this image
+        // as chunk uid=2 instead of pulling renderer.getRenderResult() at
+        // save time — useful when the user wants the bundle to ship with a
+        // specific "hero" frame rather than whatever happens to be on screen.
+        // Lives in the main-thread scope alongside renderer because the
+        // panel callback runs there and the snapshot is a deep copy.
+        static ugm::Image pinnedThumbnail;
+        static bool       hasPinnedThumbnail = false;
+
+        auto setPreview = [&]() {
+            // Deep-copy so a later render doesn't mutate the captured pixels
+            // before Save fires. Image's copy ctor copies the buffer.
+            pinnedThumbnail = renderer.getRenderResult();
+            hasPinnedThumbnail = (pinnedThumbnail.width() > 0 && pinnedThumbnail.height() > 0);
+        };
+
+        // Save bundle: package the *current* in-memory Scene (with all the
+        // viewer-side edits to transforms, materials, mediums) into a single
+        // .toba archive. The worker is gated off in the panel via isRendering
+        // so this walk doesn't race with mid-render mesh / material reads.
+        auto saveBundle = [&]() {
+            // Seed default filename from the loaded scene path: drop the
+            // existing extension, append `.toba`. With no scene yet we offer
+            // "untitled.toba" — user can re-aim with the dialog.
+            char defaultName[256] = {0};
+            if (scenePath[0] != '\0') {
+                const char* slashU = std::strrchr(scenePath, '/');
+                const char* slashW = std::strrchr(scenePath, '\\');
+                const char* slash  = slashU > slashW ? slashU : slashW;
+                const char* base   = slash ? slash + 1 : scenePath;
+                size_t baseLen = std::strlen(base);
+                const char* dot = std::strrchr(base, '.');
+                if (dot) baseLen = (size_t)(dot - base);
+                if (baseLen > sizeof(defaultName) - 6) baseLen = sizeof(defaultName) - 6;
+                std::memcpy(defaultName, base, baseLen);
+                std::memcpy(defaultName + baseLen, ".toba", 6);
+            } else {
+                std::memcpy(defaultName, "untitled.toba", 14);
+            }
+
+            char initDir[512] = {0};
+            if (scenePath[0] != '\0') {
+                const char* slashU = std::strrchr(scenePath, '/');
+                const char* slashW = std::strrchr(scenePath, '\\');
+                const char* slash  = slashU > slashW ? slashU : slashW;
+                if (slash != nullptr) {
+                    size_t n = (size_t)(slash - scenePath);
+                    if (n >= sizeof(initDir)) n = sizeof(initDir) - 1;
+                    std::memcpy(initDir, scenePath, n);
+                    initDir[n] = '\0';
+                }
+            }
+
+            char picked[1024] = {0};
+            if (!viewer::saveBundleFileDialog(picked, sizeof(picked),
+                                              defaultName,
+                                              initDir[0] ? initDir : nullptr)) {
+                return;
+            }
+
+            // Prefer the pinned preview (Set as preview) so the user can
+            // choose the hero frame deliberately. When nothing is pinned,
+            // fall back to the latest tonemapped frame. SceneBundleSaver
+            // handles a null thumbnail by simply not creating chunk uid=2.
+            const ugm::Image* thumb = nullptr;
+            if (hasPinnedThumbnail) {
+                thumb = &pinnedThumbnail;
+            } else if (renderTex != 0) {
+                thumb = &renderer.getRenderResult();
+            }
+
+            try {
+                raygen::SceneBundleSaver::save(*scene, ucm::string(picked), thumb);
+                fprintf(stdout, "saved bundle: %s\n", picked);
+            } catch (const std::exception& e) {
+                fprintf(stderr, "save bundle failed: %s\n", e.what());
+            } catch (...) {
+                fprintf(stderr, "save bundle failed (unknown error)\n");
+            }
+        };
+
         viewer::FilePanelCtx fpCtx;
         fpCtx.scenePath      = scenePath;
         fpCtx.outputPath     = outputPath;
@@ -1085,6 +1204,9 @@ int main(int argc, char** argv) {
         fpCtx.onReloadScene  = reloadCurrentScene;
         fpCtx.onLoadScene    = loadNewScene;
         fpCtx.onSaveViewer   = persistSidecar;
+        fpCtx.onSaveBundle      = saveBundle;
+        fpCtx.onSetPreview      = setPreview;
+        fpCtx.hasPinnedPreview  = hasPinnedThumbnail;
         viewer::drawFilePanel(fpCtx);
 
         // --- Render preview ---
@@ -1188,7 +1310,11 @@ int main(int argc, char** argv) {
         // reads it.
         bool sceneDirty = false;
         sceneDirty |= viewer::drawOutlinePanel(*scene, selectedObj);
-        sceneDirty |= viewer::drawPropertyPanel(selectedObj);
+        viewer::PropertyPanelCtx ppCtx;
+        ppCtx.selected    = selectedObj;
+        ppCtx.isRendering = isRendering;
+        ppCtx.scenePath   = scenePath;
+        sceneDirty |= viewer::drawPropertyPanel(ppCtx);
 
         // Scene edits always need a full re-trace (BVH bounds, transforms,
         // materials all feed the primary ray). Route through the shared
