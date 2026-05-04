@@ -18,9 +18,9 @@
 // to advance "time" without re-rolling the spectrum.
 {
   "mainCamera": {
-    "location": [0, 12, 35],
-    "angle":    [-22, 0, 0],
-    "fieldOfView": 50,
+    "location": [0, 90, 30],
+    "angle":    [-19, 40, 0],
+    "fieldOfView": 20,
     "exposure": 0.9
   },
 
@@ -31,34 +31,38 @@
   },
 
   "world": {
-    "Terrain": {
-      "location": [0, 0, 0],
-      "mesh":     "coast.obj",
-      "mat":      { "color": "#6a6447", "diffuse": 0.9, "glossy": 0.05, "roughness": 0.6 }
-    },
-
-    // Gerstner-displaced sea. The mesh extends ±600 m in each
-    // direction so the horizon line stays clean and underwater rays
-    // going outward don't exit through a missing edge. Roughness 0.0
-    // — the displacement carries the surface detail, no extra
-    // microfacet jitter needed.
-    "Ocean": {
-      "location": [0, 0, 0],
-      "mesh":     "sea.obj",
-      "mat": {
-        "color":           "#ffffff",
-        "refraction":      1.0,
-        "refractionRatio": 1.33,
-        "roughness":       0.0
+    "children" : {
+      "Terrain": {
+        "location": [0, 0, 0],
+        "mesh":     "coast.obj",
+        "mat":      { "color": "#6a6447", "diffuse": 0.9, "glossy": 0.05, "roughness": 0.6 }
       },
-      // Beer-Lambert per-channel σ_a in 1/m. Red absorbs ~10× faster
-      // than blue in clean seawater, which is why deep water reads
-      // teal-blue. density scales the trio uniformly so the colour
-      // ratio stays constant when you "deepen" the water.
-      "medium": {
-        "sigma_a": [0.45, 0.08, 0.03],
-        "sigma_s": [0.02, 0.02, 0.02],
-        "density": 1.0
+
+      // Gerstner-displaced sea. The mesh extends ±600 m in each
+      // direction so the horizon line stays clean and underwater rays
+      // going outward don't exit through a missing edge. Roughness 0.0
+      // — the displacement carries the surface detail, no extra
+      // microfacet jitter needed.
+      "Ocean": {
+        "location": [0, 0, 0],
+        "mesh":     "sea.obj",
+        "mat": {
+          "color":           "#ffffff",
+          "glossy":          1.0,
+          "metallic":        0.0,
+          "refraction":      0.0,
+          "refractionRatio": 1.33,
+          "roughness":       0.0
+        },
+        // Beer-Lambert per-channel σ_a in 1/m. Red absorbs ~10× faster
+        // than blue in clean seawater, which is why deep water reads
+        // teal-blue. density scales the trio uniformly so the colour
+        // ratio stays constant when you "deepen" the water.
+        "medium": {
+          "sigma_a": [0.45, 0.08, 0.03],
+          "sigma_s": [0.02, 0.02, 0.02],
+          "density": 1.0
+        }
       }
     }
   }
