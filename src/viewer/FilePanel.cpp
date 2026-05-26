@@ -40,6 +40,14 @@ void deriveSceneDir(const char* scenePath, char* outDir, size_t outDirCap) {
 }  // namespace
 
 void drawFilePanel(const FilePanelCtx& ctx) {
+    // Default layout: left column, top strip (~0–11% height).
+    // ImGuiCond_FirstUseEver only fires when no imgui.ini entry exists for this
+    // window, so saved positions (from a prior run) always win.
+    {
+        const ImVec2 ds = ImGui::GetIO().DisplaySize;
+        ImGui::SetNextWindowPos( ImVec2(0.009f * ds.x, 0.014f * ds.y), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(0.266f * ds.x, 0.110f * ds.y), ImGuiCond_FirstUseEver);
+    }
     ImGui::Begin("File");
 
     const bool hasScene = (ctx.scenePath != nullptr && ctx.scenePath[0] != '\0');

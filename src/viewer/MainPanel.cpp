@@ -217,6 +217,12 @@ void drawKickRow(const MainPanelCtx& ctx,
 
 bool drawMainPanel(const MainPanelCtx& ctx,
                    const std::function<void(JobKind)>& kickFinal) {
+    // Default layout: left column, lower ~72% of height (below File + Output).
+    {
+        const ImVec2 ds = ImGui::GetIO().DisplaySize;
+        ImGui::SetNextWindowPos( ImVec2(0.008f * ds.x, 0.279f * ds.y), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(0.266f * ds.x, 0.710f * ds.y), ImGuiCond_FirstUseEver);
+    }
     ImGui::Begin("raygen viewer");
 
     drawStatusHeader(ctx);

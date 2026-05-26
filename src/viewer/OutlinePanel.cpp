@@ -59,6 +59,12 @@ void drawObjectNode(SceneObject* obj, SceneObject*& selected, bool& dirty) {
 
 bool drawOutlinePanel(Scene& scene, SceneObject*& selected) {
     bool dirty = false;
+    // Default layout: right column, top ~28% of height.
+    {
+        const ImVec2 ds = ImGui::GetIO().DisplaySize;
+        ImGui::SetNextWindowPos( ImVec2(0.734f * ds.x, 0.016f * ds.y), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(0.256f * ds.x, 0.282f * ds.y), ImGuiCond_FirstUseEver);
+    }
     ImGui::Begin("Outline");
     for (SceneObject* root : scene.getObjects()) {
         drawObjectNode(root, selected, dirty);

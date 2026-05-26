@@ -172,6 +172,12 @@ void drawHeader(const SceneObject& so) {
 }  // namespace
 
 bool drawPropertyPanel(const PropertyPanelCtx& ctx) {
+    // Default layout: right column, lower ~68% of height (below Outline).
+    {
+        const ImVec2 ds = ImGui::GetIO().DisplaySize;
+        ImGui::SetNextWindowPos( ImVec2(0.734f * ds.x, 0.308f * ds.y), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(0.256f * ds.x, 0.678f * ds.y), ImGuiCond_FirstUseEver);
+    }
     ImGui::Begin("Property");
     bool dirty = false;
     SceneObject* selected = ctx.selected;

@@ -990,6 +990,12 @@ int main(int argc, char** argv) {
         viewer::drawMainPanel(mpCtx, kickFinal);
 
         // --- Output resolution window ---
+        // Default layout: left column, second strip (~14–27% height).
+        {
+            const ImVec2 ds = io.DisplaySize;
+            ImGui::SetNextWindowPos( ImVec2(0.008f * ds.x, 0.137f * ds.y), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(0.267f * ds.x, 0.130f * ds.y), ImGuiCond_FirstUseEver);
+        }
         ImGui::Begin("Output");
         ImGui::InputInt("width",  &outputWidth,  10, 100);
         ImGui::InputInt("height", &outputHeight, 10, 100);
@@ -1214,6 +1220,12 @@ int main(int argc, char** argv) {
         // canvas (not via ImGui::Image + scrollbars). This lets wheel-zoom
         // preserve the image-space point under the cursor, and lets left-
         // drag translate the image — the window chrome itself doesn't move.
+        // Default layout: centre column, full height (~1.4–97.5% of height).
+        {
+            const ImVec2 ds = io.DisplaySize;
+            ImGui::SetNextWindowPos( ImVec2(0.281f * ds.x, 0.014f * ds.y), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(0.447f * ds.x, 0.975f * ds.y), ImGuiCond_FirstUseEver);
+        }
         ImGui::Begin("render", nullptr,
                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
         if (renderTex != 0) {
